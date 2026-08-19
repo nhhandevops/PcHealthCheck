@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PcHealth.Net.Optional</RootNamespace>
+    <Description>The ONLY assembly in the solution that is allowed to reference System.Net. Hosts every opt-in internet feature (VirusTotal client, ClamAV signature download, release check). Loaded on demand after explicit user consent. CI enforces that no other shipped assembly references System.Net.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PcHealth.Core\PcHealth.Core.csproj" />
+  </ItemGroup>
+
+</Project>

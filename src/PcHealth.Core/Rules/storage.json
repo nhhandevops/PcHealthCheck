@@ -1,0 +1,70 @@
+{
+  "rules": [
+    {
+      "id": "rule.storage.free-space",
+      "metricId": "storage.volume.free_pct",
+      "bands": [
+        { "grade": "Good", "gt": 20 },
+        { "grade": "Normal", "gte": 10 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Free up space soon: Settings > System > Storage (Storage Sense), uninstall unused apps, empty the Recycle Bin.",
+          "For finding large files, the open-source WinDirStat is a safe helper."
+        ],
+        "Bad": [
+          "Under 10% free: Windows Update can fail and SSDs slow down and wear faster. Free space now via Storage Sense and Disk Cleanup.",
+          "Consider moving large media folders to another drive or an external disk."
+        ]
+      },
+      "forecast": "An SSD kept nearly full has less room for wear leveling — sustained <10% free measurably accelerates wear."
+    },
+    {
+      "id": "rule.storage.volume-health",
+      "metricId": "storage.volume.healthy",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "BACK UP YOUR IMPORTANT FILES FIRST — before any repair attempt.",
+          "The file system reports it needs repair. After backing up, open an admin prompt and run 'chkdsk <drive>: /scan' and follow its guidance."
+        ]
+      }
+    },
+    {
+      "id": "rule.storage.trim",
+      "metricId": "storage.trim.enabled",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": ["TRIM is disabled — SSD performance degrades over time without it. From an admin prompt: 'fsutil behavior set DisableDeleteNotify 0'."]
+      }
+    },
+    {
+      "id": "rule.storage.disk-events",
+      "metricId": "events.disk_errors_90d",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 5 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "A few disk I/O errors were logged. BACK UP important files as a precaution, then re-scan in a week — growth matters more than the number.",
+          "External/USB drives: try a different cable and port first."
+        ],
+        "Bad": [
+          "BACK UP YOUR IMPORTANT FILES NOW — repeated disk errors often precede failure.",
+          "For SATA drives, reseat or replace the data cable (a $5 fix causes many of these).",
+          "Then run the elevated SMART scan (M2) or a vendor diagnostic tool to check the drive itself."
+        ]
+      },
+      "forecast": "Disk errors that grow week over week are one of the strongest failure predictors — the safe assumption is that the drive is dying."
+    }
+  ]
+}

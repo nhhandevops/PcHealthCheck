@@ -1,0 +1,17 @@
+# Normalize to LF in the repository; Git checks out native line endings on Windows.
+* text=auto
+
+*.cs      text diff=csharp
+*.csproj  text
+*.slnx    text
+*.axaml   text
+*.json    text
+*.md      text
+*.yml     text
+*.manifest text
+
+# Bundled third-party tools (M2+) must never be line-ending mangled.
+*.exe binary
+*.dll binary
+*.ico binary
+*.png binary

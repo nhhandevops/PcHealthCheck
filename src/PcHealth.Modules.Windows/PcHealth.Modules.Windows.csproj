@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>PcHealth.Modules.Windows</RootNamespace>
+    <!-- Required by the LibraryImport source generator (WinVerifyTrust / SLIsGenuineLocal P/Invokes). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>Windows implementations of the health modules. Read-only by design; every external process launch goes through the receipt-logged process runner.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PcHealth.Core\PcHealth.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="10.0.11" />
+    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.11" />
+  </ItemGroup>
+
+</Project>

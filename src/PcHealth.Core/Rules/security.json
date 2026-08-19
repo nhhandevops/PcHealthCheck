@@ -1,0 +1,167 @@
+{
+  "rules": [
+    {
+      "id": "rule.sec.av-registered",
+      "metricId": "security.av.registered",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "No active antivirus is registered. Turn Windows Defender back on: Settings > Privacy & security > Windows Security > Virus & threat protection."
+        ]
+      }
+    },
+    {
+      "id": "rule.sec.av-up-to-date",
+      "metricId": "security.av.up_to_date",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": ["Antivirus definitions are stale. Open the product and run its update, or check its subscription state."]
+      }
+    },
+    {
+      "id": "rule.sec.rtp",
+      "metricId": "security.defender.rtp",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "Real-time protection is OFF — files are only checked when manually scanned. Re-enable it in Windows Security > Virus & threat protection > Manage settings.",
+          "If you didn't turn it off yourself, treat that as a red flag: malware often disables protection first. Run a full scan."
+        ]
+      }
+    },
+    {
+      "id": "rule.sec.sig-age",
+      "metricId": "security.defender.sig_age_days",
+      "bands": [
+        { "grade": "Good", "lte": 3 },
+        { "grade": "Normal", "lte": 7 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Defender definitions are a few days old — open Windows Security and check for protection updates."],
+        "Bad": ["Definitions are over a week old; scans miss current threats. Update in Windows Security > Virus & threat protection > Protection updates."]
+      }
+    },
+    {
+      "id": "rule.sec.tamper",
+      "metricId": "security.defender.tamper",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": ["Tamper protection is off — malware can silently disable Defender. Turn it on in Windows Security > Virus & threat protection settings."]
+      }
+    },
+    {
+      "id": "rule.sec.exclusions",
+      "metricId": "security.defender.exclusions_count",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 10 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Review the exclusion list (Windows Security > Virus & threat protection > Manage settings > Exclusions) and remove anything you don't recognize — hiding in an exclusion is a classic malware trick."],
+        "Bad": ["An unusually large number of scan exclusions is configured. Review every one; malware routinely excludes its own folders from scanning."]
+      }
+    },
+    {
+      "id": "rule.sec.firewall",
+      "metricId": "security.firewall.enabled",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": ["The firewall is off for this profile. Re-enable it: Windows Security > Firewall & network protection."]
+      }
+    },
+    {
+      "id": "rule.sec.uac",
+      "metricId": "security.uac.enabled",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": ["UAC is disabled — any program can gain admin rights silently. Re-enable it: search 'UAC' in Start and set the slider to the default level."]
+      }
+    },
+    {
+      "id": "rule.sec.uac-secure-desktop",
+      "metricId": "security.uac.secure_desktop",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": ["UAC prompts are not shown on the secure desktop, which makes them spoofable. Restore the default UAC level."]
+      }
+    },
+    {
+      "id": "rule.sec.smartscreen",
+      "metricId": "security.smartscreen",
+      "bands": [
+        { "grade": "Good", "anyOf": ["RequireAdmin", "Warn", "Prompt", "Block"] },
+        { "grade": "Bad", "eq": "Off" },
+        { "grade": "Normal", "always": true }
+      ],
+      "tips": {
+        "Bad": ["SmartScreen is off — you lose the warning before running unrecognized downloads. Re-enable it in Windows Security > App & browser control."],
+        "Normal": ["SmartScreen state is unrecognized on this build — verify it in Windows Security > App & browser control."]
+      }
+    },
+    {
+      "id": "rule.startup.winlogon",
+      "metricId": "startup.winlogon_default",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "The Winlogon Shell/Userinit values are non-standard — a well-known malware persistence point. Run a full antivirus scan immediately.",
+          "If a scan finds nothing, research the exact value shown in the details before restoring the default (some corporate tools legitimately modify it)."
+        ]
+      }
+    },
+    {
+      "id": "rule.startup.unsigned",
+      "metricId": "startup.unsigned_count",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Some startup programs have no publisher signature. That alone is not malware — many small tools are unsigned — but make sure you recognize each one listed in the details.",
+          "Unknown items: disable them in Task Manager > Startup apps first (reversible), then scan the file in Windows Security."
+        ]
+      }
+    },
+    {
+      "id": "rule.startup.invalid-sig",
+      "metricId": "startup.invalid_sig_count",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Bad": [
+          "A startup item's digital signature FAILS verification — the file may have been tampered with. Do not ignore this.",
+          "Disable the item in Task Manager > Startup apps and run a full antivirus scan now."
+        ]
+      }
+    }
+  ]
+}

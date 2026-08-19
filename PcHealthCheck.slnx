@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PcHealth.App/PcHealth.App.csproj" />
+    <Project Path="src/PcHealth.Core/PcHealth.Core.csproj" />
+    <Project Path="src/PcHealth.Ipc/PcHealth.Ipc.csproj" />
+    <Project Path="src/PcHealth.Modules.Windows/PcHealth.Modules.Windows.csproj" />
+    <Project Path="src/PcHealth.Net.Optional/PcHealth.Net.Optional.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PcHealth.Tests/PcHealth.Tests.csproj" />
+  </Folder>
+</Solution>

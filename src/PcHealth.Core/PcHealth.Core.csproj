@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PcHealth.Core</RootNamespace>
+    <Description>Module contracts, verdict engine, consent model, report model, and orchestration. Contains no OS-specific or network code.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Rules\*.json" />
+  </ItemGroup>
+
+</Project>

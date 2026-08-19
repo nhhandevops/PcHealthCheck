@@ -1,0 +1,24 @@
+{
+  "rules": [
+    {
+      "id": "rule.battery.capacity",
+      "metricId": "battery.capacity_pct",
+      "bands": [
+        { "grade": "Good", "gte": 80 },
+        { "grade": "Normal", "gte": 60 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "The battery has aged noticeably (60–80% of design capacity). Expect shorter runtimes; plan for a replacement within a year or two.",
+          "To slow further wear: avoid keeping it at 100% on AC constantly (many vendors offer an 80% charge-limit setting) and avoid heat."
+        ],
+        "Bad": [
+          "Battery capacity is below 60% of design — replacement territory.",
+          "IMPORTANT: if the battery or case shows ANY swelling, stop using and charging the device immediately and have the battery replaced — swollen batteries are a fire hazard."
+        ]
+      },
+      "forecast": "Capacity loss accelerates with heat and full-charge storage; at the current wear level, runtimes will keep shrinking noticeably each year."
+    }
+  ]
+}

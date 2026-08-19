@@ -1,0 +1,48 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # THE PRIVACY GATE: no assembly outside PcHealth.Net.Optional may mention System.Net.
+      # This is the structural half of the "no network code, ever" promise in PRIVACY.md.
+      - name: Verify no network code outside PcHealth.Net.Optional
+        shell: pwsh
+        run: |
+          $hits = Get-ChildItem src, tests -Recurse -Include *.cs, *.csproj |
+            Where-Object { $_.FullName -notmatch 'PcHealth\.Net\.Optional' -and $_.FullName -notmatch '\\(obj|bin)\\' } |
+            Select-String -Pattern 'System\.Net' -SimpleMatch
+          if ($hits) {
+            Write-Host "::error::System.Net reference found outside PcHealth.Net.Optional:"
+            $hits | ForEach-Object { Write-Host "  $($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
+            exit 1
+          }
+          Write-Host "OK: no System.Net references outside the opt-in assembly."
+
+      - name: Build
+        run: dotnet build PcHealthCheck.slnx -c Release
+
+      - name: Test
+        run: dotnet test PcHealthCheck.slnx -c Release --no-build
+
+      - name: Publish (single file, self-contained)
+        run: dotnet publish src/PcHealth.App/PcHealth.App.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o artifacts
+
+      - name: Checksums
+        shell: pwsh
+        run: Get-ChildItem artifacts -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } | Tee-Object artifacts/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PcHealthCheck-win-x64
+          path: artifacts/

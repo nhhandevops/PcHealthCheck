@@ -1,0 +1,152 @@
+{
+  "rules": [
+    {
+      "id": "rule.stab.index",
+      "metricId": "stability.index",
+      "bands": [
+        { "grade": "Good", "gte": 8 },
+        { "grade": "Normal", "gte": 5 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Reliability Monitor shows recent failures. Open it (search 'Reliability Monitor' in Start) to see exactly which app or driver is failing."],
+        "Bad": ["The system is failing frequently. Open Reliability Monitor to identify the repeating failure, and check the other Stability findings in this report for the root cause."]
+      }
+    },
+    {
+      "id": "rule.stab.whea-corrected",
+      "metricId": "events.whea_corrected_90d",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 5 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["A few corrected hardware errors were logged — usually harmless, but re-check monthly for growth."],
+        "Bad": [
+          "Frequent corrected hardware errors suggest a component running at its margin.",
+          "If RAM-related: turn OFF the XMP/EXPO memory overclock in BIOS first — it is the most common cause.",
+          "Check CPU/GPU temperatures and the PSU; run Windows Memory Diagnostic (it requires a reboot)."
+        ]
+      },
+      "forecast": "Corrected errors that trend upward often become uncorrectable errors — the component is degrading."
+    },
+    {
+      "id": "rule.stab.whea-uncorrectable",
+      "metricId": "events.whea_uncorrectable_90d",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Bad": [
+          "Uncorrectable hardware errors were logged — failing CPU, RAM, or motherboard territory. BACK UP YOUR FILES FIRST.",
+          "Turn off any overclocking (XMP/EXPO included), update the BIOS, and run Windows Memory Diagnostic.",
+          "If errors continue at stock settings, have the hardware tested/replaced."
+        ]
+      }
+    },
+    {
+      "id": "rule.stab.kernel-power",
+      "metricId": "events.kernel_power_41_90d",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 2 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["One or two unexpected shutdowns in 90 days — fine if they match real power cuts or a held power button. Re-check next month."],
+        "Bad": [
+          "Frequent unexpected shutdowns point to power delivery (failing PSU, loose cable, weak wall power) or overheating.",
+          "Laptops: check the battery health finding. Desktops: reseat power cables; consider testing with a known-good PSU.",
+          "Check CPU/GPU temperatures under load — thermal shutdowns log the same event."
+        ]
+      },
+      "forecast": "Unexpected power loss also corrupts files and damages SSD data in flight — every occurrence is a small data-loss risk."
+    },
+    {
+      "id": "rule.stab.bugcheck",
+      "metricId": "events.bugcheck_90d",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 1 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["One blue screen in 90 days — note the stop code if it happens again; repeats matter, single events mostly don't."],
+        "Bad": [
+          "Repeated blue screens. Update drivers (GPU first), uninstall recently added software/drivers, and run Windows Memory Diagnostic.",
+          "If crash dumps are enabled (see the crash-dump finding), the dump files identify the failing driver."
+        ]
+      }
+    },
+    {
+      "id": "rule.stab.gpu-tdr",
+      "metricId": "events.gpu_tdr_90d",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 2 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["A couple of display-driver resets — often a driver bug. Install the latest (or roll back to the previous stable) GPU driver."],
+        "Bad": [
+          "Frequent GPU driver resets: clean-install the latest GPU driver (DDU in safe mode is the thorough way).",
+          "If it persists across driver versions: check GPU temperatures, remove any GPU overclock, and make sure PSU power cables to the card are fully seated.",
+          "Persisting at stock settings with good temps = the GPU itself may be failing."
+        ]
+      }
+    },
+    {
+      "id": "rule.stab.app-crashes",
+      "metricId": "events.app_crashes_7d",
+      "bands": [
+        { "grade": "Good", "lte": 2 },
+        { "grade": "Normal", "lte": 10 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["A handful of app crashes this week. If it's the same app every time, reinstall/update that app."],
+        "Bad": [
+          "Many crashes across different apps usually mean a system-level cause: run Windows Memory Diagnostic and check the disk findings.",
+          "Also run 'sfc /scannow' from an admin prompt to check system files."
+        ]
+      }
+    },
+    {
+      "id": "rule.stab.drivers",
+      "metricId": "drivers.problem_count",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 2 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Open Device Manager, find the flagged device (details list it), and update or reinstall its driver."],
+        "Bad": ["Several devices report driver problems — run Windows Update (it delivers drivers too), then fix the rest in Device Manager from the vendor's site."]
+      }
+    },
+    {
+      "id": "rule.stab.crashdump",
+      "metricId": "crashdump.enabled",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": ["Crash dumps are disabled, so blue screens can't be diagnosed afterwards. Enable 'Automatic memory dump' in SystemPropertiesAdvanced > Startup and Recovery."]
+      }
+    },
+    {
+      "id": "rule.stab.pagefile",
+      "metricId": "pagefile.present",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": ["No page file is configured — crash dumps can't be written and memory pressure can kill apps. Set it back to 'Automatically manage' in SystemPropertiesAdvanced > Performance settings."]
+      }
+    }
+  ]
+}

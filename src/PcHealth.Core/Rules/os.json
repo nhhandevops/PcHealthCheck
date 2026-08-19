@@ -1,0 +1,156 @@
+{
+  "rules": [
+    {
+      "id": "rule.os.supported",
+      "metricId": "os.supported",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Bad": [
+          "This Windows version no longer receives security updates. Upgrade to Windows 11 if the hardware allows it, or plan to replace the device.",
+          "Until then: keep the browser updated, avoid installing unknown software, and keep backups current."
+        ]
+      },
+      "forecast": "Out-of-support systems accumulate unpatched vulnerabilities every month; the risk of malware and data theft grows steadily over time."
+    },
+    {
+      "id": "rule.os.win10-eol",
+      "metricId": "os.win10_eol_near",
+      "bands": [
+        { "grade": "Normal", "eq": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Windows 10 support (including consumer ESU) ends 2026-10-13. Check Windows 11 eligibility now (PC Health Check app) and plan the upgrade or replacement before then."
+        ]
+      }
+    },
+    {
+      "id": "rule.os.patch-age",
+      "metricId": "os.patch.age_days",
+      "bands": [
+        { "grade": "Good", "lte": 35 },
+        { "grade": "Normal", "lte": 60 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Open Settings > Windows Update and install pending updates, then restart."],
+        "Bad": [
+          "No successful update in over two months. Open Settings > Windows Update and install updates now.",
+          "If updates keep failing, run the Windows Update troubleshooter (Settings > System > Troubleshoot)."
+        ]
+      },
+      "forecast": "Most real-world infections exploit vulnerabilities that were already patched — staying current is the single cheapest protection."
+    },
+    {
+      "id": "rule.os.uptime",
+      "metricId": "os.uptime_days",
+      "bands": [
+        { "grade": "Good", "lte": 30 },
+        { "grade": "Normal", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Restart the PC when convenient — updates only finish installing after a restart, and very long uptimes accumulate degraded state."]
+      }
+    },
+    {
+      "id": "rule.os.pending-reboot",
+      "metricId": "os.pending_reboot",
+      "bands": [
+        { "grade": "Good", "eq": false },
+        { "grade": "Normal", "eq": true }
+      ],
+      "tips": {
+        "Normal": ["A restart is pending — updates or repairs are waiting to complete. Restart when convenient."]
+      }
+    },
+    {
+      "id": "rule.updates.pending",
+      "metricId": "updates.pending_count",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 9 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Install the waiting updates from Settings > Windows Update."],
+        "Bad": ["A large backlog of updates is waiting. Install them now — set aside time for one or two restarts."]
+      }
+    },
+    {
+      "id": "rule.updates.repeated-failures",
+      "metricId": "updates.repeated_failures",
+      "bands": [
+        { "grade": "Good", "eq": false },
+        { "grade": "Bad", "eq": true }
+      ],
+      "tips": {
+        "Bad": [
+          "The same update failed repeatedly — the Windows Update stack may be damaged.",
+          "Run the Windows Update troubleshooter first; if it persists, run 'DISM /Online /Cleanup-Image /RestoreHealth' then 'sfc /scannow' from an admin prompt."
+        ]
+      }
+    },
+    {
+      "id": "rule.time.service",
+      "metricId": "time.sync.service_running",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": [
+          "The Windows Time service is not running right now (it often runs on demand). If the clock shows the wrong time, sync it: Settings > Time & language > Date & time > Sync now.",
+          "A wrong clock breaks secure websites, updates, and activation."
+        ]
+      }
+    },
+    {
+      "id": "rule.license.activated",
+      "metricId": "license.activated",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "Windows is not activated. Open Settings > System > Activation to fix it — a linked digital license or a genuine product key.",
+          "Avoid 'activators' found online: they are a common malware delivery method."
+        ]
+      }
+    },
+    {
+      "id": "rule.license.genuine",
+      "metricId": "license.genuine",
+      "bands": [
+        { "grade": "Good", "eq": "Genuine" },
+        { "grade": "Bad", "anyOf": ["InvalidLicense", "Tampered"] },
+        { "grade": "Normal", "always": true }
+      ],
+      "tips": {
+        "Normal": ["The genuine state could not be fully validated offline — this is usually harmless; re-check after the next Windows Update."],
+        "Bad": [
+          "Windows reports a non-genuine or tampered license. If you bought this PC or key legitimately, contact the seller or Microsoft support.",
+          "If a crack/'activator' was ever used on this machine, treat it as potentially compromised: run a full antivirus scan."
+        ]
+      }
+    },
+    {
+      "id": "rule.license.kms",
+      "metricId": "license.kms_suspicious",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "Windows is activated against a KMS server on this very machine — the signature of activation cracks (KMS emulators), which frequently bundle malware.",
+          "Run a full antivirus scan, then buy a legitimate license and activate normally (Settings > System > Activation)."
+        ]
+      },
+      "forecast": "Machines with activation cracks have a far higher rate of infostealer infections — passwords and browser data are the usual target."
+    }
+  ]
+}
