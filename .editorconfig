@@ -1,0 +1,34 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,md}]
+indent_size = 2
+
+[*.cs]
+# --- Rules we deliberately treat as errors -----------------------------------
+# Locale-dependent parsing and formatting is a real defect class here: this app
+# reads numbers out of WMI and Windows tools, and must behave identically on a
+# Vietnamese, German, or English install. Both bugs this caught were real.
+dotnet_diagnostic.CA1305.severity = error   # specify IFormatProvider
+dotnet_diagnostic.CA1304.severity = error   # specify CultureInfo
+dotnet_diagnostic.CA1310.severity = error   # specify StringComparison for correctness
+
+# --- Rules turned off, with reasons ------------------------------------------
+# CA1711: SmartAttribute does not derive from System.Attribute, but "SMART
+# attribute" is the industry term for exactly this record. Domain clarity wins.
+dotnet_diagnostic.CA1711.severity = none
+# CA1822: marking members static is a style preference, not a defect here.
+dotnet_diagnostic.CA1822.severity = none
+# CA1716: guards against names that are keywords in OTHER .NET languages, which
+# matters for shared libraries. This is an application; "Optional" stays.
+dotnet_diagnostic.CA1716.severity = none
+
+[tests/**/*.cs]
+# Underscored test names are the xUnit convention and read better in output.
+dotnet_diagnostic.CA1707.severity = none

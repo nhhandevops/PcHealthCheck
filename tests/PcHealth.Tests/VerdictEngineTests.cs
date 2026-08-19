@@ -20,8 +20,9 @@ public class VerdictEngineTests
         }
         """);
 
-    private static Rule Parse(string json) =>
-        JsonSerializer.Deserialize<Rule>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+    private static readonly JsonSerializerOptions ParseOptions = new() { PropertyNameCaseInsensitive = true };
+
+    private static Rule Parse(string json) => JsonSerializer.Deserialize<Rule>(json, ParseOptions)!;
 
     private static Metric Num(string id, double v) => new(id, id, v, HealthCategory.SoftwareOs);
 

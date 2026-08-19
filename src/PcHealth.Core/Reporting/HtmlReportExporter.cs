@@ -62,30 +62,30 @@ public static class HtmlReportExporter
         sb.Append("<div class=\"cards\">\n");
         foreach (var (category, grade) in report.CategoryGrades.OrderBy(kv => kv.Key))
         {
-            sb.Append($"<div class=\"card\"><div class=\"cat\">{E(CategoryLabel(category))}</div><div class=\"grade\">{GradeChip(grade)}</div></div>\n");
+            sb.Append(CultureInfo.InvariantCulture, $"<div class=\"card\"><div class=\"cat\">{E(CategoryLabel(category))}</div><div class=\"grade\">{GradeChip(grade)}</div></div>\n");
         }
         sb.Append("</div>\n");
 
         foreach (var group in report.Verdicts.GroupBy(v => v.Metric.Category).OrderBy(g => g.Key))
         {
-            sb.Append($"<h2>{E(CategoryLabel(group.Key))}</h2>\n<div class=\"wrap\"><table>\n");
+            sb.Append(CultureInfo.InvariantCulture, $"<h2>{E(CategoryLabel(group.Key))}</h2>\n<div class=\"wrap\"><table>\n");
             sb.Append("<tr><th>Status</th><th>Check</th><th>Subject</th><th>Value</th><th>Details &amp; tips</th></tr>\n");
             foreach (var v in group.OrderBy(v => v.Grade switch { Grade.Bad => 0, Grade.Normal => 1, Grade.Good => 2, _ => 3 }))
             {
                 sb.Append("<tr>");
-                sb.Append($"<td>{GradeChip(v.Grade, v.Metric.InfoOnly)}</td>");
-                sb.Append($"<td>{E(v.Metric.Label)}</td>");
-                sb.Append($"<td>{E(v.Metric.Subject ?? "—")}</td>");
-                sb.Append($"<td>{E(v.Metric.Value.ToString())}{(v.Metric.Unit is null ? "" : " " + E(v.Metric.Unit))}</td>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{GradeChip(v.Grade, v.Metric.InfoOnly)}</td>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{E(v.Metric.Label)}</td>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{E(v.Metric.Subject ?? "—")}</td>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{E(v.Metric.Value.ToString())}{(v.Metric.Unit is null ? "" : " " + E(v.Metric.Unit))}</td>");
                 sb.Append("<td>");
                 if (v.Metric.Detail is not null) sb.Append(E(v.Metric.Detail));
                 if (v.Tips.Count > 0)
                 {
                     sb.Append("<ul class=\"tips\">");
-                    foreach (var tip in v.Tips) sb.Append($"<li>{E(tip)}</li>");
+                    foreach (var tip in v.Tips) sb.Append(CultureInfo.InvariantCulture, $"<li>{E(tip)}</li>");
                     sb.Append("</ul>");
                 }
-                if (v.Forecast is not null) sb.Append($"<div><em>{E(v.Forecast)}</em></div>");
+                if (v.Forecast is not null) sb.Append(CultureInfo.InvariantCulture, $"<div><em>{E(v.Forecast)}</em></div>");
                 sb.Append("</td></tr>\n");
             }
             sb.Append("</table></div>\n");
@@ -96,7 +96,7 @@ public static class HtmlReportExporter
         {
             var notes = string.Join("; ", m.Notes);
             if (m.Error is not null) notes = string.IsNullOrEmpty(notes) ? m.Error : $"{notes}; {m.Error}";
-            sb.Append($"<tr><td>{E(m.ModuleName)}</td><td>{E(m.Status.ToString())}</td><td>{m.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} s</td><td>{E(notes)}</td></tr>\n");
+            sb.Append(CultureInfo.InvariantCulture, $"<tr><td>{E(m.ModuleName)}</td><td>{E(m.Status.ToString())}</td><td>{m.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} s</td><td>{E(notes)}</td></tr>\n");
         }
         sb.Append("</table></div>\n");
 
@@ -109,7 +109,7 @@ public static class HtmlReportExporter
                 FileWriteReceipt f => $"Wrote file: <code>{E(f.Path)}</code> ({f.Bytes?.ToString("N0", CultureInfo.InvariantCulture) ?? "?"} bytes, {E(f.Purpose)}){(f.Deleted ? " — deleted afterwards" : "")}",
                 _ => E(entry.ToString() ?? ""),
             };
-            sb.Append($"<tr><td>{entry.At.ToString("HH:mm:ss", CultureInfo.InvariantCulture)}</td><td>{E(entry.ModuleId)}</td><td>{action}</td></tr>\n");
+            sb.Append(CultureInfo.InvariantCulture, $"<tr><td>{entry.At.ToString("HH:mm:ss", CultureInfo.InvariantCulture)}</td><td>{E(entry.ModuleId)}</td><td>{action}</td></tr>\n");
         }
         if (report.Receipt.Count == 0)
         {

@@ -58,7 +58,16 @@ public sealed class ProcessRunner(ReceiptLog receipt) : IProcessRunner
         var timedOut = false;
         try
         {
-            process.Start();
+            try
+            {
+                process.Start();
+            }
+            catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                // Tool missing or blocked (locked-down or trimmed Windows installs). A module
+                // that cannot run its helper should degrade to a note, not fail the whole scan.
+                return new ProcessResult(-1, "", $"Could not start '{fileName}': {e.Message}", TimedOut: false);
+            }
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 

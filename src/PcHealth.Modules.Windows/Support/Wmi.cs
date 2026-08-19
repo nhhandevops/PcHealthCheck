@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Management;
 
 namespace PcHealth.Modules.Windows.Support;
@@ -46,18 +47,26 @@ internal static class Wmi
         }
     }
 
+    /// <summary>
+    /// Converts a WMI property to <typeparamref name="T"/>. Always converts through the
+    /// invariant culture: WMI sometimes hands back numbers as strings, and on a locale
+    /// that uses "," as the decimal separator a current-culture conversion silently
+    /// misreads them (or throws).
+    /// </summary>
     public static T? Get<T>(Dictionary<string, object?> row, string key) where T : struct
     {
         if (row.TryGetValue(key, out var value) && value is not null)
         {
-            try { return (T)Convert.ChangeType(value, typeof(T)); }
+            try { return (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture); }
             catch (Exception e) when (e is InvalidCastException or FormatException or OverflowException) { }
         }
         return null;
     }
 
     public static string? GetString(Dictionary<string, object?> row, string key) =>
-        row.TryGetValue(key, out var value) ? value?.ToString() : null;
+        row.TryGetValue(key, out var value)
+            ? value is IFormattable formattable ? formattable.ToString(null, CultureInfo.InvariantCulture) : value?.ToString()
+            : null;
 
     public static DateTime? GetCimDate(Dictionary<string, object?> row, string key)
     {

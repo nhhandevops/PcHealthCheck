@@ -81,10 +81,10 @@ internal sealed class DiskSmartModule : WindowsModuleBase
             AddAttributeMetrics(metrics, subject, attributes);
         }
 
-        var smartCapable = status.Count + data.Count;
-        if (smartCapable < drives.Count)
+        var withoutSmart = Math.Max(0, drives.Count - Math.Max(status.Count, data.Count));
+        if (withoutSmart > 0)
         {
-            notes.Add($"{drives.Count - Math.Max(status.Count, data.Count)} of {drives.Count} drives do not expose SMART through Windows " +
+            notes.Add($"{withoutSmart} of {drives.Count} drives do not expose SMART through Windows " +
                       "(typical for USB-connected drives and for NVMe SSDs, whose health is covered by the storage reliability check).");
         }
         if (drivesWithAttributes == 0 && metrics.Count == 0)

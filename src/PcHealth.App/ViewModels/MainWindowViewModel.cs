@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -15,6 +17,9 @@ using PcHealth.Modules.Windows.Support;
 
 namespace PcHealth.App.ViewModels;
 
+[SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "The cancellation source is created per scan and disposed in the scan's finally block; " +
+                    "the view model itself lives for the lifetime of the window and is never disposed by Avalonia.")]
 public sealed partial class MainWindowViewModel : ObservableObject
 {
     private static readonly Lazy<VerdictEngine> Engine = new(() => new VerdictEngine(RulesLoader.LoadEmbedded()));
@@ -210,7 +215,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             ReceiptLines.Add(entry switch
             {
-                ProcessReceipt p => $"{p.At:HH:mm:ss}  [{p.ModuleId}] ran: {p.FileName} {p.Arguments} (exit {p.ExitCode?.ToString() ?? "?"})",
+                ProcessReceipt p => $"{p.At:HH:mm:ss}  [{p.ModuleId}] ran: {p.FileName} {p.Arguments} " +
+                                    $"(exit {p.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "?"})",
                 FileWriteReceipt f => $"{f.At:HH:mm:ss}  [{f.ModuleId}] wrote: {f.Path} ({f.Bytes:N0} bytes){(f.Deleted ? " — deleted afterwards" : "")}",
                 _ => entry.ToString() ?? "",
             });

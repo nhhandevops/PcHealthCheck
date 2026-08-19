@@ -4,7 +4,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <InvariantGlobalization>false</InvariantGlobalization>
-    <AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!--
+    Analyzers are part of the safety story, not a style preference: this app parses
+    numbers out of WMI and Windows tools, so a locale-dependent conversion is a real
+    bug (see the CA1305/CA1304/CA1310 severities in .editorconfig). CI builds with
+    -warnaserror so these cannot accumulate.
+  -->
+  <PropertyGroup>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
   </PropertyGroup>
 </Project>

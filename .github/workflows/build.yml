@@ -29,8 +29,10 @@ jobs:
           }
           Write-Host "OK: no System.Net references outside the opt-in assembly."
 
+      # -warnaserror keeps the locale-safety analyzers (CA1305/CA1304/CA1310, see
+      # .editorconfig) from being quietly ignored: those caught two real bugs.
       - name: Build
-        run: dotnet build PcHealthCheck.slnx -c Release
+        run: dotnet build PcHealthCheck.slnx -c Release -warnaserror
 
       - name: Test
         run: dotnet test PcHealthCheck.slnx -c Release --no-build

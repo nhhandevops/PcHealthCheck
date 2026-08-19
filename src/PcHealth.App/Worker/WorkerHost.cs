@@ -29,15 +29,23 @@ internal static partial class WorkerHost
         var pipeName = GetArgument(args, "--pipe");
         if (string.IsNullOrWhiteSpace(pipeName)) return 2;
 
+        // Hard lifetime cap. This process holds administrator rights, so it must never be
+        // able to sit waiting forever because the UI hung or was suspended — a lingering
+        // elevated process is exactly the kind of thing an attacker waits for.
+        using var session = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+
         try
         {
             using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-            await client.ConnectAsync(20_000).ConfigureAwait(false);
+            await client.ConnectAsync(20_000, session.Token).ConfigureAwait(false);
 
             var channel = new PipeChannel(client);
-            if (await channel.ReceiveAsync().ConfigureAwait(false) is not RunModulesRequest request)
+
+            using var handshake = CancellationTokenSource.CreateLinkedTokenSource(session.Token);
+            handshake.CancelAfter(TimeSpan.FromSeconds(60));
+            if (await channel.ReceiveAsync(handshake.Token).ConfigureAwait(false) is not RunModulesRequest request)
             {
-                await channel.SendAsync(new WorkerErrorMessage("Unexpected first message on the control channel.")).ConfigureAwait(false);
+                await channel.SendAsync(new WorkerErrorMessage("Unexpected first message on the control channel."), session.Token).ConfigureAwait(false);
                 return 3;
             }
 
@@ -76,13 +84,13 @@ internal static partial class WorkerHost
             {
                 var module = approved[i];
                 var manifest = module.Manifest;
-                await channel.SendAsync(new ProgressMessage(manifest.Id, manifest.Name, i + 1, approved.Count, "running")).ConfigureAwait(false);
+                await channel.SendAsync(new ProgressMessage(manifest.Id, manifest.Name, i + 1, approved.Count, "running"), session.Token).ConfigureAwait(false);
 
                 ModuleResult result;
                 var stopwatch = Stopwatch.StartNew();
                 try
                 {
-                    result = await module.RunAsync(context, null, CancellationToken.None).ConfigureAwait(false);
+                    result = await module.RunAsync(context, null, session.Token).ConfigureAwait(false);
                 }
                 catch (Exception e)
                 {
@@ -95,15 +103,19 @@ internal static partial class WorkerHost
                     };
                 }
 
-                await channel.SendAsync(new ModuleCompletedMessage(result)).ConfigureAwait(false);
+                await channel.SendAsync(new ModuleCompletedMessage(result), session.Token).ConfigureAwait(false);
             }
 
-            await channel.SendAsync(new ScanCompletedMessage([.. receipt.Snapshot()], rejected)).ConfigureAwait(false);
+            await channel.SendAsync(new ScanCompletedMessage([.. receipt.Snapshot()], rejected), session.Token).ConfigureAwait(false);
             return 0;
         }
         catch (TimeoutException)
         {
             return 4; // UI went away before we connected
+        }
+        catch (OperationCanceledException)
+        {
+            return 6; // no instruction arrived in time, or the session budget ran out
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or EndOfStreamException)
         {

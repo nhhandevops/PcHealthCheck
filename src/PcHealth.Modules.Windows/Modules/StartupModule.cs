@@ -196,14 +196,18 @@ internal sealed class StartupModule : WindowsModuleBase
             var shellType = Type.GetTypeFromProgID("WScript.Shell");
             if (shellType is null) return null;
             dynamic shell = Activator.CreateInstance(shellType)!;
+            object? shortcutObject = null;
             try
             {
                 dynamic shortcut = shell.CreateShortcut(lnkPath);
+                shortcutObject = shortcut;
                 var target = (string?)shortcut.TargetPath;
                 return string.IsNullOrWhiteSpace(target) ? null : target;
             }
             finally
             {
+                // Both COM objects must be released, or the scan leaks one RCW per shortcut.
+                if (shortcutObject is not null) System.Runtime.InteropServices.Marshal.ReleaseComObject(shortcutObject);
                 System.Runtime.InteropServices.Marshal.ReleaseComObject(shell);
             }
         }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using PcHealth.Core.Metrics;
@@ -54,12 +55,14 @@ public sealed record ModuleManifest
 
     private string ComputeCapabilityHash()
     {
+        // Invariant formatting throughout: the hash decides whether stored consent still
+        // applies, so it must be identical on every machine and in every display language.
         var descriptor = string.Join('|',
             Id,
-            NeedsAdmin,
-            NeedsInternet,
+            NeedsAdmin ? "admin" : "no-admin",
+            NeedsInternet ? "internet" : "no-internet",
             Writes?.PathDescription ?? "-",
-            Writes?.MaxBytes.ToString() ?? "-",
+            Writes?.MaxBytes.ToString(CultureInfo.InvariantCulture) ?? "-",
             Writes?.Lifetime ?? "-");
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(descriptor));
         return Convert.ToHexString(bytes);
