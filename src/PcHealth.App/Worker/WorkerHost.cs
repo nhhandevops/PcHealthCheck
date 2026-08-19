@@ -61,13 +61,20 @@ internal static partial class WorkerHost
                 else rejected.Add(id);
             }
 
-            // Structural guard for future write-capable modules: the elevated process
-            // confirms with the user directly rather than trusting the UI's consent.
+            // The elevated process confirms anything that changes the machine directly with
+            // the user, on its own desktop, rather than trusting consent relayed by the UI.
             var writers = approved.Where(m => m.Manifest.Writes is not null).ToList();
             if (writers.Count > 0 && !ConfirmWrites(writers))
             {
                 approved.RemoveAll(m => m.Manifest.Writes is not null);
                 rejected.AddRange(writers.Select(m => m.Manifest.Id));
+            }
+
+            var driverLoaders = approved.Where(m => m.Manifest.LoadsDriver).ToList();
+            if (driverLoaders.Count > 0 && !ConfirmDriverLoad(driverLoaders))
+            {
+                approved.RemoveAll(m => m.Manifest.LoadsDriver);
+                rejected.AddRange(driverLoaders.Select(m => m.Manifest.Id));
             }
 
             var receipt = new ReceiptLog();
@@ -140,6 +147,22 @@ internal static partial class WorkerHost
         const int IdYes = 6;
         return MessageBoxW(IntPtr.Zero, text, "PC Health Check — confirm write access",
             MbYesNo | MbIconWarning | MbTopMost | MbSetForeground) == IdYes;
+    }
+
+    private static bool ConfirmDriverLoad(List<IHealthModule> modules)
+    {
+        var names = string.Join(", ", modules.Select(m => m.Manifest.Name));
+        var text =
+            $"To read {names}, PC Health Check needs to load a kernel-level driver.\n\n" +
+            "This is the only part of the app that changes anything on your system, which is " +
+            "why it asks separately. The driver only reads sensor values — it does not change " +
+            "fan speeds, clocks or voltages, and it stops when the scan finishes.\n\n" +
+            "Skipping this simply leaves temperature and fan readings out of the report.\n\n" +
+            "Load the sensor driver?";
+        const uint MbYesNo = 0x00000004, MbIconQuestion = 0x00000020, MbTopMost = 0x00040000, MbSetForeground = 0x00010000;
+        const int IdYes = 6;
+        return MessageBoxW(IntPtr.Zero, text, "PC Health Check — sensor driver",
+            MbYesNo | MbIconQuestion | MbTopMost | MbSetForeground) == IdYes;
     }
 
     [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]

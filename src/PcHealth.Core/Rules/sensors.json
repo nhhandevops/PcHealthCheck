@@ -1,0 +1,104 @@
+{
+  "rules": [
+    {
+      "id": "rule.sensors.cpu-temp",
+      "metricId": "cpu.temperature_c",
+      "bands": [
+        { "grade": "Good", "lt": 80 },
+        { "grade": "Normal", "lt": 95 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Warm, but modern processors are designed to run here under load — this is only worth acting on if it stays high while the PC is idle.",
+          "If it is hot at idle: clean dust from the heatsink and fans, and check the CPU cooler is properly seated."
+        ],
+        "Bad": [
+          "At this temperature the CPU will be reducing its own speed to protect itself, so the PC feels slower than it should.",
+          "Clean dust from the cooler and case filters, make sure intake and exhaust fans are working, and check the cooler is firmly mounted.",
+          "If the cooler was never re-pasted and the PC is several years old, fresh thermal paste often drops temperatures substantially.",
+          "Turn off any CPU overclock while diagnosing."
+        ]
+      },
+      "forecast": "Sustained heat shortens the life of every component near it, and thermal shutdowns risk file-system damage."
+    },
+    {
+      "id": "rule.sensors.gpu-temp",
+      "metricId": "gpu.temperature_c",
+      "bands": [
+        { "grade": "Good", "lt": 80 },
+        { "grade": "Normal", "lte": 87 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Normal for a graphics card under load. Worth improving case airflow if it sits here while idle."],
+        "Bad": [
+          "The card is running hot enough to throttle. Clean dust from its fans and heatsink, and improve case airflow.",
+          "Check that nothing is blocking the card's intake, and that its fans actually spin up under load."
+        ]
+      }
+    },
+    {
+      "id": "rule.sensors.gpu-hotspot",
+      "metricId": "gpu.hotspot_c",
+      "bands": [
+        { "grade": "Good", "lt": 95 },
+        { "grade": "Normal", "lt": 105 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["The hot spot runs warmer than the core by design; keep an eye on it if the gap keeps widening."],
+        "Bad": [
+          "A very high hot spot, especially when the core temperature looks fine, usually means poor contact between the GPU die and its cooler — degraded thermal paste or pads, or an uneven mount.",
+          "On an older card, a repaste is the usual fix. If it is under warranty, contact the manufacturer instead."
+        ]
+      }
+    },
+    {
+      "id": "rule.sensors.gpu-memory",
+      "metricId": "gpu.memory_junction_c",
+      "bands": [
+        { "grade": "Good", "lt": 90 },
+        { "grade": "Normal", "lt": 104 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Graphics memory tolerates high temperatures, but improving case airflow will help it last."],
+        "Bad": [
+          "Memory temperature is at the level where the card starts throttling to protect itself. Improve case airflow and clean the card.",
+          "On cards several years old, the thermal pads over the memory are a common culprit and can be replaced."
+        ]
+      }
+    },
+    {
+      "id": "rule.sensors.airflow",
+      "metricId": "fans.airflow_ok",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "Hardware is warm but no fan reports any speed. Check that fan cables are connected, and listen for a fan that has seized.",
+          "A stopped fan on a warm system leads to throttling and, eventually, heat damage — fix this before doing anything demanding."
+        ]
+      }
+    },
+    {
+      "id": "rule.sensors.memory-used",
+      "metricId": "memory.used_pct",
+      "bands": [
+        { "grade": "Good", "lt": 85 },
+        { "grade": "Normal", "lt": 95 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Memory was fairly full while scanning. If the PC often feels slow, closing browser tabs or adding RAM would help."],
+        "Bad": [
+          "Memory was nearly exhausted, which forces Windows to page to disk and makes everything feel slow.",
+          "Close what you are not using and re-check; if it is always this full, more RAM is the real fix."
+        ]
+      }
+    }
+  ]
+}

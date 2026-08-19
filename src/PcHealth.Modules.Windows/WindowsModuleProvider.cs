@@ -33,5 +33,6 @@ public sealed class WindowsModuleProvider : IModuleProvider
         new BackupPostureModule(),
         new SecurityPlatformModule(),
         new IntegrityQuickModule(),
+        new SensorsModule(),
     ];
 }

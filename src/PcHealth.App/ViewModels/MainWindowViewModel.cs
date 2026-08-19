@@ -81,12 +81,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var admin = selected.Count(m => m.Manifest.NeedsAdmin);
         var writes = selected.Count(m => m.Manifest.Writes is not null);
         var internet = selected.Count(m => m.Manifest.NeedsInternet);
+        var drivers = selected.Count(m => m.Manifest.LoadsDriver);
         var adminNote = admin == 0 ? ""
             : _alreadyElevated ? " (already running as admin — no prompt)"
             : " (one UAC prompt)";
         SummaryLine = $"{selected.Count} of {Modules.Count} checks selected — " +
                       $"{admin} need admin{adminNote}, " +
-                      $"{writes} write a temp file, {internet} use the internet.";
+                      $"{writes} write a temp file, {internet} use the internet" +
+                      (drivers > 0 ? $", {drivers} load a kernel driver (asked separately)." : ".");
         ScanCommand.NotifyCanExecuteChanged();
     }
 
@@ -343,6 +345,7 @@ public sealed partial class ModuleRowViewModel(IHealthModule module) : Observabl
     public bool HasWrites => Manifest.Writes is not null;
     public string WritesText => Manifest.Writes is { } w ? $"WRITES: {w.PathDescription} ({w.Lifetime})" : "";
     public bool NeedsInternet => Manifest.NeedsInternet;
+    public bool LoadsDriver => Manifest.LoadsDriver;
 }
 
 public sealed record CategoryCardViewModel(string Name, string GradeLabel, IBrush GradeBrush, IReadOnlyList<VerdictRowViewModel> Verdicts);

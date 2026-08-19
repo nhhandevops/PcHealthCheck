@@ -61,6 +61,9 @@
                       <Border IsVisible="{Binding NeedsInternet}" Background="#1565c0" CornerRadius="4" Padding="5,1">
                         <TextBlock Text="INTERNET" Foreground="White" FontSize="10" FontWeight="SemiBold" />
                       </Border>
+                      <Border IsVisible="{Binding LoadsDriver}" Background="#6a1b9a" CornerRadius="4" Padding="5,1">
+                        <TextBlock Text="LOADS DRIVER" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+                      </Border>
                       <TextBlock Text="{Binding DurationText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" />
                     </StackPanel>
                   </StackPanel>

@@ -46,6 +46,15 @@ public sealed record ModuleManifest
     public bool NeedsAdmin { get; init; }
     public WriteSpec? Writes { get; init; }
     public bool NeedsInternet { get; init; }
+
+    /// <summary>
+    /// True when the module needs a kernel-level driver to read its data. This is the one
+    /// thing the app can do that genuinely changes the system, so it gets its own badge,
+    /// its own line in the capability hash, and its own confirmation from the elevated
+    /// helper — it must never hide behind a generic "needs admin" flag.
+    /// </summary>
+    public bool LoadsDriver { get; init; }
+
     public TimeSpan EstimatedDuration { get; init; } = TimeSpan.FromSeconds(5);
 
     private string? _capabilityHash;
@@ -61,6 +70,7 @@ public sealed record ModuleManifest
             Id,
             NeedsAdmin ? "admin" : "no-admin",
             NeedsInternet ? "internet" : "no-internet",
+            LoadsDriver ? "driver" : "no-driver",
             Writes?.PathDescription ?? "-",
             Writes?.MaxBytes.ToString(CultureInfo.InvariantCulture) ?? "-",
             Writes?.Lifetime ?? "-");
