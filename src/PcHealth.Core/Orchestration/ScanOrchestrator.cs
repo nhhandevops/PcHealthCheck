@@ -88,12 +88,13 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
         // trend findings count toward the category and overall grades.
         if (trends is { Count: > 0 })
         {
-            var trendGrade = ScanReport.Worst(trends.Select(t => t.Grade));
-            categoryGrades = new Dictionary<HealthCategory, Grade>(categoryGrades)
+            var merged = new Dictionary<HealthCategory, Grade>(categoryGrades);
+            foreach (var group in trends.GroupBy(t => t.Category))
             {
-                [HealthCategory.Storage] = ScanReport.Worst(
-                    [categoryGrades.GetValueOrDefault(HealthCategory.Storage, Grade.Unknown), trendGrade]),
-            };
+                merged[group.Key] = ScanReport.Worst(
+                    [merged.GetValueOrDefault(group.Key, Grade.Unknown), ScanReport.Worst(group.Select(t => t.Grade))]);
+            }
+            categoryGrades = merged;
         }
 
         return new ScanReport

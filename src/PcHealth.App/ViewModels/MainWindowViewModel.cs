@@ -47,8 +47,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<string> ReceiptLines { get; } = [];
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ScanCommand), nameof(CancelScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ScanCommand), nameof(CancelScanCommand), nameof(DeleteHistoryCommand))]
     private bool _isScanning;
+
+    private bool IsNotScanning() => !IsScanning;
 
     [ObservableProperty] private string _progressText = "Select the checks you consent to, then press Scan. Nothing runs without your selection.";
     [ObservableProperty] private bool _hasResults;
@@ -100,7 +102,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         foreach (var row in Modules) row.IsSelected = false;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(IsNotScanning))]
     private void DeleteHistory()
     {
         var (_, message) = HistoryService.Clear();

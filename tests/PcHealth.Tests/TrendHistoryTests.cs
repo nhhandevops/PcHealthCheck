@@ -173,6 +173,38 @@ public sealed class TrendHistoryTests : IDisposable
     }
 
     [Fact]
+    public void A_trend_is_attributed_to_its_own_category_not_storage()
+    {
+        using var store = NewStore();
+        var battery = new Metric("battery.capacity_pct", "Battery capacity", 70, HealthCategory.Battery);
+        store.RecordScan(DateTimeOffset.Now.AddDays(-100), [battery with { Value = 90 }]);
+
+        var finding = Assert.Single(TrendAnalyzer.Analyze([battery], store));
+        // A wearing battery must not drag the storage score down with it.
+        Assert.Equal(HealthCategory.Battery, finding.Category);
+    }
+
+    [Fact]
+    public void History_is_capped_but_always_keeps_the_oldest_baseline()
+    {
+        using var store = NewStore();
+        var start = DateTimeOffset.Now.AddYears(-3);
+
+        // More scans than the cap; the oldest must survive because projections measure from it.
+        for (var i = 0; i < 520; i++)
+        {
+            store.RecordScan(start.AddDays(i), [Number("storage.wear_pct", i * 0.1, "SSD")]);
+        }
+
+        var coverage = store.GetCoverage();
+        Assert.InRange(coverage.ScanCount, 1, 501);
+        var series = store.GetSeries("storage.wear_pct", "SSD");
+        Assert.Equal(0d, series[0].Value);                       // the original baseline is still there
+        Assert.Equal(start, series[0].TakenAt);
+        Assert.Equal(51.9, Math.Round(series[^1].Value, 1));     // and the newest reading too
+    }
+
+    [Fact]
     public void Service_analyzes_against_history_before_adding_the_current_scan()
     {
         // The ordering trap: recording first would make every counter look stable.

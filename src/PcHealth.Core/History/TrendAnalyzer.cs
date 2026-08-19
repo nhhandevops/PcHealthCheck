@@ -22,7 +22,10 @@ public sealed record TrendFinding(
     double PreviousValue,
     double CurrentValue,
     DateTimeOffset PreviousSeen,
-    IReadOnlyList<string> Tips);
+    IReadOnlyList<string> Tips,
+    /// <summary>The category the underlying measurement belongs to, so a battery trend
+    /// affects the battery score rather than the storage score.</summary>
+    HealthCategory Category = HealthCategory.Storage);
 
 /// <summary>
 /// Compares this scan against what earlier scans recorded. A snapshot cannot tell the
@@ -108,13 +111,15 @@ public static class TrendAnalyzer
         return new TrendFinding(
             TrendKind.CounterGrowth, metric.Id, metric.Subject, metric.Label,
             Grade.Bad, message, previous.Value, current, previous.TakenAt,
+            Tips:
             [
                 "BACK UP THIS DRIVE NOW. A counter that is still climbing means the drive is failing while you read this.",
                 "Copy anything irreplaceable off the drive before further troubleshooting, and verify the copy opens.",
                 metric.Id == "smart.crc_errors"
                     ? "For interface errors specifically: replace the drive's data cable first — that fixes most of them."
                     : "Plan to replace the drive. Do not keep the only copy of anything on it.",
-            ]);
+            ],
+            Category: metric.Category);
     }
 
     private static TrendFinding? BuildProjection(
@@ -171,7 +176,7 @@ public static class TrendAnalyzer
 
         return new TrendFinding(
             TrendKind.Projection, metric.Id, metric.Subject, metric.Label,
-            grade, message, oldest.Value, current, oldest.TakenAt, tips);
+            grade, message, oldest.Value, current, oldest.TakenAt, tips, metric.Category);
     }
 
     private static string Format(double value) =>

@@ -107,8 +107,31 @@ public sealed class HistoryStore : IDisposable
         }
 
         transaction.Commit();
+        Prune();
         return kept;
     }
+
+    /// <summary>
+    /// Caps the stored history so the file cannot grow without bound on a machine that
+    /// is scanned often. The oldest scan is always kept: trends are measured from it, so
+    /// dropping it would shorten the very baseline the projections depend on.
+    /// </summary>
+    private void Prune(int keepScans = MaxStoredScans)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM samples WHERE scan_id IN (
+                SELECT id FROM scans
+                WHERE id <> (SELECT id FROM scans ORDER BY taken_at ASC, id ASC LIMIT 1)
+                  AND id NOT IN (SELECT id FROM scans ORDER BY taken_at DESC, id DESC LIMIT $keep)
+            );
+            DELETE FROM scans WHERE id NOT IN (SELECT DISTINCT scan_id FROM samples);
+            """;
+        command.Parameters.AddWithValue("$keep", keepScans);
+        command.ExecuteNonQuery();
+    }
+
+    private const int MaxStoredScans = 500;
 
     /// <summary>All recorded values for one metric/subject, oldest first.</summary>
     public IReadOnlyList<Sample> GetSeries(string metricId, string? subject)
@@ -118,7 +141,7 @@ public sealed class HistoryStore : IDisposable
             SELECT scans.taken_at, samples.value
             FROM samples JOIN scans ON scans.id = samples.scan_id
             WHERE samples.metric_id = $metricId AND samples.subject = $subject
-            ORDER BY scans.taken_at ASC
+            ORDER BY scans.taken_at ASC, scans.id ASC
             """;
         command.Parameters.AddWithValue("$metricId", metricId);
         command.Parameters.AddWithValue("$subject", subject ?? "");

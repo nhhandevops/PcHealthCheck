@@ -9,6 +9,12 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Required by the LibraryImport source generator (named-pipe client PID lookup, worker confirmation dialog). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      Release publishes must not drag along the debug symbols of native dependencies:
+      SkiaSharp and HarfBuzz alone add ~100 MB of .pdb files that no user needs.
+    -->
+    <AllowedReferenceRelatedFileExtensions Condition="'$(Configuration)' == 'Release'">none</AllowedReferenceRelatedFileExtensions>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <Description>PC Health Check — offline-by-default, read-only-by-default PC health auditor. Unprivileged UI process (asInvoker); elevation only ever happens through the explicit worker flow (M2).</Description>
   </PropertyGroup>
 
@@ -17,6 +23,17 @@
     <ProjectReference Include="..\PcHealth.Ipc\PcHealth.Ipc.csproj" />
     <ProjectReference Include="..\PcHealth.Modules.Windows\PcHealth.Modules.Windows.csproj" />
   </ItemGroup>
+
+  <!--
+    SkiaSharp and HarfBuzz ship native debug symbols as package assets, which land in the
+    publish folder and add ~100 MB to every release download. Nothing needs them at runtime.
+  -->
+  <Target Name="RemoveNativeSymbolsFromPublish" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <PublishedSymbols Include="$(PublishDir)**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(PublishedSymbols)" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.1" />
