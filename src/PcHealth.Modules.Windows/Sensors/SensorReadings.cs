@@ -10,13 +10,50 @@ public sealed record SensorReading(string Hardware, string Name, double Peak, do
 public static class SensorAnalysis
 {
     /// <summary>
-    /// A fan reporting zero RPM is normal on a modern PC — most run a "zero-RPM" idle mode.
-    /// It is only a problem if something is genuinely hot at the same time.
+    /// Temperature above which a graphics card's fans really should be turning. Cards
+    /// deliberately idle with their fans stopped and only start them in the 55–65 °C
+    /// region, so the bar has to sit well above that to avoid crying wolf.
     /// </summary>
-    public const double HotEnoughToExpectAirflowC = 60;
+    public const double GpuFansExpectedAboveC = 80;
 
-    public static bool IsStoppedFanConcerning(IReadOnlyList<SensorReading> fans, double hottestTemperature) =>
-        hottestTemperature >= HotEnoughToExpectAirflowC && fans.Count > 0 && fans.All(f => f.Peak <= 0);
+    /// <summary>Processors are cooled continuously, so the bar is lower — but still above
+    /// ordinary desktop idle temperatures.</summary>
+    public const double CpuFansExpectedAboveC = 70;
+
+    /// <summary>
+    /// Sensor names that run far hotter than the component's headline temperature by
+    /// design. Judging airflow by these would flag a perfectly cool, idle card.
+    /// </summary>
+    private static readonly string[] HotByDesignSensors =
+        ["Hot Spot", "Hotspot", "Memory Junction", "VRM", "VRAM", "MOSFET"];
+
+    public static bool IsHotByDesignSensor(string sensorName) =>
+        HotByDesignSensors.Any(marker => sensorName.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The temperature that represents a device's general state, ignoring the sensors that
+    /// are hot by design.
+    /// </summary>
+    public static SensorReading? SelectRepresentativeTemperature(IReadOnlyList<SensorReading> temperatures)
+    {
+        var candidates = temperatures.Where(t => !IsHotByDesignSensor(t.Name)).ToList();
+        return candidates.Count > 0 ? candidates.MaxBy(t => t.Peak) : null;
+    }
+
+    /// <summary>
+    /// True only when a device is genuinely hot AND every fan belonging to THAT device is
+    /// stopped. Comparing one device's fans against another's temperature (or against a
+    /// hot-by-design sensor) produces false alarms on any modern PC.
+    /// </summary>
+    public static bool IsStoppedFanConcerning(
+        IReadOnlyList<SensorReading> fansOnThisDevice,
+        double representativeTemperature,
+        double fansExpectedAboveC)
+    {
+        if (fansOnThisDevice.Count == 0) return false;      // no sensors is not evidence of a fault
+        if (representativeTemperature < fansExpectedAboveC) return false;
+        return fansOnThisDevice.All(f => f.Peak <= 0);
+    }
 
     /// <summary>
     /// Picks the reading that best represents overall package temperature. Vendors name
@@ -33,6 +70,6 @@ public static class SensorAnalysis
             var match = cpuTemperatures.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
             if (match is not null) return match;
         }
-        return cpuTemperatures.MaxBy(t => t.Peak);
+        return SelectRepresentativeTemperature(cpuTemperatures) ?? cpuTemperatures.MaxBy(t => t.Peak);
     }
 }

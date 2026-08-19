@@ -32,6 +32,17 @@ Built with C# / .NET 10 + Avalonia. Windows 10/11 first; Linux/macOS planned via
 | Backup & recovery readiness | Restore points, shadow copies, File History, OneDrive folder backup — so "back up first" advice knows whether any backup exists |
 | Platform security | TPM readiness, Secure Boot, drive encryption status (never keys), virtualization-based security |
 | System file integrity (quick) | Whether Windows has recorded component-store corruption (reads the flag; repairs nothing) |
+| Temperatures & fans | CPU and GPU temperatures (incl. hot spot and memory junction where the card exposes them), fan speeds, memory use, and a stopped-fan-while-hot check. **Loads a kernel driver** — see below |
+
+#### The one thing that changes your system
+
+Motherboard and CPU sensors cannot be read from user mode, so the temperature module loads a kernel-level driver (LibreHardwareMonitor's, via `LibreHardwareMonitorLib` ≥ 0.9.5, which uses the signed driver rather than the WinRing0 build that antivirus vendors began quarantining in 2025). Because that is a genuine system change, it does not hide behind the "needs admin" badge:
+
+- modules declare a `LoadsDriver` capability that is part of the consent hash, so older consent can never silently cover it;
+- the consent matrix shows a distinct **LOADS DRIVER** badge;
+- the elevated helper asks about it in its own dialog and simply skips the module if you decline.
+
+The driver is used to read values only — never to set fan curves, clocks, or voltages.
 
 Every metric is graded **Good / Normal / Bad** by data-driven rules (`src/PcHealth.Core/Rules/*.json`) with concrete fix tips and a failure forecast where relevant.
 

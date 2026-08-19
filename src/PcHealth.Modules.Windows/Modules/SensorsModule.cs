@@ -68,9 +68,20 @@ internal sealed class SensorsModule : WindowsModuleBase
         };
 
         var peaks = new Dictionary<(HardwareType Hardware, SensorType Type, string Name), SensorReading>();
+        var detectedHardwareNote = "";
         try
         {
             computer.Open();
+
+            // Record what the sensor library could actually see. When a chipset or the
+            // driver refuses, the difference between "no CPU object at all" and "a CPU
+            // object with no temperature sensors" is the whole diagnosis.
+            var detected = computer.Hardware
+                .Select(h => $"{h.HardwareType} ({h.Sensors.Length} sensors)")
+                .ToList();
+            detectedHardwareNote = detected.Count > 0
+                ? "Sensor library detected: " + string.Join(", ", detected) + "."
+                : "The sensor library detected no hardware at all, which usually means its kernel driver did not load.";
 
             var visitor = new UpdateVisitor();
             for (var i = 0; i < SampleCount; i++)
@@ -99,11 +110,11 @@ internal sealed class SensorsModule : WindowsModuleBase
 
         if (peaks.Count == 0)
         {
-            notes.Add("No sensors were readable on this hardware.");
+            notes.Add("No sensors were readable on this hardware. " + detectedHardwareNote);
             return ModuleStatus.PartiallyCompleted;
         }
 
-        BuildMetrics(peaks, metrics, notes);
+        BuildMetrics(peaks, metrics, notes, detectedHardwareNote);
         return ModuleStatus.Completed;
     }
 
@@ -130,7 +141,7 @@ internal sealed class SensorsModule : WindowsModuleBase
 
     private static void BuildMetrics(
         Dictionary<(HardwareType Hardware, SensorType Type, string Name), SensorReading> peaks,
-        List<Metric> metrics, List<string> notes)
+        List<Metric> metrics, List<string> notes, string detectedHardwareNote)
     {
         List<SensorReading> Readings(SensorType type, params HardwareType[] hardware) =>
             [.. peaks.Where(p => p.Key.Type == type && hardware.Contains(p.Key.Hardware)).Select(p => p.Value)];
@@ -151,15 +162,14 @@ internal sealed class SensorsModule : WindowsModuleBase
         }
         else
         {
-            notes.Add("No CPU temperature sensor was readable (some chipsets need a vendor driver).");
+            notes.Add("No CPU temperature was readable. This normally means the sensor driver could not " +
+                      "attach to this chipset — a security product blocking driver loading is the usual cause. " +
+                      detectedHardwareNote);
         }
 
         AddGpuTemperature(gpuTemperatures, "GPU Core", "gpu.temperature_c", "GPU temperature", metrics);
         AddGpuTemperature(gpuTemperatures, "GPU Hot Spot", "gpu.hotspot_c", "GPU hot spot", metrics);
         AddGpuTemperature(gpuTemperatures, "GPU Memory Junction", "gpu.memory_junction_c", "GPU memory temperature", metrics);
-
-        var hottest = peaks.Values.Where(v => cpuTemperatures.Contains(v) || gpuTemperatures.Contains(v))
-            .Select(v => v.Peak).DefaultIfEmpty(0).Max();
 
         var spinning = fans.Where(f => f.Peak > 0).ToList();
         if (fans.Count > 0)
@@ -168,14 +178,19 @@ internal sealed class SensorsModule : WindowsModuleBase
                 HealthCategory.Sensors, InfoOnly: true,
                 Detail: spinning.Count > 0
                     ? "Speeds: " + string.Join(", ", spinning.Select(f => $"{f.Name} {f.Peak:0} RPM"))
-                    : "All monitored fans report 0 RPM."));
-
-            metrics.Add(new Metric("fans.airflow_ok", "Fans running when hardware is warm",
-                !SensorAnalysis.IsStoppedFanConcerning(fans, hottest), HealthCategory.Sensors,
-                Detail: SensorAnalysis.IsStoppedFanConcerning(fans, hottest)
-                    ? $"Nothing is spinning although hardware is at {hottest:0} °C."
-                    : "Either the fans are turning, or nothing is warm enough to need them (many PCs stop their fans when idle)."));
+                    : "All monitored fans report 0 RPM, which is normal when nothing is working hard — " +
+                      "graphics cards and many PCs deliberately stop their fans when idle."));
         }
+
+        // Airflow is judged PER DEVICE, against that device's own representative temperature.
+        // A graphics card's hot spot always runs far above its core, and its fans are meant
+        // to be stopped when idle, so comparing across devices or against hot-by-design
+        // sensors reports a fault on a perfectly healthy machine.
+        AddAirflowMetric(gpuTemperatures, Readings(SensorType.Fan, gpuTypes),
+            SensorAnalysis.GpuFansExpectedAboveC, "graphics card", metrics);
+
+        var cpuFans = Readings(SensorType.Fan, HardwareType.Motherboard, HardwareType.SuperIO);
+        AddAirflowMetric(cpuTemperatures, cpuFans, SensorAnalysis.CpuFansExpectedAboveC, "processor", metrics);
 
         if (Readings(SensorType.Load, HardwareType.Memory).FirstOrDefault(r => r.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase)) is { } memory)
         {
@@ -183,6 +198,22 @@ internal sealed class SensorsModule : WindowsModuleBase
                 HealthCategory.Sensors, Unit: "%",
                 Detail: "Measured while the scan ran, so it reflects what was open at the time."));
         }
+    }
+
+    private static void AddAirflowMetric(
+        List<SensorReading> temperatures, List<SensorReading> fans,
+        double expectedAboveC, string what, List<Metric> metrics)
+    {
+        if (fans.Count == 0) return;
+        if (SensorAnalysis.SelectRepresentativeTemperature(temperatures) is not { } representative) return;
+
+        var concerning = SensorAnalysis.IsStoppedFanConcerning(fans, representative.Peak, expectedAboveC);
+        metrics.Add(new Metric("fans.airflow_ok", "Fans running when hot", !concerning,
+            HealthCategory.Sensors, Subject: representative.Hardware,
+            Detail: concerning
+                ? $"The {what} reached {representative.Peak:0} °C ({representative.Name}) yet none of its fans reported any speed."
+                : $"Fine: the {what} peaked at {representative.Peak:0} °C, and fans are either turning or not needed yet " +
+                  $"(they are expected to run above {expectedAboveC:0} °C)."));
     }
 
     private static void AddGpuTemperature(
