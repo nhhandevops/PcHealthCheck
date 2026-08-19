@@ -1,4 +1,5 @@
 using PcHealth.App.Worker;
+using PcHealth.Core.History;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Orchestration;
 using PcHealth.Core.Processes;
@@ -73,7 +74,14 @@ internal static class HeadlessScan
         }
 
         var names = allModules.ToDictionary(m => m.Manifest.Id, m => m.Manifest.Name, StringComparer.Ordinal);
-        var report = orchestrator.BuildReport(results, receiptEntries, ranElevated, names);
+
+        var history = args.Contains("--no-history")
+            ? HistoryOutcome.Disabled
+            : HistoryService.AnalyzeAndRecord(results.SelectMany(r => r.Metrics), DateTimeOffset.Now);
+        if (history.Error is not null) Console.WriteLine(history.Error);
+
+        var report = orchestrator.BuildReport(results, receiptEntries, ranElevated, names,
+            history.Trends, history.Coverage);
 
         var htmlPath = Path.Combine(outDir, "pc-health-report.html");
         var jsonPath = Path.Combine(outDir, "pc-health-report.json");
@@ -81,6 +89,22 @@ internal static class HeadlessScan
         JsonReportExporter.WriteTo(report, jsonPath);
 
         Console.WriteLine();
+        if (report.Trends.Count > 0)
+        {
+            Console.WriteLine("Changes since earlier scans:");
+            foreach (var trend in report.Trends)
+                Console.WriteLine($"  [{trend.Grade}] {trend.Label} ({trend.Subject}): {trend.Message}");
+            Console.WriteLine();
+        }
+        else if (report.History is { EarlierScans: > 0 } coverage)
+        {
+            Console.WriteLine($"No changes vs {coverage.EarlierScans} earlier scan(s) {coverage.SpanText}.");
+        }
+        else if (report.History is { ScanCount: > 0 })
+        {
+            Console.WriteLine("First recorded scan — future scans will report what changed.");
+        }
+
         Console.WriteLine($"Overall: {report.OverallGrade}{(report.RanElevated ? " (elevated scan)" : "")}");
         foreach (var (category, grade) in report.CategoryGrades.OrderBy(kv => kv.Key))
             Console.WriteLine($"  {category}: {grade}");

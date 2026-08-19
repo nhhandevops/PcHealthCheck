@@ -1,3 +1,4 @@
+using PcHealth.Core.History;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Processes;
@@ -25,6 +26,12 @@ public sealed record ScanReport
     public required IReadOnlyList<ModuleRunSummary> Modules { get; init; }
     public required IReadOnlyList<Verdict> Verdicts { get; init; }
     public required IReadOnlyList<ReceiptEntry> Receipt { get; init; }
+
+    /// <summary>What changed since earlier scans. Empty on a first run.</summary>
+    public IReadOnlyList<TrendFinding> Trends { get; init; } = [];
+
+    /// <summary>How much history the trends are based on, so the report can be honest about it.</summary>
+    public HistoryCoverage? History { get; init; }
 
     public required IReadOnlyDictionary<HealthCategory, Grade> CategoryGrades { get; init; }
     public required Grade OverallGrade { get; init; }

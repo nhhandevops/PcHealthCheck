@@ -66,6 +66,39 @@ public static class HtmlReportExporter
         }
         sb.Append("</div>\n");
 
+        if (report.Trends.Count > 0)
+        {
+            sb.Append("<h2>What changed since your last scan</h2>\n<div class=\"wrap\"><table>\n");
+            sb.Append("<tr><th>Status</th><th>Measurement</th><th>Drive</th><th>Change</th></tr>\n");
+            foreach (var trend in report.Trends.OrderBy(t => t.Grade switch { Grade.Bad => 0, Grade.Normal => 1, _ => 2 }))
+            {
+                sb.Append("<tr>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{GradeChip(trend.Grade)}</td>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{E(trend.Label)}</td>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{E(trend.Subject ?? "—")}</td>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{E(trend.Message)}");
+                if (trend.Tips.Count > 0)
+                {
+                    sb.Append("<ul class=\"tips\">");
+                    foreach (var tip in trend.Tips) sb.Append(CultureInfo.InvariantCulture, $"<li>{E(tip)}</li>");
+                    sb.Append("</ul>");
+                }
+                sb.Append("</td></tr>\n");
+            }
+            sb.Append("</table></div>\n");
+        }
+        else if (report.History is { EarlierScans: > 0 } coverage)
+        {
+            sb.Append(CultureInfo.InvariantCulture,
+                $"<p><em>Nothing has moved: every measurement matches the {coverage.EarlierScans} earlier scan(s) {coverage.SpanText}.</em></p>\n");
+        }
+        else
+        {
+            sb.Append("<p><em>This is the first recorded scan, so there is nothing to compare against yet. " +
+                      "Run the app again in a week or two — a counter that is <strong>growing</strong> is far more " +
+                      "informative than any single reading.</em></p>\n");
+        }
+
         foreach (var group in report.Verdicts.GroupBy(v => v.Metric.Category).OrderBy(g => g.Key))
         {
             sb.Append(CultureInfo.InvariantCulture, $"<h2>{E(CategoryLabel(group.Key))}</h2>\n<div class=\"wrap\"><table>\n");

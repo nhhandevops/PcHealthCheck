@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PcHealth.App.Worker;
 using PcHealth.Core.Consent;
+using PcHealth.Core.History;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Orchestration;
@@ -28,6 +29,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly bool _alreadyElevated = Elevation.IsElevated();
     private CancellationTokenSource? _scanCts;
     private string? _elevationNote;
+    private string? _historyNote;
+
+    public ObservableCollection<TrendRowViewModel> Trends { get; } = [];
+
+    /// <summary>
+    /// Keeps a local record of the numbers each scan measured so growth can be spotted.
+    /// Writes only to the app's own folder; the receipt says so after every scan.
+    /// </summary>
+    [ObservableProperty] private bool _rememberTrends = true;
+
+    [ObservableProperty] private string _trendSummary = "";
+    [ObservableProperty] private bool _hasTrends;
 
     public ObservableCollection<ModuleRowViewModel> Modules { get; } = [];
     public ObservableCollection<CategoryCardViewModel> CategoryCards { get; } = [];
@@ -85,6 +98,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void ClearSelection()
     {
         foreach (var row in Modules) row.IsSelected = false;
+    }
+
+    [RelayCommand]
+    private void DeleteHistory()
+    {
+        var (_, message) = HistoryService.Clear();
+        Trends.Clear();
+        HasTrends = false;
+        TrendSummary = "Trend history deleted — the next scan starts a fresh baseline.";
+        ProgressText = message;
     }
 
     private bool CanScan() => !IsScanning && Modules.Any(m => m.IsSelected);
@@ -150,7 +173,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
 
             var names = selected.ToDictionary(m => m.Manifest.Id, m => m.Manifest.Name, StringComparer.Ordinal);
-            var report = orchestrator.BuildReport(results, receiptEntries, ranElevated, names);
+
+            // Compare against previous scans, then store this one. Numbers only, in the
+            // app's own folder — disclosed in the receipt and deletable from the UI.
+            var history = RememberTrends
+                ? await Task.Run(() => HistoryService.AnalyzeAndRecord(
+                    results.SelectMany(r => r.Metrics), DateTimeOffset.Now), ct)
+                : HistoryOutcome.Disabled;
+            _historyNote = history.Error ?? (RememberTrends
+                ? $"Recorded {history.MeasurementsRecorded} measurements to the local trend history " +
+                  $"({history.Coverage.ScanCount} scans over {history.Coverage.DaysCovered:0} days)."
+                : "Trend history is switched off, so nothing was recorded.");
+
+            var report = orchestrator.BuildReport(results, receiptEntries, ranElevated, names,
+                history.Trends, history.Coverage);
 
             PresentReport(report);
             ProgressText = $"Scan finished {report.GeneratedAt:HH:mm:ss} — overall: {GradeVisuals.Label(report.OverallGrade)}. " +
@@ -199,6 +235,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OverallLabel = GradeVisuals.Label(report.OverallGrade);
         OverallBrush = GradeVisuals.Brush(report.OverallGrade);
 
+        Trends.Clear();
+        foreach (var trend in report.Trends.OrderBy(t => t.Grade switch { Grade.Bad => 0, Grade.Normal => 1, _ => 2 }))
+        {
+            Trends.Add(new TrendRowViewModel(trend));
+        }
+        HasTrends = Trends.Count > 0;
+        TrendSummary = report.Trends.Count > 0
+            ? "These measurements moved since an earlier scan — a counter that is still climbing matters far more than any single reading."
+            : report.History is { EarlierScans: > 0 } coverage
+                ? $"Nothing has moved: every measurement matches the {coverage.EarlierScans} earlier scan(s) {coverage.SpanText}."
+                : "First recorded scan — run again in a week or two and the app will tell you what changed.";
+
         foreach (var group in report.Verdicts
                      .GroupBy(v => v.Metric.Category)
                      .OrderBy(g => WorstRank(g)))
@@ -223,6 +271,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         if (ReceiptLines.Count == 0) ReceiptLines.Add("No external processes were run and no files were written.");
         if (_elevationNote is not null) ReceiptLines.Add($"Administrator checks: {_elevationNote}");
+        if (_historyNote is not null) ReceiptLines.Add(_historyNote);
         ReceiptLines.Add(report.RanElevated
             ? "Administrator checks ran in a separate helper process that exited when the scan finished."
             : "This scan used no administrator rights.");
@@ -295,6 +344,18 @@ public sealed partial class ModuleRowViewModel(IHealthModule module) : Observabl
 }
 
 public sealed record CategoryCardViewModel(string Name, string GradeLabel, IBrush GradeBrush, IReadOnlyList<VerdictRowViewModel> Verdicts);
+
+public sealed class TrendRowViewModel(TrendFinding trend)
+{
+    public string GradeLabel { get; } = GradeVisuals.Label(trend.Grade);
+    public IBrush GradeBrush { get; } = GradeVisuals.Brush(trend.Grade);
+    public string Label { get; } = trend.Label;
+    public string Subject { get; } = trend.Subject ?? "";
+    public bool HasSubject { get; } = !string.IsNullOrEmpty(trend.Subject);
+    public string Message { get; } = trend.Message;
+    public IReadOnlyList<string> Tips { get; } = trend.Tips;
+    public bool HasTips { get; } = trend.Tips.Count > 0;
+}
 
 public sealed class VerdictRowViewModel(Verdict verdict)
 {

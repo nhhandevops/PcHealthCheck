@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using PcHealth.Core.History;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Processes;
@@ -65,7 +66,9 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
         IEnumerable<ModuleResult> results,
         IEnumerable<ReceiptEntry> receipt,
         bool ranElevated,
-        IReadOnlyDictionary<string, string>? moduleNames = null)
+        IReadOnlyDictionary<string, string>? moduleNames = null,
+        IReadOnlyList<TrendFinding>? trends = null,
+        HistoryCoverage? history = null)
     {
         var resultList = results.ToList();
         var summaries = resultList
@@ -81,6 +84,18 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
         var verdicts = engine.Evaluate(resultList.SelectMany(r => r.Metrics));
         var categoryGrades = ScanReport.ComputeCategoryGrades(verdicts);
 
+        // A rising failure counter is worse news than any single snapshot reading, so
+        // trend findings count toward the category and overall grades.
+        if (trends is { Count: > 0 })
+        {
+            var trendGrade = ScanReport.Worst(trends.Select(t => t.Grade));
+            categoryGrades = new Dictionary<HealthCategory, Grade>(categoryGrades)
+            {
+                [HealthCategory.Storage] = ScanReport.Worst(
+                    [categoryGrades.GetValueOrDefault(HealthCategory.Storage, Grade.Unknown), trendGrade]),
+            };
+        }
+
         return new ScanReport
         {
             GeneratedAt = DateTimeOffset.Now,
@@ -91,6 +106,8 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
             Modules = summaries,
             Verdicts = verdicts,
             Receipt = [.. receipt],
+            Trends = trends ?? [],
+            History = history,
             CategoryGrades = categoryGrades,
             OverallGrade = ScanReport.Worst(categoryGrades.Values),
         };

@@ -10,4 +10,9 @@
     <EmbeddedResource Include="Rules\*.json" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Local-only trend history. No network component; the database never leaves the machine. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+  </ItemGroup>
+
 </Project>

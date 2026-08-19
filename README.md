@@ -35,6 +35,15 @@ Built with C# / .NET 10 + Avalonia. Windows 10/11 first; Linux/macOS planned via
 
 Every metric is graded **Good / Normal / Bad** by data-driven rules (`src/PcHealth.Core/Rules/*.json`) with concrete fix tips and a failure forecast where relevant.
 
+### Trends — what a single scan cannot tell you
+
+A snapshot cannot distinguish a drive that has had 2 bad sectors for two years from one that grew 2 bad sectors this week. The second is an emergency. So each scan records its numbers to a local SQLite file (`%LOCALAPPDATA%\PcHealthCheck\history.db`) and the next scan reports what moved:
+
+- **Failure counters that grow** (reallocated/pending sectors, uncorrectable errors, CRC errors) are raised to *action needed* regardless of how small the number is, with back-up-first advice.
+- **Wear figures** (SSD endurance, battery capacity) are extrapolated once there are at least 14 days of data, giving a projected date for reaching end of rated life.
+
+It stores only metric names, subjects, and numbers — never file contents. Turn it off with the checkbox in the UI (or `--no-history` on the command line), and delete it with the **Delete history** button.
+
 ## Privacy & safety design
 
 - **No network code.** Every internet-touching feature ever added lives only in `PcHealth.Net.Optional` and runs only after an explicit, labeled, per-feature consent. CI fails the build if any other assembly mentions `System.Net`.
@@ -64,7 +73,8 @@ Requires the .NET 10 SDK.
 
 - ~~**M1** — standard checks, verdict engine, consent matrix, reports.~~ Done.
 - ~~**M2** — elevated worker (single UAC prompt), SMART attributes, storage reliability counters, integrity check, platform security, backup posture.~~ Done.
-- **M2.5** — SQLite trend history (alert when SMART counters *grow* between scans, project SSD endurance), and optionally bundling `smartctl` (GPL-2.0-or-later, separate process) for deeper per-vendor and NVMe attributes.
+- ~~**M2.5** — SQLite trend history: alert when SMART counters *grow* between scans, project SSD endurance and battery wear to a date.~~ Done.
+- **Next** — optionally bundle `smartctl` (GPL-2.0-or-later, separate process) for deeper per-vendor and NVMe attributes.
 - **M3** — sensors (LibreHardwareMonitorLib + signed PawnIO driver, consent-gated install) and benchmarks (Microsoft DiskSpd read-only profile, 7-Zip CPU bench) with personal baselines.
 - **M4** — malware layers: Defender scan orchestration, bundled ClamAV second opinion (opt-in signature download), opt-in VirusTotal hash lookups; network health checks; packaging & code signing.
 - **M5** — browser-extension audit, multi-user startup coverage, localization, Linux module provider.

@@ -25,11 +25,19 @@
         <TextBlock DockPanel.Dock="Top" Text="{Binding SummaryLine}" TextWrapping="Wrap"
                    FontWeight="SemiBold" FontSize="12" Margin="0,0,0,8" />
         <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,10,0,0">
+          <CheckBox IsChecked="{Binding RememberTrends}" Padding="6,0,0,0">
+            <StackPanel>
+              <TextBlock Text="Remember results to spot trends" FontSize="12" />
+              <TextBlock Text="Stores only the numbers, in this app's own folder, so it can warn when a failure counter starts growing."
+                         FontSize="11" Opacity="0.6" TextWrapping="Wrap" MaxWidth="380" />
+            </StackPanel>
+          </CheckBox>
           <StackPanel Orientation="Horizontal" Spacing="8">
             <Button Content="Scan now" Command="{Binding ScanCommand}" FontWeight="SemiBold" />
             <Button Content="Cancel" Command="{Binding CancelScanCommand}" />
             <Button Content="Select recommended" Command="{Binding SelectRecommendedCommand}" />
             <Button Content="Clear" Command="{Binding ClearSelectionCommand}" />
+            <Button Content="Delete history" Command="{Binding DeleteHistoryCommand}" />
           </StackPanel>
         </StackPanel>
         <ScrollViewer>
@@ -78,6 +86,45 @@
           <StackPanel Spacing="12">
             <TextBlock IsVisible="{Binding !HasResults}" Opacity="0.6" Margin="4,20,0,0"
                        Text="Results appear here after a scan. Start by pressing 'Select recommended', then 'Scan now'." />
+
+            <!-- What changed since last time: the signal a single snapshot cannot give. -->
+            <Border IsVisible="{Binding HasResults}" BorderBrush="#40808080" BorderThickness="1"
+                    CornerRadius="10" Padding="14,10" Margin="0,0,6,0">
+              <StackPanel Spacing="8">
+                <TextBlock Text="What changed since your last scan" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding TrendSummary}" TextWrapping="Wrap" Opacity="0.75" FontSize="12" />
+                <ItemsControl ItemsSource="{Binding Trends}" IsVisible="{Binding HasTrends}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TrendRowViewModel">
+                      <Grid ColumnDefinitions="120,*" Margin="0,4,0,4">
+                        <Border Grid.Column="0" Background="{Binding GradeBrush}" CornerRadius="6"
+                                Padding="6,2" VerticalAlignment="Top" HorizontalAlignment="Left">
+                          <TextBlock Text="{Binding GradeLabel}" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="2">
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Subject}" IsVisible="{Binding HasSubject}" Opacity="0.65" />
+                          </StackPanel>
+                          <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="12" MaxWidth="640" />
+                          <ItemsControl ItemsSource="{Binding Tips}" IsVisible="{Binding HasTips}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,1,0,0">
+                                  <TextBlock Text="•" Opacity="0.8" />
+                                  <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="12" MaxWidth="620" />
+                                </StackPanel>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
             <ItemsControl ItemsSource="{Binding CategoryCards}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:CategoryCardViewModel">
