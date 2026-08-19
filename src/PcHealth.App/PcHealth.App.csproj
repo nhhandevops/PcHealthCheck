@@ -7,11 +7,14 @@
     <AssemblyName>PcHealthCheck</AssemblyName>
     <Version>0.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Required by the LibraryImport source generator (named-pipe client PID lookup, worker confirmation dialog). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Description>PC Health Check — offline-by-default, read-only-by-default PC health auditor. Unprivileged UI process (asInvoker); elevation only ever happens through the explicit worker flow (M2).</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PcHealth.Core\PcHealth.Core.csproj" />
+    <ProjectReference Include="..\PcHealth.Ipc\PcHealth.Ipc.csproj" />
     <ProjectReference Include="..\PcHealth.Modules.Windows\PcHealth.Modules.Windows.csproj" />
   </ItemGroup>
 

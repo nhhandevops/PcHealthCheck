@@ -4,14 +4,16 @@ using PcHealth.Modules.Windows.Modules;
 namespace PcHealth.Modules.Windows;
 
 /// <summary>
-/// The compiled-in registry of Windows modules (M1: the unelevated set).
-/// The elevated worker (M2) will validate requested module ids against this list —
-/// never against anything an unprivileged process wrote to disk.
+/// The compiled-in registry of Windows modules. This list is the authority on both
+/// sides of the privilege boundary: the UI runs the modules that need no admin rights
+/// in-process, and the elevated worker matches requested module ids against this same
+/// list — never against anything an unprivileged process wrote to disk.
 /// </summary>
 public sealed class WindowsModuleProvider : IModuleProvider
 {
     public IReadOnlyList<IHealthModule> CreateModules() =>
     [
+        // Runs unelevated.
         new SysOverviewModule(),
         new VolumesModule(),
         new SecurityPostureModule(),
@@ -24,5 +26,12 @@ public sealed class WindowsModuleProvider : IModuleProvider
         new BatteryModule(),
         new TimeSyncModule(),
         new CrashDumpModule(),
+
+        // Requires the elevated worker (one UAC prompt, only if selected).
+        new DiskSmartModule(),
+        new StorageReliabilityModule(),
+        new BackupPostureModule(),
+        new SecurityPlatformModule(),
+        new IntegrityQuickModule(),
     ];
 }

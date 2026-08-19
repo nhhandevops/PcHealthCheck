@@ -1,0 +1,253 @@
+{
+  "rules": [
+    {
+      "id": "rule.smart.predict-failure",
+      "metricId": "smart.predict_failure",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "BACK UP EVERYTHING ON THIS DRIVE RIGHT NOW, before doing anything else. Copy to another disk or cloud storage first, then continue reading.",
+          "The drive predicts its own failure. Replace it — do not wait for it to get worse, and do not trust it with the only copy of anything.",
+          "Avoid heavy use (defrag, benchmarks, full scans) until your data is safely copied off."
+        ]
+      },
+      "forecast": "Drives that raise this flag frequently fail within weeks. Assume you have days, not months."
+    },
+    {
+      "id": "rule.smart.reallocated",
+      "metricId": "smart.reallocated",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 4 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "A few sectors have been retired. Back up your files, then re-scan in a week: a stable count is usually fine, a rising count is not."
+        ],
+        "Bad": [
+          "BACK UP THIS DRIVE FIRST.",
+          "The drive is retiring sectors in quantity — a well-established predictor of failure. Plan to replace it.",
+          "Re-scan in a few days: if the number keeps climbing, replace the drive immediately."
+        ]
+      },
+      "forecast": "Reallocated-sector growth is one of the strongest failure predictors in large-scale drive studies. Track whether it rises between scans."
+    },
+    {
+      "id": "rule.smart.reported-uncorrectable",
+      "metricId": "smart.reported_uncorrectable",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Bad": [
+          "BACK UP THIS DRIVE NOW.",
+          "The drive reported errors it could not correct — there is no safe level for this. Replace the drive.",
+          "If this drive holds your only copy of anything, copy that data off before any other troubleshooting."
+        ]
+      },
+      "forecast": "Drives reporting uncorrectable errors fail at many times the rate of drives that report none."
+    },
+    {
+      "id": "rule.smart.command-timeout",
+      "metricId": "smart.command_timeout",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 100 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Some commands timed out. Check the drive's data and power cables are firmly seated; re-scan afterwards."],
+        "Bad": [
+          "Back up your files, then reseat or replace the drive's SATA data cable and power connector — cabling causes many of these.",
+          "If the count still grows on a known-good cable and port, the drive itself is failing."
+        ]
+      }
+    },
+    {
+      "id": "rule.smart.pending",
+      "metricId": "smart.pending_sectors",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 2 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "A couple of sectors are unstable. Back up now, then re-scan: if the count rises at all, replace the drive."
+        ],
+        "Bad": [
+          "BACK UP THIS DRIVE IMMEDIATELY — pending sectors mean data in those sectors may already be unreadable.",
+          "Replace the drive. Pending sectors that persist or grow are the single clearest sign a disk is dying."
+        ]
+      },
+      "forecast": "Pending-sector counts that grow between scans indicate active media failure — the trend matters more than the number."
+    },
+    {
+      "id": "rule.smart.offline-uncorrectable",
+      "metricId": "smart.offline_uncorrectable",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 2 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Back up your files and watch this number across scans."],
+        "Bad": ["BACK UP THIS DRIVE FIRST, then replace it — its own background scan is finding sectors it cannot recover."]
+      }
+    },
+    {
+      "id": "rule.smart.crc",
+      "metricId": "smart.crc_errors",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 10 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Interface errors are usually the CABLE, not the drive. Reseat the SATA data cable at both ends (or try a different USB port/cable for external drives).",
+          "This counter never resets, so an old, frozen count from a past problem is harmless — what matters is whether it grows."
+        ],
+        "Bad": [
+          "Replace the drive's SATA data cable — this is the classic cause and a cheap fix. For USB drives, change the cable and port, and avoid unpowered hubs.",
+          "Corrupted transfers can damage files even when the drive itself is healthy, so fix this promptly."
+        ]
+      }
+    },
+    {
+      "id": "rule.smart.temperature",
+      "metricId": "smart.temperature_c",
+      "bands": [
+        { "grade": "Good", "lt": 40 },
+        { "grade": "Normal", "lte": 50 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Warm but acceptable. Improve case airflow if it stays here under light use — cooler drives last longer."],
+        "Bad": [
+          "Too hot for a mechanical drive. Check that case fans work and that the drive has airflow around it; clean out dust.",
+          "Sustained high temperature measurably shortens drive life."
+        ]
+      }
+    },
+    {
+      "id": "rule.smart.load-cycles",
+      "metricId": "smart.load_cycles",
+      "bands": [
+        { "grade": "Good", "lt": 300000 },
+        { "grade": "Normal", "lt": 540000 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Head parking is accumulating. If this is a laptop drive, reduce aggressive power saving for the disk in the power plan settings."],
+        "Bad": ["The drive is near or past its rated head-park cycles (typically 600,000). Back up and plan replacement."]
+      }
+    },
+    {
+      "id": "rule.smart.ssd-consumed",
+      "metricId": "smart.ssd_percent_consumed",
+      "bands": [
+        { "grade": "Good", "lt": 70 },
+        { "grade": "Normal", "lt": 90 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["The SSD has used most of its rated write endurance. Start planning a replacement; keep backups current."],
+        "Bad": ["The SSD is at or past its rated endurance. Replace it soon — and make sure it is not the only copy of anything important."]
+      },
+      "forecast": "Endurance is consumed by writing. Compare this value across months to estimate how long the drive has left at your usage rate."
+    },
+    {
+      "id": "rule.storage.wear",
+      "metricId": "storage.wear_pct",
+      "bands": [
+        { "grade": "Good", "lt": 70 },
+        { "grade": "Normal", "lt": 90 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": ["The SSD has used most of its rated write endurance. Plan a replacement and keep backups current."],
+        "Bad": ["The SSD is at or past its rated write endurance. Replace it soon, and do not keep the only copy of anything on it."]
+      },
+      "forecast": "Re-scan monthly: the rate this climbs tells you how many years of writing the drive has left."
+    },
+    {
+      "id": "rule.storage.temperature",
+      "metricId": "storage.temperature_c",
+      "bands": [
+        { "grade": "Good", "lte": 70 },
+        { "grade": "Normal", "lte": 80 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Warm. NVMe SSDs throttle rather than fail, but sustained heat is worth fixing: check airflow, and fit the motherboard's M.2 heatsink if it is unused."
+        ],
+        "Bad": [
+          "The drive is hot enough to throttle. Improve airflow, fit the M.2 heatsink, and make sure it is not sitting directly under a hot graphics card."
+        ]
+      }
+    },
+    {
+      "id": "rule.storage.read-errors",
+      "metricId": "storage.read_errors_uncorrected",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Bad": [
+          "BACK UP THIS DRIVE NOW — data has already failed to read back correctly.",
+          "Replace the drive. Verify your backup opens correctly before trusting it."
+        ]
+      }
+    },
+    {
+      "id": "rule.storage.write-errors",
+      "metricId": "storage.write_errors_uncorrected",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Bad": ["BACK UP THIS DRIVE NOW, then replace it — writes are failing, so new data saved here may already be lost."]
+      }
+    },
+    {
+      "id": "rule.storage.volume-clean",
+      "metricId": "storage.volume_clean",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": [
+          "This volume is flagged for a file-system check, usually after an unexpected shutdown. Windows will run CHKDSK at the next restart — back up important files first, then restart."
+        ]
+      }
+    },
+    {
+      "id": "rule.integrity.image",
+      "metricId": "integrity.image_health",
+      "bands": [
+        { "grade": "Good", "eq": "Healthy" },
+        { "grade": "Normal", "eq": "Repairable" },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Windows has recorded repairable corruption. From an admin prompt run 'DISM /Online /Cleanup-Image /RestoreHealth', then 'sfc /scannow'.",
+          "Note those commands repair the system — run them when you can restart afterwards."
+        ],
+        "Bad": [
+          "The component store reports non-repairable corruption. Back up your files, then use an in-place repair install of Windows (run setup.exe from a Windows ISO and choose 'Keep personal files and apps')."
+        ]
+      }
+    }
+  ]
+}

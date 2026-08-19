@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PcHealth.App.Worker;
 using PcHealth.Core.Consent;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
@@ -19,7 +20,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private static readonly Lazy<VerdictEngine> Engine = new(() => new VerdictEngine(RulesLoader.LoadEmbedded()));
 
     private readonly ConsentStore _consentStore = new();
+    private readonly bool _alreadyElevated = Elevation.IsElevated();
     private CancellationTokenSource? _scanCts;
+    private string? _elevationNote;
 
     public ObservableCollection<ModuleRowViewModel> Modules { get; } = [];
     public ObservableCollection<CategoryCardViewModel> CategoryCards { get; } = [];
@@ -58,8 +61,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var admin = selected.Count(m => m.Manifest.NeedsAdmin);
         var writes = selected.Count(m => m.Manifest.Writes is not null);
         var internet = selected.Count(m => m.Manifest.NeedsInternet);
+        var adminNote = admin == 0 ? ""
+            : _alreadyElevated ? " (already running as admin — no prompt)"
+            : " (one UAC prompt)";
         SummaryLine = $"{selected.Count} of {Modules.Count} checks selected — " +
-                      $"{admin} need admin{(admin > 0 ? " (one UAC prompt)" : "")}, " +
+                      $"{admin} need admin{adminNote}, " +
                       $"{writes} write a temp file, {internet} use the internet.";
         ScanCommand.NotifyCanExecuteChanged();
     }
@@ -82,12 +88,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task ScanAsync()
     {
         var selected = Modules.Where(m => m.IsSelected).Select(m => m.Module).ToList();
+        // When the app is already running elevated there is nothing to escalate to:
+        // everything runs in-process and the user sees no prompt at all.
+        var localModules = _alreadyElevated ? selected : [.. selected.Where(m => !m.Manifest.NeedsAdmin)];
+        var adminModules = _alreadyElevated ? [] : selected.Where(m => m.Manifest.NeedsAdmin).ToList();
         PersistConsent();
 
         IsScanning = true;
         HasResults = false;
         CategoryCards.Clear();
         ReceiptLines.Clear();
+        _elevationNote = null;
         _scanCts = new CancellationTokenSource();
 
         try
@@ -99,7 +110,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 Receipt = receipt,
                 AppTempDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PcHealthCheck", "temp"),
-                IsElevated = Elevation.IsElevated(),
+                IsElevated = _alreadyElevated,
                 ScanStartedAt = DateTimeOffset.Now,
             };
             var progress = new Progress<ScanProgress>(p =>
@@ -107,11 +118,38 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var orchestrator = new ScanOrchestrator(Engine.Value);
             var ct = _scanCts.Token;
-            var report = await Task.Run(() => orchestrator.RunAsync(selected, context, progress, ct), ct);
+
+            var results = new List<ModuleResult>(
+                await Task.Run(() => orchestrator.RunModulesAsync(localModules, context, progress, ct), ct));
+            var receiptEntries = new List<ReceiptEntry>(receipt.Snapshot());
+            var ranElevated = _alreadyElevated;
+
+            if (adminModules.Count > 0)
+            {
+                ProgressText = "Waiting for your approval of the Windows administrator prompt…";
+                var adminProgress = new Progress<ScanProgress>(p =>
+                    ProgressText = $"Administrator checks [{p.Index}/{p.Total}] {p.ModuleName}…");
+
+                var outcome = await new ElevatedWorkerSession()
+                    .RunAsync([.. adminModules.Select(m => m.Manifest.Id)], adminProgress, ct);
+
+                results.AddRange(outcome.Results);
+                receiptEntries.AddRange(outcome.Receipt);
+                ranElevated = outcome.Status == ElevatedScanStatus.Completed && outcome.Results.Count > 0;
+                _elevationNote = outcome.Message;
+                if (outcome.RejectedModuleIds.Count > 0)
+                {
+                    _elevationNote = (_elevationNote is null ? "" : _elevationNote + " ") +
+                        $"The helper refused unrecognized checks: {string.Join(", ", outcome.RejectedModuleIds)}.";
+                }
+            }
+
+            var names = selected.ToDictionary(m => m.Manifest.Id, m => m.Manifest.Name, StringComparer.Ordinal);
+            var report = orchestrator.BuildReport(results, receiptEntries, ranElevated, names);
 
             PresentReport(report);
             ProgressText = $"Scan finished {report.GeneratedAt:HH:mm:ss} — overall: {GradeVisuals.Label(report.OverallGrade)}. " +
-                           "Export the report below, or re-run anytime.";
+                           (_elevationNote is null ? "Export the report below, or re-run anytime." : _elevationNote);
         }
         catch (OperationCanceledException)
         {
@@ -178,6 +216,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             });
         }
         if (ReceiptLines.Count == 0) ReceiptLines.Add("No external processes were run and no files were written.");
+        if (_elevationNote is not null) ReceiptLines.Add($"Administrator checks: {_elevationNote}");
+        ReceiptLines.Add(report.RanElevated
+            ? "Administrator checks ran in a separate helper process that exited when the scan finished."
+            : "This scan used no administrator rights.");
         ReceiptLines.Add("Network connections made by PcHealthCheck: 0 (the app contains no network code).");
 
         HasResults = true;

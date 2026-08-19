@@ -1,3 +1,4 @@
+using PcHealth.App.Worker;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Orchestration;
 using PcHealth.Core.Processes;
@@ -9,10 +10,12 @@ using PcHealth.Modules.Windows.Support;
 namespace PcHealth.App;
 
 /// <summary>
-/// Developer/automation mode: `PcHealthCheck --headless-scan [--out DIR]` runs every
-/// module without the UI and writes the HTML+JSON report to DIR (default: current dir).
-/// Same engine, same receipts, same offline behavior as the GUI — used for end-to-end
-/// verification and future CI smoke tests.
+/// Developer/automation mode:
+///   PcHealthCheck --headless-scan [--out DIR] [--include-admin]
+/// Runs the modules without the UI and writes HTML+JSON reports to DIR.
+/// Without --include-admin only the unelevated modules run (no UAC prompt); with it,
+/// admin modules run in-process when already elevated, otherwise through the same
+/// elevated worker the GUI uses, which raises exactly one UAC prompt.
 /// </summary>
 internal static class HeadlessScan
 {
@@ -23,6 +26,18 @@ internal static class HeadlessScan
         if (outIndex >= 0 && outIndex + 1 < args.Length) outDir = args[outIndex + 1];
         Directory.CreateDirectory(outDir);
 
+        var includeAdmin = args.Contains("--include-admin");
+        var alreadyElevated = Elevation.IsElevated();
+
+        var allModules = new WindowsModuleProvider().CreateModules();
+        var localModules = (alreadyElevated && includeAdmin
+                ? allModules
+                : allModules.Where(m => !m.Manifest.NeedsAdmin))
+            .ToList();
+        var adminModules = includeAdmin && !alreadyElevated
+            ? allModules.Where(m => m.Manifest.NeedsAdmin).ToList()
+            : [];
+
         var receipt = new ReceiptLog();
         var context = new ModuleContext
         {
@@ -30,14 +45,35 @@ internal static class HeadlessScan
             Receipt = receipt,
             AppTempDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PcHealthCheck", "temp"),
-            IsElevated = Elevation.IsElevated(),
+            IsElevated = alreadyElevated,
         };
 
-        var modules = new WindowsModuleProvider().CreateModules();
         var orchestrator = new ScanOrchestrator(new VerdictEngine(RulesLoader.LoadEmbedded()));
         var progress = new Progress<ScanProgress>(p => Console.WriteLine($"[{p.Index}/{p.Total}] {p.ModuleName} — {p.Message}"));
 
-        var report = await orchestrator.RunAsync(modules, context, progress, CancellationToken.None);
+        var results = new List<ModuleResult>(
+            await orchestrator.RunModulesAsync(localModules, context, progress, CancellationToken.None));
+        var receiptEntries = new List<ReceiptEntry>(receipt.Snapshot());
+        var ranElevated = alreadyElevated;
+
+        if (adminModules.Count > 0)
+        {
+            Console.WriteLine("Requesting administrator rights for the admin checks (one UAC prompt)…");
+            var adminProgress = new Progress<ScanProgress>(p => Console.WriteLine($"[admin {p.Index}/{p.Total}] {p.ModuleName} — {p.Message}"));
+            var outcome = await new ElevatedWorkerSession()
+                .RunAsync([.. adminModules.Select(m => m.Manifest.Id)], adminProgress, CancellationToken.None);
+
+            Console.WriteLine($"Elevated helper: {outcome.Status}{(outcome.Message is null ? "" : $" — {outcome.Message}")}");
+            if (outcome.RejectedModuleIds.Count > 0)
+                Console.WriteLine($"Rejected by helper: {string.Join(", ", outcome.RejectedModuleIds)}");
+
+            results.AddRange(outcome.Results);
+            receiptEntries.AddRange(outcome.Receipt);
+            ranElevated = outcome.Status == ElevatedScanStatus.Completed && outcome.Results.Count > 0;
+        }
+
+        var names = allModules.ToDictionary(m => m.Manifest.Id, m => m.Manifest.Name, StringComparer.Ordinal);
+        var report = orchestrator.BuildReport(results, receiptEntries, ranElevated, names);
 
         var htmlPath = Path.Combine(outDir, "pc-health-report.html");
         var jsonPath = Path.Combine(outDir, "pc-health-report.json");
@@ -45,7 +81,7 @@ internal static class HeadlessScan
         JsonReportExporter.WriteTo(report, jsonPath);
 
         Console.WriteLine();
-        Console.WriteLine($"Overall: {report.OverallGrade}");
+        Console.WriteLine($"Overall: {report.OverallGrade}{(report.RanElevated ? " (elevated scan)" : "")}");
         foreach (var (category, grade) in report.CategoryGrades.OrderBy(kv => kv.Key))
             Console.WriteLine($"  {category}: {grade}");
         Console.WriteLine();

@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PcHealth.Core\PcHealth.Core.csproj" />
+    <ProjectReference Include="..\..\src\PcHealth.Ipc\PcHealth.Ipc.csproj" />
     <ProjectReference Include="..\..\src\PcHealth.Modules.Windows\PcHealth.Modules.Windows.csproj" />
   </ItemGroup>
 

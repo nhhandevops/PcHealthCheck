@@ -1,0 +1,100 @@
+{
+  "rules": [
+    {
+      "id": "rule.platform.tpm",
+      "metricId": "security.tpm_ready",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": [
+          "No ready TPM. If this PC has one, enable it in the BIOS/UEFI (look for 'TPM', 'PTT' on Intel, or 'fTPM' on AMD).",
+          "Without a TPM you cannot run Windows 11 and drive encryption is weaker."
+        ]
+      }
+    },
+    {
+      "id": "rule.platform.secure-boot",
+      "metricId": "security.secure_boot",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": [
+          "Secure Boot is off, so tampered boot code would not be blocked. Enable it in BIOS/UEFI — but note that switching a system installed in legacy BIOS mode requires converting the disk first (MBR2GPT), so research before changing it."
+        ]
+      }
+    },
+    {
+      "id": "rule.platform.encryption",
+      "metricId": "security.drive_encrypted",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": [
+          "This drive is not encrypted: anyone who removes it can read every file, no password needed. That matters most for laptops and any PC that leaves your home.",
+          "Turn on BitLocker (Pro editions) or Device Encryption (Home) — and SAVE THE RECOVERY KEY somewhere outside this PC before you start."
+        ]
+      },
+      "forecast": "Unencrypted drives are the most common way personal data is stolen from lost or discarded computers."
+    },
+    {
+      "id": "rule.backup.any",
+      "metricId": "backup.any_protection",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Bad", "eq": false }
+      ],
+      "tips": {
+        "Bad": [
+          "Nothing is backing up your personal files. Set up a backup today — this is the single most valuable thing on this whole report.",
+          "Simplest option: plug in an external drive and turn on File History (Control Panel > File History), or turn on OneDrive folder backup for Desktop/Documents/Pictures.",
+          "Aim for the 3-2-1 rule: 3 copies of anything you care about, on 2 different kinds of media, with 1 copy kept off-site or in the cloud."
+        ]
+      },
+      "forecast": "Every drive eventually fails, and ransomware targets whatever it can reach. A backup is the only defence that works after the fact."
+    },
+    {
+      "id": "rule.backup.restore-points",
+      "metricId": "backup.restore_points",
+      "bands": [
+        { "grade": "Good", "gte": 1 },
+        { "grade": "Normal", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "No system restore points exist, so you cannot roll back a bad driver or update. Turn on System Protection for the Windows drive (Control Panel > System > System Protection) and create one now.",
+          "Restore points protect Windows settings — they do NOT back up your documents."
+        ]
+      }
+    },
+    {
+      "id": "rule.backup.restore-age",
+      "metricId": "backup.restore_point_age_days",
+      "bands": [
+        { "grade": "Good", "lte": 60 },
+        { "grade": "Normal", "always": true }
+      ],
+      "tips": {
+        "Normal": ["Your newest restore point is old. Create a fresh one before installing drivers or major updates (search 'Create a restore point' in Start)."]
+      }
+    },
+    {
+      "id": "rule.backup.file-history",
+      "metricId": "backup.file_history",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": [
+          "File History is off. With an external drive connected, it keeps automatic versioned copies of your libraries — the easiest real backup on Windows (Control Panel > File History)."
+        ]
+      }
+    }
+  ]
+}

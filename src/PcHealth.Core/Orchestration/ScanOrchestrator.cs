@@ -12,36 +12,35 @@ namespace PcHealth.Core.Orchestration;
 public sealed record ScanProgress(string ModuleId, string ModuleName, int Index, int Total, string Message);
 
 /// <summary>
-/// Runs the consented modules sequentially, grades every metric, and assembles the report.
-/// Only modules explicitly passed in are run — consent is decided by the caller (UI).
+/// Runs consented modules and assembles the graded report. Running and reporting are
+/// separate steps so results gathered in another process (the elevated worker) can be
+/// merged in before grading — one verdict engine decides everything, in one place.
 /// </summary>
 public sealed class ScanOrchestrator(VerdictEngine engine)
 {
-    public async Task<ScanReport> RunAsync(
-        IReadOnlyList<IHealthModule> consentedModules,
+    /// <summary>Runs the given modules in this process, sequentially.</summary>
+    public async Task<IReadOnlyList<ModuleResult>> RunModulesAsync(
+        IReadOnlyList<IHealthModule> modules,
         ModuleContext context,
         IProgress<ScanProgress>? progress = null,
         CancellationToken ct = default)
     {
-        var summaries = new List<ModuleRunSummary>();
-        var allMetrics = new List<Metric>();
-
-        for (var i = 0; i < consentedModules.Count; i++)
+        var results = new List<ModuleResult>();
+        for (var i = 0; i < modules.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
-            var module = consentedModules[i];
+            var module = modules[i];
             var manifest = module.Manifest;
-            progress?.Report(new ScanProgress(manifest.Id, manifest.Name, i + 1, consentedModules.Count, "running"));
+            progress?.Report(new ScanProgress(manifest.Id, manifest.Name, i + 1, modules.Count, "running"));
 
             var stopwatch = Stopwatch.StartNew();
-            ModuleResult result;
             try
             {
                 var moduleProgress = progress is null
                     ? null
                     : new Progress<ModuleProgress>(p =>
-                        progress.Report(new ScanProgress(manifest.Id, manifest.Name, i + 1, consentedModules.Count, p.Message)));
-                result = await module.RunAsync(context, moduleProgress, ct).ConfigureAwait(false);
+                        progress.Report(new ScanProgress(manifest.Id, manifest.Name, i + 1, modules.Count, p.Message)));
+                results.Add(await module.RunAsync(context, moduleProgress, ct).ConfigureAwait(false));
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -49,23 +48,37 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
             }
             catch (Exception e)
             {
-                result = new ModuleResult
+                results.Add(new ModuleResult
                 {
                     ModuleId = manifest.Id,
                     Status = ModuleStatus.Failed,
                     Error = $"{e.GetType().Name}: {e.Message}",
-                };
+                    Elapsed = stopwatch.Elapsed,
+                });
             }
-            stopwatch.Stop();
-
-            summaries.Add(new ModuleRunSummary(
-                manifest.Id, manifest.Name, result.Status,
-                result.Elapsed == TimeSpan.Zero ? stopwatch.Elapsed : result.Elapsed,
-                result.Error, result.Notes));
-            allMetrics.AddRange(result.Metrics);
         }
+        return results;
+    }
 
-        var verdicts = engine.Evaluate(allMetrics);
+    /// <summary>Grades every gathered metric and assembles the final report.</summary>
+    public ScanReport BuildReport(
+        IEnumerable<ModuleResult> results,
+        IEnumerable<ReceiptEntry> receipt,
+        bool ranElevated,
+        IReadOnlyDictionary<string, string>? moduleNames = null)
+    {
+        var resultList = results.ToList();
+        var summaries = resultList
+            .Select(r => new ModuleRunSummary(
+                r.ModuleId,
+                moduleNames?.GetValueOrDefault(r.ModuleId) ?? r.ModuleId,
+                r.Status,
+                r.Elapsed,
+                r.Error,
+                r.Notes))
+            .ToList();
+
+        var verdicts = engine.Evaluate(resultList.SelectMany(r => r.Metrics));
         var categoryGrades = ScanReport.ComputeCategoryGrades(verdicts);
 
         return new ScanReport
@@ -74,12 +87,24 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
             MachineName = Environment.MachineName,
             OsDescription = RuntimeInformation.OSDescription,
             AppVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "dev",
-            RanElevated = context.IsElevated,
+            RanElevated = ranElevated,
             Modules = summaries,
             Verdicts = verdicts,
-            Receipt = context.Receipt.Snapshot(),
+            Receipt = [.. receipt],
             CategoryGrades = categoryGrades,
             OverallGrade = ScanReport.Worst(categoryGrades.Values),
         };
+    }
+
+    /// <summary>Convenience for single-process scans: run the modules, then build the report.</summary>
+    public async Task<ScanReport> RunAsync(
+        IReadOnlyList<IHealthModule> modules,
+        ModuleContext context,
+        IProgress<ScanProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        var results = await RunModulesAsync(modules, context, progress, ct).ConfigureAwait(false);
+        var names = modules.ToDictionary(m => m.Manifest.Id, m => m.Manifest.Name, StringComparer.Ordinal);
+        return BuildReport(results, context.Receipt.Snapshot(), context.IsElevated, names);
     }
 }
