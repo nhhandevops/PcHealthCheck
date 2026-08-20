@@ -22,6 +22,12 @@
     <ProjectReference Include="..\PcHealth.Core\PcHealth.Core.csproj" />
     <ProjectReference Include="..\PcHealth.Ipc\PcHealth.Ipc.csproj" />
     <ProjectReference Include="..\PcHealth.Modules.Windows\PcHealth.Modules.Windows.csproj" />
+    <!--
+      The opt-in internet assembly. Referencing it does not make the app phone home:
+      nothing in it runs until the user starts a reputation lookup and supplies their own
+      API key, and every request it makes is counted in NetworkActivityLog for the receipt.
+    -->
+    <ProjectReference Include="..\PcHealth.Net.Optional\PcHealth.Net.Optional.csproj" />
   </ItemGroup>
 
   <!--

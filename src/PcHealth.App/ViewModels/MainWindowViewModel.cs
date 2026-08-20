@@ -15,6 +15,7 @@ using PcHealth.Core.Reporting;
 using PcHealth.Core.Verdicts;
 using PcHealth.Modules.Windows;
 using PcHealth.Modules.Windows.Support;
+using PcHealth.Net.Optional;
 
 namespace PcHealth.App.ViewModels;
 
@@ -48,7 +49,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand), nameof(CancelScanCommand), nameof(DeleteHistoryCommand),
-        nameof(RunQuickScanCommand), nameof(ScanFolderCommand))]
+        nameof(RunQuickScanCommand), nameof(ScanFolderCommand), nameof(CheckReputationCommand))]
     private bool _isScanning;
 
     private bool IsNotScanning() => !IsScanning;
@@ -294,7 +295,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ReceiptLines.Add(report.RanElevated
             ? "Administrator checks ran in a separate helper process that exited when the scan finished."
             : "This scan used no administrator rights.");
-        ReceiptLines.Add("Network connections made by PcHealthCheck: 0 (the app contains no network code).");
+        // The claim has to keep pace with the app: an opt-in lookup now exists, so state the
+        // counted number rather than an absolute that a future feature could quietly falsify.
+        ReceiptLines.Add("Network connections made by this scan: 0 — no check in this app contains network code.");
+        ReceiptLines.Add(NetworkActivityLog.Count == 0
+            ? "Internet lookups you have started this session: 0."
+            : $"Internet lookups you have started this session: {NetworkActivityLog.Count} " +
+              $"(to {string.Join(", ", NetworkActivityLog.Snapshot().Select(r => r.Host).Distinct(StringComparer.OrdinalIgnoreCase))}).");
 
         HasResults = true;
     }

@@ -168,7 +168,13 @@ public static class HtmlReportExporter
             sb.Append("<tr><td colspan=\"3\">No external processes were run and no files were written.</td></tr>\n");
         }
         sb.Append("</table></div>\n");
-        sb.Append("<p><strong>Network connections made by PcHealthCheck during this scan: 0.</strong> The app has no telemetry, no crash reporting, and no phone-home — ever.</p>\n");
+        // Scoped to the scan on purpose, and true by construction: no check in this app
+        // contains network code. The one opt-in lookup lives outside scans entirely, and
+        // saying so here is better than a blanket claim a later feature could falsify.
+        sb.Append("<p><strong>Network connections made by PcHealthCheck during this scan: 0.</strong> " +
+                  "No check in this app contains network code. The app has no telemetry, no crash reporting, " +
+                  "and no phone-home — ever. Its one internet feature, the optional VirusTotal second opinion, " +
+                  "runs only when you start it with your own API key, and is not part of any scan or report.</p>\n");
 
         sb.Append("""
             <div class="footer">

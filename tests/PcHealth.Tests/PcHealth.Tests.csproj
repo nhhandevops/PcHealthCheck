@@ -9,6 +9,7 @@
     <ProjectReference Include="..\..\src\PcHealth.Core\PcHealth.Core.csproj" />
     <ProjectReference Include="..\..\src\PcHealth.Ipc\PcHealth.Ipc.csproj" />
     <ProjectReference Include="..\..\src\PcHealth.Modules.Windows\PcHealth.Modules.Windows.csproj" />
+    <ProjectReference Include="..\..\src\PcHealth.Net.Optional\PcHealth.Net.Optional.csproj" />
     <!--
       WorkerProtocolTests launches the real PcHealthCheck.exe. Referencing the app project
       (without importing its assets) guarantees the exe under test is rebuilt with the rest

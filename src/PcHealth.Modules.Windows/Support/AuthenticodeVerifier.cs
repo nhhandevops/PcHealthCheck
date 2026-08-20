@@ -9,7 +9,7 @@ namespace PcHealth.Modules.Windows.Support;
 /// from the internet for every startup binary we inspect. Online revocation checking, if
 /// ever offered, is a separately consented feature.
 /// </summary>
-internal static partial class AuthenticodeVerifier
+public static partial class AuthenticodeVerifier
 {
     public enum SignatureState
     {

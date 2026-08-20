@@ -55,6 +55,21 @@
               </StackPanel>
               <TextBlock Text="{Binding MalwareScanStatus}" IsVisible="{Binding HasMalwareScanStatus}"
                          TextWrapping="Wrap" FontSize="12" MaxWidth="380" />
+
+              <!-- The only internet feature in the app. Off unless the user supplies their
+                   own key, and the consent dialog lists every fingerprint before sending. -->
+              <Expander Header="Second opinion from VirusTotal (uses the internet)" FontSize="12">
+                <StackPanel Spacing="6" Margin="0,6,0,0">
+                  <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" MaxWidth="370"
+                             Text="Asks about 70 antivirus engines about your startup programs. Only a SHA-256 fingerprint of each file is sent — never the file. Needs your own free API key from virustotal.com; it is kept in memory for this session and never written to disk." />
+                  <TextBox Text="{Binding VirusTotalApiKey}" PlaceholderText="Paste your VirusTotal API key"
+                           PasswordChar="•" FontSize="12" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Check startup items…" Command="{Binding CheckReputationCommand}" FontSize="12" />
+                    <Button Content="Stop" Command="{Binding CancelReputationCheckCommand}" FontSize="12" />
+                  </StackPanel>
+                </StackPanel>
+              </Expander>
             </StackPanel>
           </Border>
 
@@ -162,6 +177,32 @@
                               </DataTemplate>
                             </ItemsControl.ItemTemplate>
                           </ItemsControl>
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border IsVisible="{Binding HasReputationResults}" BorderBrush="#40808080" BorderThickness="1"
+                    CornerRadius="10" Padding="14,10" Margin="0,0,6,0">
+              <StackPanel Spacing="8">
+                <TextBlock Text="Second opinion — VirusTotal" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding ReputationHeadline}" TextWrapping="Wrap" FontSize="12" MaxWidth="700" />
+                <ItemsControl ItemsSource="{Binding ReputationResults}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ReputationRowViewModel">
+                      <Grid ColumnDefinitions="120,*" Margin="0,4,0,4">
+                        <Border Grid.Column="0" Background="{Binding Brush}" CornerRadius="6"
+                                Padding="6,2" VerticalAlignment="Top" HorizontalAlignment="Left">
+                          <TextBlock Text="{Binding Label}" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="2">
+                          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                          <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="12" MaxWidth="640" Opacity="0.85" />
+                          <TextBlock Text="{Binding Fingerprint}" FontFamily="Consolas,Courier New,monospace"
+                                     FontSize="10" Opacity="0.5" TextWrapping="Wrap" MaxWidth="640" />
                         </StackPanel>
                       </Grid>
                     </DataTemplate>
