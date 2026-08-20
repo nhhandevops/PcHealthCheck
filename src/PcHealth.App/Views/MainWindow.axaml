@@ -105,6 +105,15 @@
             <TextBlock IsVisible="{Binding !HasResults}" Opacity="0.6" Margin="4,20,0,0"
                        Text="Results appear here after a scan. Start by pressing 'Select recommended', then 'Scan now'." />
 
+            <Border IsVisible="{Binding HasIncompleteChecks}" Background="#20b8860b"
+                    BorderBrush="#80b8860b" BorderThickness="1" CornerRadius="8"
+                    Padding="12,10" Margin="0,0,6,0">
+              <StackPanel Spacing="4">
+                <TextBlock Text="Some checks could not finish" FontWeight="SemiBold" FontSize="13" />
+                <TextBlock Text="{Binding IncompleteChecksText}" TextWrapping="Wrap" FontSize="12" Opacity="0.85" />
+              </StackPanel>
+            </Border>
+
             <!-- What changed since last time: the signal a single snapshot cannot give. -->
             <Border IsVisible="{Binding HasResults}" BorderBrush="#40808080" BorderThickness="1"
                     CornerRadius="10" Padding="14,10" Margin="0,0,6,0">

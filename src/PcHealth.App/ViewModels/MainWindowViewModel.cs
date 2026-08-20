@@ -55,6 +55,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _progressText = "Select the checks you consent to, then press Scan. Nothing runs without your selection.";
     [ObservableProperty] private bool _hasResults;
     [ObservableProperty] private string _summaryLine = "";
+    [ObservableProperty] private bool _hasIncompleteChecks;
+    [ObservableProperty] private string _incompleteChecksText = "";
     [ObservableProperty] private string _overallLabel = "";
     [ObservableProperty] private IBrush _overallBrush = Brushes.Gray;
 
@@ -239,6 +241,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         LastReport = report;
         OverallLabel = GradeVisuals.Label(report.OverallGrade);
         OverallBrush = GradeVisuals.Brush(report.OverallGrade);
+
+        // A check that could not finish must never read as "nothing wrong here".
+        var incomplete = report.Modules
+            .Where(m => m.Status is ModuleStatus.Failed or ModuleStatus.PartiallyCompleted)
+            .ToList();
+        HasIncompleteChecks = incomplete.Count > 0;
+        IncompleteChecksText = incomplete.Count == 0
+            ? ""
+            : "These results are missing, which is not the same as being healthy — " +
+              string.Join("; ", incomplete.Select(m =>
+                  $"{m.ModuleName}: {m.Error ?? (m.Notes.Count > 0 ? m.Notes[0] : "no reason given")}"));
 
         Trends.Clear();
         foreach (var trend in report.Trends.OrderBy(t => t.Grade switch { Grade.Bad => 0, Grade.Normal => 1, _ => 2 }))

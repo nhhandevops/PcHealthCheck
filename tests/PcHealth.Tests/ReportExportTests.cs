@@ -103,6 +103,37 @@ public class ReportExportTests
     }
 
     [Fact]
+    public void Checks_that_could_not_finish_are_called_out_before_the_results()
+    {
+        // The dangerous failure mode: a check silently drops out, and its absence reads
+        // as "nothing wrong here". The report must say so, above the findings.
+        var report = Report() with
+        {
+            Modules =
+            [
+                new ModuleRunSummary("malware.defender", "Malware history & defences",
+                    ModuleStatus.PartiallyCompleted, TimeSpan.FromSeconds(1), null,
+                    ["Threat history could not be read"]),
+                new ModuleRunSummary("volumes", "Volumes", ModuleStatus.Completed, TimeSpan.Zero, null, []),
+            ],
+        };
+
+        var html = HtmlReportExporter.ToHtml(report);
+
+        Assert.Contains("Some checks could not finish", html, StringComparison.Ordinal);
+        Assert.Contains("Malware history &amp; defences", html, StringComparison.Ordinal);
+        Assert.Contains("Threat history could not be read", html, StringComparison.Ordinal);
+        Assert.Contains("not the same as being healthy", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_fully_successful_scan_shows_no_incomplete_warning()
+    {
+        var html = HtmlReportExporter.ToHtml(Report());
+        Assert.DoesNotContain("Some checks could not finish", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Json_export_round_trips_the_report()
     {
         var trend = new TrendFinding(

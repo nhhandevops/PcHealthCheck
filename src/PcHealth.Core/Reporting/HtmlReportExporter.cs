@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using PcHealth.Core.Metrics;
+using PcHealth.Core.Modules;
 using PcHealth.Core.Processes;
 
 namespace PcHealth.Core.Reporting;
@@ -65,6 +66,24 @@ public static class HtmlReportExporter
             sb.Append(CultureInfo.InvariantCulture, $"<div class=\"card\"><div class=\"cat\">{E(CategoryLabel(category))}</div><div class=\"grade\">{GradeChip(grade)}</div></div>\n");
         }
         sb.Append("</div>\n");
+
+        // Absence of data is not absence of problems: a check that could not finish must
+        // never be read as "nothing wrong here", so it is called out before the results.
+        var incomplete = report.Modules
+            .Where(m => m.Status is ModuleStatus.Failed or ModuleStatus.PartiallyCompleted)
+            .ToList();
+        if (incomplete.Count > 0)
+        {
+            sb.Append("<div class=\"card\" style=\"border-left:4px solid #b8860b;margin:16px 0\">");
+            sb.Append("<strong>Some checks could not finish.</strong> Their results are missing from this report — " +
+                      "that is not the same as being healthy:<ul class=\"tips\">");
+            foreach (var module in incomplete)
+            {
+                var why = module.Error ?? (module.Notes.Count > 0 ? string.Join("; ", module.Notes) : "no reason given");
+                sb.Append(CultureInfo.InvariantCulture, $"<li><strong>{E(module.ModuleName)}</strong> — {E(why)}</li>");
+            }
+            sb.Append("</ul></div>\n");
+        }
 
         if (report.Trends.Count > 0)
         {
