@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-08-20** (commit `32bae61`, 121 tests passing, Release builds clean with `-warnaserror`).
+Snapshot for continuing work on another machine. Last updated: **2026-08-20** (commit `6ce2fe3`, 162 tests passing, Release builds clean with `-warnaserror`).
 
 ## What this is
 
@@ -16,7 +16,7 @@ An offline-by-default, read-only-by-default Windows PC health auditor (.NET 10 +
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 121 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 162 tests; WorkerProtocolTests launch the real exe
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
 ```
@@ -32,8 +32,9 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | M3 part 1 — sensors via LibreHardwareMonitorLib 0.9.6 (`LoadsDriver` capability, per-device airflow check) | ✅ done |
 | Dependency manager — consented installs (command shown), safe exit removal, 15-day text history | ✅ done |
 | M4 part 1 — malware history (`malware.defender`) + network integrity (`network.health`) | ✅ done |
-| **M4 part 2 — on-demand Defender scan, ClamAV via the dependency manager, opt-in VirusTotal hash lookups** | ⬜ next |
-| M3 part 2 — benchmarks (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ⬜ |
+| M4 part 2 — on-demand Defender quick/folder scans + opt-in VirusTotal reputation lookups | ✅ done |
+| **M3 part 2 — benchmarks** (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ⬜ next |
+| ClamAV second opinion | ⏸ deliberately on hold — see below |
 | Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
 | M5 — browser extensions, multi-user startup, localization (Vietnamese), Linux provider | ⬜ |
 
@@ -43,7 +44,7 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 - `PcHealth.Modules.Windows` — all Windows modules (WMI/CIM, EventLogReader, registry, P/Invoke). Locale-proof parsing only: provider+event-id, exit codes, typed objects — never localized strings.
 - `PcHealth.App` — Avalonia UI (`asInvoker`, never self-elevates) + `--worker` elevated helper. Trust boundary: the worker only runs `NeedsAdmin` modules from its own compiled-in registry; write/driver actions get the worker's own confirmation dialog.
 - `PcHealth.Ipc` — length-prefixed JSON pipe protocol between UI and worker.
-- `PcHealth.Net.Optional` — the ONLY assembly allowed to reference `System.Net` (CI gate enforces; even comments count). Still a placeholder until the VirusTotal module lands.
+- `PcHealth.Net.Optional` — the ONLY assembly allowed to reference `System.Net` (CI gate enforces; even comments count). Holds the VirusTotal client and `NetworkActivityLog`, which counts every request the app makes so the receipt can report a checked number instead of a promise.
 
 ## Non-obvious rules that must survive
 
@@ -55,6 +56,17 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 6. Locale analyzers are errors on purpose; this app parses tool output and must behave identically on Vietnamese/German/English Windows.
 7. **A check that could not finish must never read as a clean one.** A module whose query fails returns `PartiallyCompleted`, and both the HTML report and the UI print "Some checks could not finish… that is not the same as being healthy" *above* the results. Locked by `ReportExportTests`, in both directions — the warning must appear when something broke and must NOT appear on a clean run.
 8. **Logic that only runs on an unhealthy PC needs unit tests, because a dev machine never executes it.** Keep such logic in a pure class taking plain records (`Security/ThreatAssessment.cs` is the pattern) so the WMI layer stays a thin adapter over tested code.
+9. **Privacy claims are code, not copy.** When a feature changes what the app can do, the claims move with it in the same commit: PRIVACY.md, the HTML report line, and the receipt. Prefer a counted number (`NetworkActivityLog.Count`) over an absolute a later feature could quietly falsify. "Network connections during this scan: 0" stays true by construction — no check contains network code — and the CI gate is what keeps it that way.
+10. **A cap must say what it dropped.** The VirusTotal lookup is capped at 20 files for the free tier, and the consent dialog states how many were left unchecked. Silent truncation reads as "everything was checked".
+
+## Why ClamAV is on hold
+
+The plan called for a bundled ClamAV as a third malware layer. Two things argue against it now, and it should not be added back without answering them:
+
+1. **It adds attack surface to an app whose promise is that running it cannot harm your data.** ClamAV 1.5.4 (the current winget build, `Cisco.ClamAV`) is itself a patch for five CVEs — heap and stack overflows in the ZIP, GPT and PESpin parsers, reachable *by scanning a malformed file*. Pointing a second parser at untrusted files is precisely the situation those bugs fire in.
+2. **The gap it filled is already covered.** The Defender folder scan runs with `-DisableRemediation`, which also makes it scan inside archives; the VirusTotal lookup covers ~70 engines, ClamAV among them. What is left is a weaker engine needing a ~150 MB signature download and a hand-written `freshclam.conf` in Program Files — a real system modification, beyond what the dependency manager was built to do.
+
+If it is added later, the honest shape is: catalog entry + consented `freshclam.conf` creation shown verbatim + `clamscan --recursive --infected` graded on exit code (0 clean / 1 found / 2 error), with the config file recorded in the ledger so removal cleans it up too.
 
 ## Bug log — two failures found only by running on real hardware
 
@@ -78,6 +90,12 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 - Multi-line git commit messages with quotes: write to a file, `git commit -F file` (PowerShell here-strings break).
 - xUnit here is v2: no `Assert.SkipWhen`.
 - CI (`.github/workflows/build.yml`) has never run yet — it activates on first push. It builds `-warnaserror`, runs tests, enforces the System.Net gate, publishes a single-file exe with SHA-256 checksums.
+
+## What M4 part 2 shipped
+
+- **On-demand Defender scans** via `MpCmdRun.exe` (found under the newest versioned platform folder — version-compare, never string sort). Quick scan `-Scan -ScanType 1`; folder scan `-Scan -ScanType 3 -File <path> -DisableRemediation`, which changes nothing *and* scans inside archives. Neither needs admin — measured on the dev PC: an unelevated quick scan took 130 s. Verdicts come from exit codes (0 clean, 2 found-or-incomplete, anything else = unknown and never clean) plus structured WMI records — never MpCmdRun's localized console text.
+- **VirusTotal reputation lookups** on startup items: least-trusted first, deduplicated by hash, capped at 20 with the skipped count stated in the consent dialog. The user's own API key, memory-only. `NetworkActivityLog` counts every request so the receipt reports a checked number rather than a promise.
+- `StartupInventory` extracted from `StartupModule` so the startup check and the reputation lookup grade the same list.
 
 ## Suggested next session
 
