@@ -9,10 +9,10 @@ namespace PcHealth.Modules.Windows.Modules;
 /// <summary>
 /// CPU/GPU temperatures, fan speeds and memory use, read through LibreHardwareMonitor.
 ///
-/// This is the one module that loads a kernel-level driver, which is why it declares
-/// LoadsDriver and is confirmed separately: reading motherboard and CPU sensors is not
-/// possible from user mode. Everything it does is still a read — it never sets a fan
-/// curve, voltage, or clock.
+/// This module declares LoadsDriver because processor and motherboard sensors are read
+/// through a kernel-level driver (PawnIO, installed separately by the user — this app
+/// never installs one). Graphics and memory need no driver. Everything is a read: it
+/// never sets a fan curve, voltage, or clock.
 /// </summary>
 internal sealed class SensorsModule : WindowsModuleBase
 {
@@ -23,7 +23,7 @@ internal sealed class SensorsModule : WindowsModuleBase
     {
         Id = "sensors",
         Name = "Temperatures & fans",
-        Description = "CPU and GPU temperatures, fan speeds and memory use. Loads a kernel-level driver, because motherboard sensors cannot be read any other way. Reads only — it never changes fan curves, clocks or voltages.",
+        Description = "CPU and GPU temperatures, fan speeds and memory use. Graphics and memory need no driver; processor and motherboard sensors additionally use the PawnIO kernel driver if you have installed it. Reads only — it never changes fan curves, clocks or voltages.",
         Reads = ["CPU/GPU/motherboard sensors (kernel driver)", "Memory usage"],
         NeedsAdmin = true,
         LoadsDriver = true,
@@ -162,9 +162,10 @@ internal sealed class SensorsModule : WindowsModuleBase
         }
         else
         {
-            notes.Add("No CPU temperature was readable. This normally means the sensor driver could not " +
-                      "attach to this chipset — a security product blocking driver loading is the usual cause. " +
-                      detectedHardwareNote);
+            notes.Add(Ring0Driver.IsPawnIoInstalled()
+                ? "No CPU temperature was readable even though the low-level driver is installed — this " +
+                  $"chipset may not be supported. {detectedHardwareNote}"
+                : Ring0Driver.MissingDriverAdvice);
         }
 
         AddGpuTemperature(gpuTemperatures, "GPU Core", "gpu.temperature_c", "GPU temperature", metrics);

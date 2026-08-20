@@ -153,12 +153,13 @@ internal static partial class WorkerHost
     {
         var names = string.Join(", ", modules.Select(m => m.Manifest.Name));
         var text =
-            $"To read {names}, PC Health Check needs to load a kernel-level driver.\n\n" +
-            "This is the only part of the app that changes anything on your system, which is " +
-            "why it asks separately. The driver only reads sensor values — it does not change " +
-            "fan speeds, clocks or voltages, and it stops when the scan finishes.\n\n" +
-            "Skipping this simply leaves temperature and fan readings out of the report.\n\n" +
-            "Load the sensor driver?";
+            $"{names} reads processor and motherboard sensors through a kernel-level driver.\n\n" +
+            "This app does not install any driver. It uses PawnIO — a separate, signed, " +
+            "open-source driver — only if you already have it installed. Graphics card and " +
+            "memory readings need no driver at all.\n\n" +
+            "Sensor values are only ever read: fan speeds, clock rates and voltages are never " +
+            "changed.\n\n" +
+            "Continue with the sensor check?";
         const uint MbYesNo = 0x00000004, MbIconQuestion = 0x00000020, MbTopMost = 0x00040000, MbSetForeground = 0x00010000;
         const int IdYes = 6;
         return MessageBoxW(IntPtr.Zero, text, "PC Health Check — sensor driver",
