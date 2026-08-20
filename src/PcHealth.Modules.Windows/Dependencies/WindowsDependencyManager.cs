@@ -45,7 +45,27 @@ public static class DependencyCatalog
         KnownConsumerProcesses: ["FanControl", "OpenRGB", "LibreHardwareMonitor"],
         IsInstalled: Ring0Driver.IsPawnIoInstalled);
 
-    public static IReadOnlyList<DependencyDefinition> All { get; } = [PawnIo];
+    /// <summary>
+    /// Microsoft's own disk benchmark (MIT). Offered rather than bundled: the user sees the
+    /// install command, it can be removed again at exit, and this repository stays free of
+    /// third-party binaries.
+    /// </summary>
+    public static DependencyDefinition DiskSpd { get; } = new(
+        Id: "diskspd",
+        Name: "DiskSpd disk benchmark",
+        Purpose: "Lets the Disk speed check measure how fast each drive actually reads, so a future slowdown " +
+                 "becomes visible. It is a single small command-line tool from Microsoft and runs read-only.",
+        InstallCommandDisplay: "winget install Microsoft.DiskSpd",
+        InstallFileName: "winget",
+        InstallArguments: "install Microsoft.DiskSpd --silent --accept-package-agreements --accept-source-agreements --disable-interactivity",
+        UninstallCommandDisplay: "winget uninstall Microsoft.DiskSpd",
+        UninstallFileName: "winget",
+        UninstallArguments: "uninstall Microsoft.DiskSpd --silent --disable-interactivity",
+        ReinstallHint: "winget install Microsoft.DiskSpd  (or download from github.com/microsoft/diskspd)",
+        KnownConsumerProcesses: ["diskspd", "CrystalDiskMark"],
+        IsInstalled: () => Benchmarks.DiskSpdRunner.Find() is not null);
+
+    public static IReadOnlyList<DependencyDefinition> All { get; } = [PawnIo, DiskSpd];
 }
 
 /// <summary>

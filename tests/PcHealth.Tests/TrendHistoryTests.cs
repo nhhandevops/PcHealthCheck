@@ -204,6 +204,83 @@ public sealed class TrendHistoryTests : IDisposable
         Assert.Equal(51.9, Math.Round(series[^1].Value, 1));     // and the newest reading too
     }
 
+    private static Metric Speed(double mbps) =>
+        new("bench.disk.seq_read_mbps", "Sequential read speed", mbps, HealthCategory.Performance,
+            Unit: "MB/s", Subject: "C: (CT1000P3PSSD8)");
+
+    [Fact]
+    public void A_drive_that_has_lost_a_third_of_its_speed_is_flagged_against_its_own_history()
+    {
+        // The whole reason for benchmarking: 2,000 MB/s means nothing on its own, but
+        // 2,000 on a drive that has always done 3,000 means something on any drive.
+        using var store = NewStore();
+        var start = DateTimeOffset.Now.AddDays(-60);
+        foreach (var (day, mbps) in new[] { (0, 3000d), (20, 3100d), (40, 2950d) })
+        {
+            store.RecordScan(start.AddDays(day), [Speed(mbps)]);
+        }
+
+        var finding = Assert.Single(TrendAnalyzer.Analyze([Speed(1900)], store));
+
+        Assert.Equal(TrendKind.PerformanceDrop, finding.Kind);
+        Assert.Equal(Grade.Normal, finding.Grade);
+        Assert.Equal(HealthCategory.Performance, finding.Category);
+        Assert.Contains("slower at reading long files", finding.Message, StringComparison.Ordinal);
+        Assert.Contains("Re-run the check on an idle PC", finding.Tips[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Half_speed_is_treated_as_a_real_problem_rather_than_a_busy_moment()
+    {
+        using var store = NewStore();
+        store.RecordScan(DateTimeOffset.Now.AddDays(-40), [Speed(3000)]);
+        store.RecordScan(DateTimeOffset.Now.AddDays(-20), [Speed(3000)]);
+
+        var finding = Assert.Single(TrendAnalyzer.Analyze([Speed(1200)], store));
+
+        Assert.Equal(Grade.Bad, finding.Grade);
+        Assert.Contains("BACK UP", finding.Tips[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_ordinary_slow_run_is_not_worth_alarming_anyone_about()
+    {
+        // A background update or antivirus scan easily costs 10-20%. Reporting that would
+        // teach the user to ignore this section.
+        using var store = NewStore();
+        store.RecordScan(DateTimeOffset.Now.AddDays(-40), [Speed(3000)]);
+        store.RecordScan(DateTimeOffset.Now.AddDays(-20), [Speed(3000)]);
+
+        Assert.Empty(TrendAnalyzer.Analyze([Speed(2550)], store));
+    }
+
+    [Fact]
+    public void One_earlier_reading_is_not_enough_to_call_something_a_regression()
+    {
+        // If that single run happened while the PC was busy, every later scan would report
+        // a phantom improvement-turned-regression against it.
+        using var store = NewStore();
+        store.RecordScan(DateTimeOffset.Now.AddDays(-20), [Speed(3000)]);
+
+        Assert.Empty(TrendAnalyzer.Analyze([Speed(1000)], store));
+    }
+
+    [Fact]
+    public void The_usual_speed_is_the_median_so_one_bad_day_cannot_move_the_baseline()
+    {
+        using var store = NewStore();
+        var start = DateTimeOffset.Now.AddDays(-60);
+        // One catastrophic run among four good ones must not drag the baseline down far
+        // enough to hide a genuine regression afterwards.
+        foreach (var (day, mbps) in new[] { (0, 3000d), (15, 3000d), (30, 200d), (45, 3000d) })
+        {
+            store.RecordScan(start.AddDays(day), [Speed(mbps)]);
+        }
+
+        var finding = Assert.Single(TrendAnalyzer.Analyze([Speed(1500)], store));
+        Assert.Contains("usual 3000", finding.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Service_analyzes_against_history_before_adding_the_current_scan()
     {

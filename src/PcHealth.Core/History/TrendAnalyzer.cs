@@ -10,6 +10,9 @@ public enum TrendKind
 
     /// <summary>A wear/capacity figure is heading somewhere, and we can say roughly when it arrives.</summary>
     Projection,
+
+    /// <summary>A benchmark has come back materially slower than this machine's own history.</summary>
+    PerformanceDrop,
 }
 
 public sealed record TrendFinding(
@@ -57,6 +60,24 @@ public static class TrendAnalyzer
         ["smart.ssd_percent_consumed"] = (100, "rated write endurance"),
     };
 
+    /// <summary>
+    /// Benchmarks judged against the machine's own past rather than any absolute number.
+    /// This is the whole point of measuring speed: "2,100 MB/s" means little on its own,
+    /// but "a third slower than this drive has always been" means something on any drive.
+    /// </summary>
+    private static readonly Dictionary<string, string> PerformanceWatchList = new(StringComparer.Ordinal)
+    {
+        ["bench.disk.seq_read_mbps"] = "reading long files",
+        ["bench.disk.rnd4k_read_mbps"] = "reading small scattered files",
+    };
+
+    /// <summary>Below this share of the usual figure, say something. Anything milder is noise:
+    /// a background update or an antivirus scan easily costs 10-20%.</summary>
+    private const double NoticeableDrop = 0.70;
+
+    /// <summary>Below this share, treat it as a real problem rather than a busy moment.</summary>
+    private const double SevereDrop = 0.50;
+
     /// <summary>Metrics that fall toward a limit (battery capacity heading for replacement territory).</summary>
     private static readonly Dictionary<string, (double Limit, string What)> FallingToLimit = new(StringComparer.Ordinal)
     {
@@ -94,6 +115,11 @@ public static class TrendAnalyzer
                 var finding = BuildProjection(metric, current, series, falling.Limit, falling.What, isRising: false);
                 if (finding is not null) findings.Add(finding);
             }
+            else if (PerformanceWatchList.TryGetValue(metric.Id, out var activity))
+            {
+                var finding = BuildPerformanceDrop(metric, current, series, activity);
+                if (finding is not null) findings.Add(finding);
+            }
         }
 
         return findings;
@@ -120,6 +146,55 @@ public static class TrendAnalyzer
                     : "Plan to replace the drive. Do not keep the only copy of anything on it.",
             ],
             Category: metric.Category);
+    }
+
+    /// <summary>
+    /// Compares against the median of every previous run, not the best or the first. The
+    /// best is whatever run got luckiest; the first is whatever the machine happened to be
+    /// doing that day. The median is the figure this drive actually delivers.
+    /// </summary>
+    private static TrendFinding? BuildPerformanceDrop(
+        Metric metric, double current, IReadOnlyList<Sample> series, string activity)
+    {
+        // One past reading is an anecdote — a single busy afternoon would raise a false
+        // alarm on every scan afterwards.
+        if (series.Count < 2) return null;
+
+        var usual = Median(series.Select(s => s.Value));
+        if (usual <= 0) return null;
+
+        var share = current / usual;
+        if (share >= NoticeableDrop) return null;
+
+        var slowerBy = (1 - share) * 100;
+        var grade = share < SevereDrop ? Grade.Bad : Grade.Normal;
+        var oldest = series[0];
+
+        var message =
+            $"{slowerBy.ToString("0", CultureInfo.InvariantCulture)}% slower at {activity} than this drive's usual " +
+            $"{Format(usual)} (median of {series.Count.ToString(CultureInfo.InvariantCulture)} earlier scans), " +
+            $"now {Format(current)}.";
+
+        return new TrendFinding(
+            TrendKind.PerformanceDrop, metric.Id, metric.Subject, metric.Label,
+            grade, message, usual, current, oldest.TakenAt,
+            Tips:
+            [
+                "Re-run the check on an idle PC before anything else — a backup, a game update or an antivirus scan running at the same time explains most sudden drops.",
+                "Check free space: a drive under about 10% free slows down noticeably, and an SSD more than a hard disk.",
+                grade == Grade.Bad
+                    ? "If it stays this slow when nothing else is running, BACK UP the drive and read the Storage section of this report — drives sometimes slow down before they fail."
+                    : "If it stays slightly slow, check for a loose SATA cable or, for NVMe, that the drive is still in a full-speed slot.",
+            ],
+            Category: metric.Category);
+    }
+
+    private static double Median(IEnumerable<double> values)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        if (sorted.Count == 0) return 0;
+        var middle = sorted.Count / 2;
+        return sorted.Count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
     }
 
     private static TrendFinding? BuildProjection(

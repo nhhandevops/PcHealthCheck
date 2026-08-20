@@ -28,6 +28,7 @@ public sealed class WindowsModuleProvider : IModuleProvider
         new CrashDumpModule(),
         new MalwareDefenderModule(),
         new NetworkHealthModule(),
+        new DiskSpeedModule(),
 
         // Requires the elevated worker (one UAC prompt, only if selected).
         new DiskSmartModule(),
