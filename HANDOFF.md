@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-08-20** (commit `d2e6e18`, 83 tests passing, Release builds clean with `-warnaserror`).
+Snapshot for continuing work on another machine. Last updated: **2026-08-20** (commit `32bae61`, 121 tests passing, Release builds clean with `-warnaserror`).
 
 ## What this is
 
@@ -16,7 +16,7 @@ An offline-by-default, read-only-by-default Windows PC health auditor (.NET 10 +
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 83 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 121 tests; WorkerProtocolTests launch the real exe
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
 ```
@@ -31,8 +31,10 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | M2.5 — SQLite trend history: growth on failure counters ⇒ Bad, wear/battery projections after 14+ days | ✅ done |
 | M3 part 1 — sensors via LibreHardwareMonitorLib 0.9.6 (`LoadsDriver` capability, per-device airflow check) | ✅ done |
 | Dependency manager — consented installs (command shown), safe exit removal, 15-day text history | ✅ done |
-| **M3 part 2 — benchmarks** (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ⬜ next |
-| M4 — malware layers (Defender orchestration, bundled ClamAV opt-in, VirusTotal opt-in in `PcHealth.Net.Optional`), network health, packaging/signing (SignPath) | ⬜ |
+| M4 part 1 — malware history (`malware.defender`) + network integrity (`network.health`) | ✅ done |
+| **M4 part 2 — on-demand Defender scan, ClamAV via the dependency manager, opt-in VirusTotal hash lookups** | ⬜ next |
+| M3 part 2 — benchmarks (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ⬜ |
+| Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
 | M5 — browser extensions, multi-user startup, localization (Vietnamese), Linux provider | ⬜ |
 
 ## Architecture in five lines
@@ -41,7 +43,7 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 - `PcHealth.Modules.Windows` — all Windows modules (WMI/CIM, EventLogReader, registry, P/Invoke). Locale-proof parsing only: provider+event-id, exit codes, typed objects — never localized strings.
 - `PcHealth.App` — Avalonia UI (`asInvoker`, never self-elevates) + `--worker` elevated helper. Trust boundary: the worker only runs `NeedsAdmin` modules from its own compiled-in registry; write/driver actions get the worker's own confirmation dialog.
 - `PcHealth.Ipc` — length-prefixed JSON pipe protocol between UI and worker.
-- `PcHealth.Net.Optional` — the ONLY assembly allowed to reference `System.Net` (CI gate enforces; even comments count). Still a placeholder until M4.
+- `PcHealth.Net.Optional` — the ONLY assembly allowed to reference `System.Net` (CI gate enforces; even comments count). Still a placeholder until the VirusTotal module lands.
 
 ## Non-obvious rules that must survive
 
@@ -51,6 +53,16 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 4. **Capability hash** (admin/writes/internet/driver) invalidates stored consent when a module's powers change — never widen a module silently.
 5. **LibreHardwareMonitorLib must stay ≥ 0.9.5** (0.9.4's WinRing0 driver is quarantined by Defender). It ships NO driver; CPU/motherboard sensors need user-installed PawnIO (`winget install namazso.PawnIO`) — the app offers this via the dependency manager.
 6. Locale analyzers are errors on purpose; this app parses tool output and must behave identically on Vietnamese/German/English Windows.
+7. **A check that could not finish must never read as a clean one.** A module whose query fails returns `PartiallyCompleted`, and both the HTML report and the UI print "Some checks could not finish… that is not the same as being healthy" *above* the results. Locked by `ReportExportTests`, in both directions — the warning must appear when something broke and must NOT appear on a clean run.
+8. **Logic that only runs on an unhealthy PC needs unit tests, because a dev machine never executes it.** Keep such logic in a pure class taking plain records (`Security/ThreatAssessment.cs` is the pattern) so the WMI layer stays a thin adapter over tested code.
+
+## Bug log — two failures found only by running on real hardware
+
+Both were found on 2026-08-20 by running the app on the dev PC rather than by any test. Written down because both classes of mistake are easy to make again.
+
+**1. `ThreatStatusID` was queried on the wrong WMI class.** It lives on `MSFT_MpThreatDetection`, not `MSFT_MpThreat`. WMI answered "Invalid query", the module swallowed it, two threat metrics silently vanished — and the report still showed Security as healthy. *Three things now stop a repeat:* every one of the 29 WMI queries was audited property-by-property against the live schemas (27 validated directly, 2 admin-only proven by an elevated scan); the join/status logic was extracted to `ThreatAssessment` with 11 tests; and a failed query now degrades the module's status so its absence is stated out loud (rules 7 and 8 above). **When adding a WMI query, verify each property against the live class first** — `Get-CimClass <Name> | % { $_.CimClassProperties.Name }` — do not trust documentation or memory.
+
+**2. A false "poor airflow" alarm on an idle RTX 3060.** The check compared *all* fans against *any* sensor over 60 °C, so a 72 °C GPU hotspot (normal, and hot by design) made stopped fans look like a failure. Fixed by grading airflow per device with hot-by-design sensors excluded and per-class thresholds (`GpuFansExpectedAboveC = 80`, `CpuFansExpectedAboveC = 70`). **A threshold that a healthy machine trips is a bug in the threshold, not a finding** — and false alarms are more corrosive here than missed ones, because they teach the user to ignore the app.
 
 ## Known machine-specific facts (original dev PC, MSI board, i-something + RTX 3060)
 
