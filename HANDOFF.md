@@ -34,7 +34,7 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | M4 part 1 — malware history (`malware.defender`) + network integrity (`network.health`) | ✅ done |
 | M4 part 2 — on-demand Defender quick/folder scans + opt-in VirusTotal reputation lookups | ✅ done |
 | **M3 part 2 — benchmarks** (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ⬜ next |
-| ClamAV second opinion | ⏸ deliberately on hold — see below |
+| ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
 | M5 — browser extensions, multi-user startup, localization (Vietnamese), Linux provider | ⬜ |
 
@@ -59,14 +59,14 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 9. **Privacy claims are code, not copy.** When a feature changes what the app can do, the claims move with it in the same commit: PRIVACY.md, the HTML report line, and the receipt. Prefer a counted number (`NetworkActivityLog.Count`) over an absolute a later feature could quietly falsify. "Network connections during this scan: 0" stays true by construction — no check contains network code — and the CI gate is what keeps it that way.
 10. **A cap must say what it dropped.** The VirusTotal lookup is capped at 20 files for the free tier, and the consent dialog states how many were left unchecked. Silent truncation reads as "everything was checked".
 
-## Why ClamAV is on hold
+## Why ClamAV was dropped
 
-The plan called for a bundled ClamAV as a third malware layer. Two things argue against it now, and it should not be added back without answering them:
+The plan called for a bundled ClamAV as a third malware layer. The project owner decided on 2026-08-20 not to ship it. Two things argue against it, and it should not be added back without answering them:
 
 1. **It adds attack surface to an app whose promise is that running it cannot harm your data.** ClamAV 1.5.4 (the current winget build, `Cisco.ClamAV`) is itself a patch for five CVEs — heap and stack overflows in the ZIP, GPT and PESpin parsers, reachable *by scanning a malformed file*. Pointing a second parser at untrusted files is precisely the situation those bugs fire in.
 2. **The gap it filled is already covered.** The Defender folder scan runs with `-DisableRemediation`, which also makes it scan inside archives; the VirusTotal lookup covers ~70 engines, ClamAV among them. What is left is a weaker engine needing a ~150 MB signature download and a hand-written `freshclam.conf` in Program Files — a real system modification, beyond what the dependency manager was built to do.
 
-If it is added later, the honest shape is: catalog entry + consented `freshclam.conf` creation shown verbatim + `clamscan --recursive --infected` graded on exit code (0 clean / 1 found / 2 error), with the config file recorded in the ledger so removal cleans it up too.
+If it is ever reconsidered, the honest shape is: catalog entry (`winget install Cisco.ClamAV`) + consented `freshclam.conf` creation shown verbatim + `clamscan --recursive --infected` graded on exit code (0 clean / 1 found / 2 error), with the config file recorded in the ledger so removal cleans it up too.
 
 ## Bug log — two failures found only by running on real hardware
 
