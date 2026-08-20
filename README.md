@@ -22,6 +22,8 @@ Built with C# / .NET 10 + Avalonia. Windows 10/11 first; Linux/macOS planned via
 | Battery health | Wear (full-charge vs design) & cycles — skipped on desktops |
 | Clock sync | Time-service state (drift breaks TLS/updates/activation) |
 | Crash dump settings | Dumps enabled + page file present (so future BSODs are diagnosable) |
+| Malware history & defences | Threats the antivirus caught, **anything left unresolved**, scan recency, and whether behaviour monitoring / download scanning / network protection are on |
+| Network settings & integrity | Wired link speed (the classic bad-cable symptom), **hosts-file redirections** (malware blocks antivirus and update servers this way), proxy hijacking, DNS servers in use |
 
 ### Administrator checks — opt-in, one UAC prompt, still read-only
 
@@ -95,7 +97,7 @@ Requires the .NET 10 SDK.
 - ~~**M2.5** — SQLite trend history: alert when SMART counters *grow* between scans, project SSD endurance and battery wear to a date.~~ Done.
 - **Next** — optionally bundle `smartctl` (GPL-2.0-or-later, separate process) for deeper per-vendor and NVMe attributes.
 - **M3** — sensors (LibreHardwareMonitorLib + signed PawnIO driver, consent-gated install) and benchmarks (Microsoft DiskSpd read-only profile, 7-Zip CPU bench) with personal baselines.
-- **M4** — malware layers: Defender scan orchestration, bundled ClamAV second opinion (opt-in signature download), opt-in VirusTotal hash lookups; network health checks; packaging & code signing.
+- **M4 (part 1 done)** — malware history & defences, network/hosts/proxy integrity. Remaining: on-demand Defender scan orchestration, ClamAV second opinion (offered via the dependency manager), opt-in VirusTotal hash lookups, packaging & code signing.
 - **M5** — browser-extension audit, multi-user startup coverage, localization, Linux module provider.
 
 ## License
