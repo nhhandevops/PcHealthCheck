@@ -40,6 +40,24 @@
           </StackPanel>
         </Border>
         <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,10,0,0">
+
+          <!-- On-demand scans. Separate from the health scan because these take minutes
+               and ask Defender to act, rather than only reading what it already knows. -->
+          <Border BorderBrush="#40808080" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,6,0">
+            <StackPanel Spacing="6">
+              <TextBlock Text="Scan for malware now" FontWeight="SemiBold" FontSize="13" />
+              <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap"
+                         Text="The checks above read what Defender has already found. These run a fresh scan: a quick scan of the usual hiding places, or one folder of your choosing (read-only — nothing is changed)." />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Quick scan…" Command="{Binding RunQuickScanCommand}" FontSize="12" />
+                <Button Content="Scan a folder…" Command="{Binding ScanFolderCommand}" FontSize="12" />
+                <Button Content="Stop" Command="{Binding CancelMalwareScanCommand}" FontSize="12" />
+              </StackPanel>
+              <TextBlock Text="{Binding MalwareScanStatus}" IsVisible="{Binding HasMalwareScanStatus}"
+                         TextWrapping="Wrap" FontSize="12" MaxWidth="380" />
+            </StackPanel>
+          </Border>
+
           <CheckBox IsChecked="{Binding RememberTrends}" Padding="6,0,0,0">
             <StackPanel>
               <TextBlock Text="Remember results to spot trends" FontSize="12" />

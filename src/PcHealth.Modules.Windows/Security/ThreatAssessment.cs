@@ -58,6 +58,29 @@ public static class ThreatAssessment
         return new ThreatSummary(unresolved, recent);
     }
 
+    /// <summary>
+    /// What Defender recorded at or after <paramref name="since"/> — the outcome of a scan
+    /// the user just started, as opposed to the whole history. Detections with no timestamp
+    /// are left out: an undated record cannot be attributed to this scan, and claiming it
+    /// was would be worse than saying nothing.
+    /// </summary>
+    public static IReadOnlyList<string> DetectionsSince(
+        IEnumerable<ThreatRecord> threats,
+        IEnumerable<DetectionRecord> detections,
+        DateTime since)
+    {
+        var namesById = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var threat in threats) namesById[threat.ThreatId] = threat.Name;
+
+        return
+        [
+            .. detections
+                .Where(d => d.DetectedAt is { } when && when >= since)
+                .OrderBy(d => d.DetectedAt)
+                .Select(d => $"{namesById.GetValueOrDefault(d.ThreatId, "unnamed threat")} ({DescribeStatus(d.StatusId)})")
+        ];
+    }
+
     public static string DescribeStatus(uint statusId) => statusId switch
     {
         1 => "detected, not yet dealt with",

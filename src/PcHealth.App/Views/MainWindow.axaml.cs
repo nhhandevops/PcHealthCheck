@@ -21,6 +21,7 @@ public partial class MainWindow : Window
         if (DataContext is MainWindowViewModel vm)
         {
             vm.ConfirmInteraction = request => ConfirmWindow.ShowAsync(this, request);
+            vm.PickFolderInteraction = PickFolderAsync;
         }
     }
 
@@ -65,6 +66,17 @@ public partial class MainWindow : Window
     {
         var path = await PickSavePathAsync("JSON report", "*.json", $"pc-health-report-{DateTime.Now:yyyyMMdd-HHmm}.json");
         if (path is not null) (DataContext as MainWindowViewModel)?.ExportJson(path);
+    }
+
+    /// <summary>Lets the user name the one folder an on-demand scan is allowed to read.</summary>
+    private async Task<string?> PickFolderAsync()
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose the folder to scan (only this folder is read)",
+            AllowMultiple = false,
+        });
+        return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
     }
 
     private async Task<string?> PickSavePathAsync(string typeName, string pattern, string suggestedName)

@@ -47,7 +47,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<string> ReceiptLines { get; } = [];
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ScanCommand), nameof(CancelScanCommand), nameof(DeleteHistoryCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ScanCommand), nameof(CancelScanCommand), nameof(DeleteHistoryCommand),
+        nameof(RunQuickScanCommand), nameof(ScanFolderCommand))]
     private bool _isScanning;
 
     private bool IsNotScanning() => !IsScanning;
