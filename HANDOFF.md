@@ -6,11 +6,15 @@ Snapshot for continuing work on another machine. Last updated: **2026-08-20** (c
 
 An offline-by-default, read-only-by-default Windows PC health auditor (.NET 10 + Avalonia 12). One app that grades hardware + software health (Good / Normal / Bad) with fix tips, failure forecasting, per-module consent, and a post-scan receipt of everything it touched. Full background: [README.md](README.md), [PRIVACY.md](PRIVACY.md), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
+## Repository
+
+`https://github.com/nhhandevops/PcHealthCheck` — **private**, default branch `main`. CI (`build`) runs on every push: build with `-warnaserror`, tests, the no-`System.Net` privacy gate, then a single-file self-contained publish with SHA-256 checksums uploaded as an artifact.
+
 ## Getting started on a fresh machine
 
 ```text
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
-git clone <this repo>
+gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
 dotnet test  PcHealthCheck.slnx               # 83 tests; WorkerProtocolTests launch the real exe
 dotnet run --project src/PcHealth.App         # GUI
