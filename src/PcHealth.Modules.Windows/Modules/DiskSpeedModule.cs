@@ -31,7 +31,8 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
         Id = "bench.disk",
         Name = "Disk speed (read benchmark)",
         Description = "Measures how fast each drive reads, in long transfers and in small scattered reads, using " +
-                      "Microsoft's DiskSpd. Records the result so a future slowdown becomes visible. " +
+                      "Microsoft's DiskSpd. About a minute per physical drive, so several minutes on a PC with " +
+                      "a few of them. Records the result so a future slowdown becomes visible. " +
                       "Needs DiskSpd installed — the app offers to install it.",
         Reads = ["Drive model, media type and bus type (WMI)", "A temporary file this check creates itself — no existing file is opened"],
         NeedsAdmin = false,
@@ -39,7 +40,7 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             @"<drive>:\PcHealthCheck-bench\bench.tmp on each drive tested",
             DiskSpdRunner.DefaultFileBytes,
             "deleted as soon as the check finishes, including on cancel or failure"),
-        EstimatedDuration = TimeSpan.FromSeconds(60),
+        EstimatedDuration = TimeSpan.FromMinutes(3),
     };
 
     protected override async Task<ModuleStatus> ExecuteAsync(

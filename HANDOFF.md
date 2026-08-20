@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-08-20** (commit `6ce2fe3`, 162 tests passing, Release builds clean with `-warnaserror`).
+Snapshot for continuing work on another machine. Last updated: **2026-08-20** (commit `b8dcb35`, 198 tests passing, Release builds clean with `-warnaserror`).
 
 ## What this is
 
@@ -16,7 +16,7 @@ An offline-by-default, read-only-by-default Windows PC health auditor (.NET 10 +
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 162 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 198 tests; WorkerProtocolTests launch the real exe
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
 ```
@@ -33,7 +33,8 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | Dependency manager — consented installs (command shown), safe exit removal, 15-day text history | ✅ done |
 | M4 part 1 — malware history (`malware.defender`) + network integrity (`network.health`) | ✅ done |
 | M4 part 2 — on-demand Defender quick/folder scans + opt-in VirusTotal reputation lookups | ✅ done |
-| **M3 part 2 — benchmarks** (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ⬜ next |
+| M3 part 2 — benchmarks (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ✅ code done, **not yet run against the real tools** |
+| **M5 — browser extensions, multi-user startup, Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
 | M5 — browser extensions, multi-user startup, localization (Vietnamese), Linux provider | ⬜ |
@@ -58,6 +59,14 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 8. **Logic that only runs on an unhealthy PC needs unit tests, because a dev machine never executes it.** Keep such logic in a pure class taking plain records (`Security/ThreatAssessment.cs` is the pattern) so the WMI layer stays a thin adapter over tested code.
 9. **Privacy claims are code, not copy.** When a feature changes what the app can do, the claims move with it in the same commit: PRIVACY.md, the HTML report line, and the receipt. Prefer a counted number (`NetworkActivityLog.Count`) over an absolute a later feature could quietly falsify. "Network connections during this scan: 0" stays true by construction — no check contains network code — and the CI gate is what keeps it that way.
 10. **A cap must say what it dropped.** The VirusTotal lookup is capped at 20 files for the free tier, and the consent dialog states how many were left unchecked. Silent truncation reads as "everything was checked".
+
+## Benchmarks (M3 part 2)
+
+- **Tools are offered, not bundled.** `Microsoft.DiskSpd` (MIT) and `7zip.7zip` (LGPL) go through the dependency manager, so the user sees the install command, removal is offered at exit, and no third-party binaries live in this repo. `ToolLocator` finds them via winget's `Links` shim, the versioned `Packages` folder, Program Files, or PATH.
+- **`bench.disk` is the only check that writes to the user's drives.** One test file per *physical* drive (not per volume — C: and E: on one SSD would write twice for the same answer), created by DiskSpd with `-c`, deleted in a `finally`, and skipped entirely unless the drive has 15% headroom beyond it. Every profile passes `-w0`, so the measured phase only reads.
+- **Bus type is checked before media type**, and that order matters: on the dev PC a 2.5" spinning drive in a USB caddy reports `MediaType 4` (SSD). Trusting it would grade a healthy 100 MB/s hard disk against a 400 MB/s floor. Anything on USB/SD/MMC is classed `External` and gets no floor at all.
+- **What is graded and what is not.** Only sequential read against the bottom of the drive's class. Random 4K, external drives, and the CPU score are reported `InfoOnly`, because a fair absolute threshold for them depends on the exact model. The real signal is `TrendKind.PerformanceDrop`: each benchmark is compared against the **median** of that machine's own history (median, not first or best — one busy afternoon must not become the baseline), needing 2+ prior samples, flagging below 70% and calling it Bad below 50%.
+- **Each watched metric carries its own advice.** A CPU regression points at temperatures and power mode; a disk regression points at free space and cabling. A test asserts the two never cross.
 
 ## Why ClamAV was dropped
 
@@ -99,4 +108,6 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 
 ## Suggested next session
 
-Start M3 part 2: bundle `diskspd.exe` (MIT) in `third_party/` with its license text, add a `disk.speed` module (read-only profile: `-w0`, 1 GiB temp file created+deleted with receipt entries, skip SMART-flagged drives, separate opt-in for write tests), store first run as a personal baseline in the history DB, and flag >30–40% sustained regression. Then the 7-Zip (`7za b`) CPU benchmark.
+**First: run the benchmarks against the real tools.** The parsers are covered by fixtures built from DiskSpd's own `XmlResultParser.cpp` and 7-Zip's table layout, but neither has yet met real output — which is exactly the gap that produced both entries in the bug log below. Install DiskSpd and 7-Zip from the app's own banner (that also exercises the dependency flow), select the two benchmark checks, scan, and confirm the numbers are plausible for the hardware.
+
+Then M5: browser-extension audit, multi-user startup coverage, Vietnamese localization, Linux provider. Packaging (SignPath OSS signing, GitHub Release with checksums, winget manifest, SmartScreen submission) can happen in parallel.
