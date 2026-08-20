@@ -73,6 +73,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Modules.Add(row);
         }
         UpdateSummary();
+        InitializeDependencies();
     }
 
     private void UpdateSummary()

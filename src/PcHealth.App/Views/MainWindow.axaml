@@ -24,6 +24,21 @@
       <DockPanel Grid.Column="0">
         <TextBlock DockPanel.Dock="Top" Text="{Binding SummaryLine}" TextWrapping="Wrap"
                    FontWeight="SemiBold" FontSize="12" Margin="0,0,0,8" />
+
+        <!-- Optional dependency offer: install is consented, shows the exact command,
+             and everything installed here is offered for removal again at exit. -->
+        <Border DockPanel.Dock="Top" IsVisible="{Binding HasDependencyOffer}"
+                Background="#156a1b9a" BorderBrush="#806a1b9a" BorderThickness="1"
+                CornerRadius="8" Padding="10,8" Margin="0,0,6,8">
+          <StackPanel Spacing="6">
+            <TextBlock Text="{Binding DependencyOfferText}" TextWrapping="Wrap" FontSize="12" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Install…" Command="{Binding InstallDependencyCommand}" FontSize="12" />
+              <TextBlock Text="Shows the exact command first · one UAC prompt · uses the internet"
+                         FontSize="11" Opacity="0.65" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
         <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,10,0,0">
           <CheckBox IsChecked="{Binding RememberTrends}" Padding="6,0,0,0">
             <StackPanel>

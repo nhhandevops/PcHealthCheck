@@ -7,9 +7,52 @@ namespace PcHealth.App.Views;
 
 public partial class MainWindow : Window
 {
+    private bool _exitCleanupDone;
+
     public MainWindow()
     {
         InitializeComponent();
+        DataContextChanged += (_, _) => WireViewModel();
+        WireViewModel();
+    }
+
+    private void WireViewModel()
+    {
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.ConfirmInteraction = request => ConfirmWindow.ShowAsync(this, request);
+        }
+    }
+
+    /// <summary>
+    /// On exit, offer to remove anything the app itself installed (never anything
+    /// pre-existing, never anything in use) — then close for real.
+    /// </summary>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+        if (_exitCleanupDone) return;
+        if (DataContext is not MainWindowViewModel vm || !vm.HasRemovableDependencies)
+        {
+            _exitCleanupDone = true;
+            return;
+        }
+
+        e.Cancel = true;
+        _ = RunExitCleanupAsync(vm);
+    }
+
+    private async Task RunExitCleanupAsync(MainWindowViewModel vm)
+    {
+        try
+        {
+            await vm.OfferExitCleanupAsync();
+        }
+        finally
+        {
+            _exitCleanupDone = true;
+            Close();
+        }
     }
 
     private async void OnExportHtml(object? sender, RoutedEventArgs e)

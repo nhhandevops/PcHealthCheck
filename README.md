@@ -44,6 +44,14 @@ Motherboard and CPU sensors cannot be read from user mode, so the temperature mo
 
 The driver is used to read values only — never to set fan curves, clocks, or voltages.
 
+#### Installing and removing optional tools
+
+Some readings need an extra tool (today: the PawnIO sensor driver). The app manages these with the same consent-first rules as everything else:
+
+- **Before installing**: the app shows what the tool is for and the **exact command** it will run (e.g. `winget install namazso.PawnIO`), labeled as needing administrator rights and the internet. Nothing happens on "Don't install".
+- **When you close the app**: if the app itself installed a tool, it offers to remove it again. Before removing it checks two things — that the tool was **not already on the PC** before this app installed it (tracked in `dependencies.json`; pre-existing tools are never offered for removal), and that **no running program is using it** (e.g. FanControl, OpenRGB). If something is using it, the app refuses and tells you why.
+- **Every removal is logged** to `%LOCALAPPDATA%\PcHealthCheck\dependency-history.txt` with the reinstall command, kept for **15 days**, so getting a tool back is one copy-paste.
+
 Every metric is graded **Good / Normal / Bad** by data-driven rules (`src/PcHealth.Core/Rules/*.json`) with concrete fix tips and a failure forecast where relevant.
 
 ### Trends — what a single scan cannot tell you
