@@ -65,11 +65,33 @@ public static class TrendAnalyzer
     /// This is the whole point of measuring speed: "2,100 MB/s" means little on its own,
     /// but "a third slower than this drive has always been" means something on any drive.
     /// </summary>
-    private static readonly Dictionary<string, string> PerformanceWatchList = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, PerformanceWatch> PerformanceWatchList = new(StringComparer.Ordinal)
     {
-        ["bench.disk.seq_read_mbps"] = "reading long files",
-        ["bench.disk.rnd4k_read_mbps"] = "reading small scattered files",
+        ["bench.disk.seq_read_mbps"] = new("reading long files", DiskAdvice),
+        ["bench.disk.rnd4k_read_mbps"] = new("reading small scattered files", DiskAdvice),
+        ["bench.cpu.rating_mips"] = new("processing work", CpuAdvice),
     };
+
+    /// <summary>What a slowdown in this measurement usually means, and what to do about it.</summary>
+    private sealed record PerformanceWatch(string Activity, Func<Grade, IReadOnlyList<string>> Advice);
+
+    private static IReadOnlyList<string> DiskAdvice(Grade grade) =>
+    [
+        "Re-run the check on an idle PC before anything else — a backup, a game update or an antivirus scan running at the same time explains most sudden drops.",
+        "Check free space: a drive under about 10% free slows down noticeably, and an SSD more than a hard disk.",
+        grade == Grade.Bad
+            ? "If it stays this slow when nothing else is running, BACK UP the drive and read the Storage section of this report — drives sometimes slow down before they fail."
+            : "If it stays slightly slow, check for a loose SATA cable or, for NVMe, that the drive is still in a full-speed slot.",
+    ];
+
+    private static IReadOnlyList<string> CpuAdvice(Grade grade) =>
+    [
+        "Re-run the check with nothing else running — anything busy in the background takes cores away from the benchmark and lowers the score.",
+        "Check the Temperatures & fans section of this report. A processor that gets too hot slows itself down to survive, and that is the most common reason a score falls over time. Dust in the cooler and dried-out thermal paste are the usual causes.",
+        grade == Grade.Bad
+            ? "Also check Windows' power mode (Settings > System > Power) and, on a laptop, that it is plugged in — 'Best power efficiency' or battery power can halve the score legitimately."
+            : "On a laptop, a lower score on battery than on mains is normal and not a fault.",
+    ];
 
     /// <summary>Below this share of the usual figure, say something. Anything milder is noise:
     /// a background update or an antivirus scan easily costs 10-20%.</summary>
@@ -115,9 +137,9 @@ public static class TrendAnalyzer
                 var finding = BuildProjection(metric, current, series, falling.Limit, falling.What, isRising: false);
                 if (finding is not null) findings.Add(finding);
             }
-            else if (PerformanceWatchList.TryGetValue(metric.Id, out var activity))
+            else if (PerformanceWatchList.TryGetValue(metric.Id, out var watch))
             {
-                var finding = BuildPerformanceDrop(metric, current, series, activity);
+                var finding = BuildPerformanceDrop(metric, current, series, watch);
                 if (finding is not null) findings.Add(finding);
             }
         }
@@ -154,7 +176,7 @@ public static class TrendAnalyzer
     /// doing that day. The median is the figure this drive actually delivers.
     /// </summary>
     private static TrendFinding? BuildPerformanceDrop(
-        Metric metric, double current, IReadOnlyList<Sample> series, string activity)
+        Metric metric, double current, IReadOnlyList<Sample> series, PerformanceWatch watch)
     {
         // One past reading is an anecdote — a single busy afternoon would raise a false
         // alarm on every scan afterwards.
@@ -171,22 +193,13 @@ public static class TrendAnalyzer
         var oldest = series[0];
 
         var message =
-            $"{slowerBy.ToString("0", CultureInfo.InvariantCulture)}% slower at {activity} than this drive's usual " +
-            $"{Format(usual)} (median of {series.Count.ToString(CultureInfo.InvariantCulture)} earlier scans), " +
+            $"{slowerBy.ToString("0", CultureInfo.InvariantCulture)}% slower at {watch.Activity} than this machine's " +
+            $"usual {Format(usual)} (median of {series.Count.ToString(CultureInfo.InvariantCulture)} earlier scans), " +
             $"now {Format(current)}.";
 
         return new TrendFinding(
             TrendKind.PerformanceDrop, metric.Id, metric.Subject, metric.Label,
-            grade, message, usual, current, oldest.TakenAt,
-            Tips:
-            [
-                "Re-run the check on an idle PC before anything else — a backup, a game update or an antivirus scan running at the same time explains most sudden drops.",
-                "Check free space: a drive under about 10% free slows down noticeably, and an SSD more than a hard disk.",
-                grade == Grade.Bad
-                    ? "If it stays this slow when nothing else is running, BACK UP the drive and read the Storage section of this report — drives sometimes slow down before they fail."
-                    : "If it stays slightly slow, check for a loose SATA cable or, for NVMe, that the drive is still in a full-speed slot.",
-            ],
-            Category: metric.Category);
+            grade, message, usual, current, oldest.TakenAt, watch.Advice(grade), metric.Category);
     }
 
     private static double Median(IEnumerable<double> values)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PcHealth.App.Views;
@@ -34,9 +35,23 @@ public sealed partial class MainWindowViewModel
         var missing = _dependencyManager?.GetMissing();
         _offeredDependency = missing is { Count: > 0 } ? missing[0] : null;
         HasDependencyOffer = _offeredDependency is not null;
-        DependencyOfferText = _offeredDependency is { } dependency
-            ? $"Optional: {dependency.Name} is not installed. {dependency.Purpose}"
-            : "";
+
+        if (_offeredDependency is not { } dependency)
+        {
+            DependencyOfferText = "";
+            return;
+        }
+
+        // Offered one at a time so each gets its own consent — but the count is stated, or
+        // installing one would look like the end of it and the next banner would surprise.
+        var others = (missing?.Count ?? 1) - 1;
+        var more = others switch
+        {
+            0 => "",
+            1 => " (one more optional tool is offered after this one)",
+            _ => $" ({others.ToString(CultureInfo.InvariantCulture)} more optional tools are offered after this one)",
+        };
+        DependencyOfferText = $"Optional: {dependency.Name} is not installed. {dependency.Purpose}{more}";
     }
 
     [RelayCommand]

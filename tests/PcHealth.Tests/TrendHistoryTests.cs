@@ -226,6 +226,7 @@ public sealed class TrendHistoryTests : IDisposable
         Assert.Equal(Grade.Normal, finding.Grade);
         Assert.Equal(HealthCategory.Performance, finding.Category);
         Assert.Contains("slower at reading long files", finding.Message, StringComparison.Ordinal);
+        Assert.Contains("free space", finding.Tips[1], StringComparison.Ordinal);
         Assert.Contains("Re-run the check on an idle PC", finding.Tips[0], StringComparison.Ordinal);
     }
 
@@ -279,6 +280,30 @@ public sealed class TrendHistoryTests : IDisposable
 
         var finding = Assert.Single(TrendAnalyzer.Analyze([Speed(1500)], store));
         Assert.Contains("usual 3000", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_slower_processor_gets_processor_advice_not_disk_advice()
+    {
+        // Telling someone to check their SATA cable because their CPU score fell would be
+        // worse than saying nothing: it sends them looking in the wrong place.
+        using var store = NewStore();
+        var cpu = (double mips) => new Metric("bench.cpu.rating_mips", "Processor benchmark score", mips,
+            HealthCategory.Performance, Unit: "MIPS", Subject: "Intel Core i5-12400F (6 cores / 12 threads)");
+        store.RecordScan(DateTimeOffset.Now.AddDays(-40), [cpu(40000)]);
+        store.RecordScan(DateTimeOffset.Now.AddDays(-20), [cpu(41000)]);
+
+        // Median of 40000 and 41000 is 40500; 19000 is 47% of that, past the severe threshold.
+        var finding = Assert.Single(TrendAnalyzer.Analyze([cpu(19000)], store));
+
+        Assert.Equal(Grade.Bad, finding.Grade);
+        Assert.Contains("slower at processing work", finding.Message, StringComparison.Ordinal);
+        var advice = string.Join(" ", finding.Tips);
+        Assert.Contains("Temperatures & fans", advice, StringComparison.Ordinal);
+        Assert.Contains("too hot", advice, StringComparison.Ordinal);
+        Assert.Contains("power mode", advice, StringComparison.Ordinal);
+        Assert.DoesNotContain("SATA cable", advice, StringComparison.Ordinal);
+        Assert.DoesNotContain("free space", advice, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -256,6 +256,92 @@ public class BenchmarkTests
         Assert.EndsWith(@"""D:\bench.tmp""", sequential, StringComparison.Ordinal);
     }
 
+    /// <summary>7-Zip's benchmark table, in the fixed-width shape it actually prints.</summary>
+    private const string SevenZipOutput = """
+        7-Zip 26.02 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-01-14
+
+        Windows 11 (26200)
+        Intel(R) Core(TM) i5-12400F
+
+        Compressing  | Decompressing
+        Dict     Speed Usage    R/U Rating  | Speed Usage    R/U Rating
+                 KiB/s     %   MIPS   MIPS  |  KiB/s     %   MIPS   MIPS
+
+        22:       36886   624   5397  33707  |  391605   793   4568  36230
+        23:       35123   618   5401  33390  |  388991   790   4571  36112
+        ----------------------------------------------------------------
+        Avr:      36004   621   5399  33548  |  390298   791   4569  36171
+        Tot:              706   4984  34859
+        """;
+
+    [Fact]
+    public void The_overall_processor_rating_comes_from_the_total_row()
+    {
+        var reading = SevenZipOutputReader.Parse(SevenZipOutput, out var error);
+
+        Assert.Null(error);
+        Assert.NotNull(reading);
+        Assert.Equal(34859, reading.OverallRating);
+        // The rating columns, not the speed or usage columns beside them.
+        Assert.Equal(33548, reading.CompressRating);
+        Assert.Equal(36171, reading.DecompressRating);
+    }
+
+    [Fact]
+    public void A_table_with_unexpected_columns_yields_no_compression_figures_rather_than_wrong_ones()
+    {
+        // A number read out of the wrong column looks perfectly plausible and is worse
+        // than no number, so a short row simply produces nothing for those two metrics.
+        const string shortRows = """
+            Avr:      36004   621   33548
+            Tot:              706   4984  34859
+            """;
+
+        var reading = SevenZipOutputReader.Parse(shortRows, out _);
+
+        Assert.NotNull(reading);
+        Assert.Equal(34859, reading.OverallRating);
+        Assert.Equal(0, reading.CompressRating);
+        Assert.Equal(0, reading.DecompressRating);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("7-Zip 26.02\nUnsupported command")]
+    [InlineData("Avr:      36004   621   5399  33548")]
+    [InlineData("Tot:              706   4984  0")]
+    public void Output_without_a_usable_total_row_is_an_error_not_a_score(string output)
+    {
+        Assert.Null(SevenZipOutputReader.Parse(output, out var error));
+        Assert.False(string.IsNullOrWhiteSpace(error));
+    }
+
+    [Fact]
+    public void The_processor_benchmark_is_read_the_same_way_on_a_comma_decimal_locale()
+    {
+        var original = System.Threading.Thread.CurrentThread.CurrentCulture;
+        try
+        {
+            System.Threading.Thread.CurrentThread.CurrentCulture = new CultureInfo("vi-VN");
+            var reading = SevenZipOutputReader.Parse(SevenZipOutput, out _);
+
+            Assert.NotNull(reading);
+            Assert.Equal(34859, reading.OverallRating);
+        }
+        finally
+        {
+            System.Threading.Thread.CurrentThread.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void The_processor_benchmark_never_asks_seven_zip_to_touch_a_file()
+    {
+        // "b" runs entirely in memory. Any path or archive argument would make this check
+        // something quite different from what its consent row promises.
+        Assert.Equal("b", SevenZipBenchmark.BenchmarkArguments);
+    }
+
     private static VolumeInfo Volume(string letter, int disk, long freeGb) =>
         new(letter, disk, GigabytesToBytes(freeGb));
 

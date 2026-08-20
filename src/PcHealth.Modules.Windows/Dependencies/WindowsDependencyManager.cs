@@ -65,7 +65,28 @@ public static class DependencyCatalog
         KnownConsumerProcesses: ["diskspd", "CrystalDiskMark"],
         IsInstalled: () => Benchmarks.DiskSpdRunner.Find() is not null);
 
-    public static IReadOnlyList<DependencyDefinition> All { get; } = [PawnIo, DiskSpd];
+    /// <summary>
+    /// 7-Zip, used only for its built-in processor benchmark. Invoked as an installed
+    /// program and never bundled or linked, so its LGPL terms bring no obligations here.
+    /// Removal checks for the archiver's own processes first — most people who have 7-Zip
+    /// use it for archives, and this app must not take that away.
+    /// </summary>
+    public static DependencyDefinition SevenZip { get; } = new(
+        Id: "7zip",
+        Name: "7-Zip",
+        Purpose: "Lets the Processor speed check measure how much work your processor gets through, so overheating " +
+                 "or a changed power plan shows up as a drop later. It is also a well-known free archiver.",
+        InstallCommandDisplay: "winget install 7zip.7zip",
+        InstallFileName: "winget",
+        InstallArguments: "install 7zip.7zip --silent --accept-package-agreements --accept-source-agreements --disable-interactivity",
+        UninstallCommandDisplay: "winget uninstall 7zip.7zip",
+        UninstallFileName: "winget",
+        UninstallArguments: "uninstall 7zip.7zip --silent --disable-interactivity",
+        ReinstallHint: "winget install 7zip.7zip  (or download from 7-zip.org)",
+        KnownConsumerProcesses: ["7zFM", "7zG", "7z"],
+        IsInstalled: () => Benchmarks.SevenZipBenchmark.Find() is not null);
+
+    public static IReadOnlyList<DependencyDefinition> All { get; } = [PawnIo, DiskSpd, SevenZip];
 }
 
 /// <summary>

@@ -29,6 +29,7 @@ public sealed class WindowsModuleProvider : IModuleProvider
         new MalwareDefenderModule(),
         new NetworkHealthModule(),
         new DiskSpeedModule(),
+        new CpuBenchmarkModule(),
 
         // Requires the elevated worker (one UAC prompt, only if selected).
         new DiskSmartModule(),
