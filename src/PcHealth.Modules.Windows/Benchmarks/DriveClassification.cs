@@ -93,4 +93,30 @@ public static class DriveClassifier
             "Windows did not say what kind of drive this is, so there is nothing to compare against. " +
             "The reading is still recorded, and a drop from it later would still be meaningful."),
     };
+
+    /// <summary>
+    /// Real-world ceiling of USB 2.0 "High Speed": 480 Mbps on paper, about 40 MB/s in
+    /// practice once protocol overhead is paid.
+    /// </summary>
+    private const double UsbHighSpeedCeilingMbps = 50;
+
+    /// <summary>
+    /// External drives get no verdict, but a speed can still say something plain about the
+    /// *connection* — and that is worth pointing out, because plugging a fast drive into a
+    /// USB 2.0 port is easy to do and invisible until something is measured.
+    ///
+    /// Worded as an observation rather than a fault on purpose. An old USB stick reading at
+    /// 30 MB/s is working exactly as it should; the same figure from an SSD enclosure means
+    /// the port or the cable is throwing away nine tenths of the drive. The app cannot tell
+    /// which of those it is looking at, so it states the fact and lets the reader decide.
+    /// </summary>
+    public static string? DescribeExternalLink(double sequentialMbps)
+    {
+        if (sequentialMbps <= 0 || sequentialMbps >= UsbHighSpeedCeilingMbps) return null;
+
+        return "This is about what a USB 2.0 connection delivers, whatever the drive inside is capable of. " +
+               "For an old memory stick that is simply normal. For an SSD or a recent hard disk it means nine " +
+               "tenths of the drive's speed is being thrown away by the port or the cable — try a blue (or " +
+               "rear motherboard) USB port and the cable the enclosure came with, then measure again.";
+    }
 }

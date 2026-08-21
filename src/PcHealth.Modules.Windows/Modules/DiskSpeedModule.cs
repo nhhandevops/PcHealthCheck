@@ -104,8 +104,13 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             var (sequential, seqError) = await runner
                 .MeasureAsync(exe, DiskProfile.Sequential, file, DiskSpdRunner.DefaultFileBytes, ct)
                 .ConfigureAwait(false);
+
+            // The size actually on disk, not the size that was asked for. If DiskSpd never
+            // got as far as creating the file, the receipt must not claim a gigabyte was
+            // written — a receipt is only worth something if every line of it is true.
+            var written = new FileInfo(file);
             context.Receipt.Add(new FileWriteReceipt(DateTimeOffset.Now, Manifest.Id, file,
-                DiskSpdRunner.DefaultFileBytes, "benchmark test file", Deleted: false));
+                written.Exists ? written.Length : 0, "benchmark test file", Deleted: false));
 
             if (sequential is null)
             {
@@ -133,11 +138,19 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
         var expectation = DriveClassifier.Expectations(target.Class);
         var classLabel = DescribeClass(target.Class);
 
+        // An external drive gets no verdict, but its speed can still say something plain
+        // about the connection it is on, which is easy to get wrong and invisible until
+        // something measures it.
+        var linkHint = target.Class == DriveClass.External
+            ? DriveClassifier.DescribeExternalLink(sequential.ReadMegabytesPerSecond)
+            : null;
+
         metrics.Add(new Metric("bench.disk.seq_read_mbps", "Sequential read speed",
             Math.Round(sequential.ReadMegabytesPerSecond, 1), HealthCategory.Performance,
             Unit: "MB/s", Subject: subject, InfoOnly: true,
             Detail: $"Measured over {sequential.TestSeconds.ToString("0", CultureInfo.InvariantCulture)} seconds on " +
-                    $"a {classLabel}. Typical: {expectation.TypicalRange}. {expectation.Note}"));
+                    $"a {classLabel}. Typical: {expectation.TypicalRange}. {expectation.Note}" +
+                    (linkHint is null ? "" : " " + linkHint)));
 
         if (expectation.SequentialFloorMbps is { } floor)
         {

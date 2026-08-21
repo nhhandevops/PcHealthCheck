@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using PcHealth.Modules.Windows.Benchmarks;
 using Xunit;
 
@@ -189,6 +190,29 @@ public class BenchmarkTests
         }
     }
 
+    [Theory]
+    [InlineData(38.3)]   // measured on this PC: an NVMe SSD enclosure running at USB 2.0 speed
+    [InlineData(28)]
+    public void An_external_drive_stuck_at_usb_2_speed_is_pointed_out(double mbps)
+    {
+        var hint = DriveClassifier.DescribeExternalLink(mbps);
+
+        Assert.NotNull(hint);
+        Assert.Contains("USB 2.0", hint, StringComparison.Ordinal);
+        Assert.Contains("port or the cable", hint, StringComparison.Ordinal);
+        // Stated as an observation, not a fault: a 30 MB/s memory stick is working fine.
+        Assert.Contains("simply normal", hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(114.1)]  // the USB hard disk on this PC — the drive is the limit, not the link
+    [InlineData(450)]
+    [InlineData(0)]      // nothing measured
+    public void A_healthy_external_link_says_nothing_at_all(double mbps)
+    {
+        Assert.Null(DriveClassifier.DescribeExternalLink(mbps));
+    }
+
     [Fact]
     public void Two_volumes_on_one_drive_are_measured_once()
     {
@@ -340,6 +364,44 @@ public class BenchmarkTests
         // "b" runs entirely in memory. Any path or archive argument would make this check
         // something quite different from what its consent row promises.
         Assert.Equal("b", SevenZipBenchmark.BenchmarkArguments);
+    }
+
+    /// <summary>
+    /// Found by installing DiskSpd for real: its winget package ships amd64, arm64 and x86
+    /// builds side by side, and a plain recursive search returns whichever the file system
+    /// hands back first. Running the arm64 build on an x64 PC fails with an opaque Windows
+    /// error that would look like a broken benchmark rather than a wrong pick.
+    /// </summary>
+    [Theory]
+    [InlineData(Architecture.X64, @"C:\pkg\amd64\diskspd.exe")]
+    [InlineData(Architecture.Arm64, @"C:\pkg\arm64\diskspd.exe")]
+    [InlineData(Architecture.X86, @"C:\pkg\x86\diskspd.exe")]
+    public void The_build_matching_this_processor_is_the_one_chosen(Architecture architecture, string expected)
+    {
+        string[] candidates = [@"C:\pkg\amd64\diskspd.exe", @"C:\pkg\arm64\diskspd.exe", @"C:\pkg\x86\diskspd.exe"];
+
+        Assert.Equal(expected, ToolLocator.PickBuildFor(candidates, architecture));
+    }
+
+    [Fact]
+    public void A_package_with_one_build_for_everyone_is_used_as_is()
+    {
+        Assert.Equal(@"C:\pkg\7z.exe",
+            ToolLocator.PickBuildFor([@"C:\pkg\7z.exe"], Architecture.X64));
+    }
+
+    [Fact]
+    public void A_package_holding_only_other_architectures_is_refused_rather_than_guessed_at()
+    {
+        // Better to report the tool as missing than to run something that cannot start.
+        Assert.Null(ToolLocator.PickBuildFor(
+            [@"C:\pkg\arm64\diskspd.exe", @"C:\pkg\x86\diskspd.exe"], Architecture.X64));
+    }
+
+    [Fact]
+    public void Nothing_found_stays_nothing()
+    {
+        Assert.Null(ToolLocator.PickBuildFor([], Architecture.X64));
     }
 
     private static VolumeInfo Volume(string letter, int disk, long freeGb) =>

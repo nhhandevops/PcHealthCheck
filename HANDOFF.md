@@ -33,7 +33,7 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | Dependency manager — consented installs (command shown), safe exit removal, 15-day text history | ✅ done |
 | M4 part 1 — malware history (`malware.defender`) + network integrity (`network.health`) | ✅ done |
 | M4 part 2 — on-demand Defender quick/folder scans + opt-in VirusTotal reputation lookups | ✅ done |
-| M3 part 2 — benchmarks (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ✅ code done, **not yet run against the real tools** |
+| M3 part 2 — benchmarks (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ✅ disk verified on real hardware; **7-Zip CPU bench still unverified** (needs an admin install) |
 | **M5 — browser extensions, multi-user startup, Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
@@ -67,6 +67,20 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 - **Bus type is checked before media type**, and that order matters: on the dev PC a 2.5" spinning drive in a USB caddy reports `MediaType 4` (SSD). Trusting it would grade a healthy 100 MB/s hard disk against a 400 MB/s floor. Anything on USB/SD/MMC is classed `External` and gets no floor at all.
 - **What is graded and what is not.** Only sequential read against the bottom of the drive's class. Random 4K, external drives, and the CPU score are reported `InfoOnly`, because a fair absolute threshold for them depends on the exact model. The real signal is `TrendKind.PerformanceDrop`: each benchmark is compared against the **median** of that machine's own history (median, not first or best — one busy afternoon must not become the baseline), needing 2+ prior samples, flagging below 70% and calling it Bad below 50%.
 - **Each watched metric carries its own advice.** A CPU regression points at temperatures and power mode; a disk regression points at free space and cabling. A test asserts the two never cross.
+- **`ToolLocator` picks the build matching this processor.** DiskSpd's winget package ships `amd64/`, `arm64/` and `x86/` side by side; a plain recursive search returns whichever the file system hands back first. If only other architectures are present it returns null rather than running something that cannot start. Also note winget reports `Command line alias added: diskspd` while leaving `Links` **empty** — the `Packages` folder is the path that actually works.
+
+### Verified on the dev PC, 2026-08-21
+
+Full run: 151 s for four physical drives, all four test files deleted, receipt truthful, `-w0` on every measured pass.
+
+| Drive | Sequential | Random 4K | Verdict |
+|---|---|---|---|
+| D: ST2000DM008 (SATA HDD) | 209.9 MB/s | 1.92 MB/s | Good (262% of class floor) |
+| E: CT1000P3PSSD8 (Gen4 NVMe) | 4,329.5 MB/s | 646 MB/s | Good (241%) |
+| G: ST1000LM035 (HDD in USB caddy) | 114.1 MB/s | 1.14 MB/s | not graded — external |
+| F: Realtek RTL9210B-CG (NVMe in USB enclosure) | **38.3 MB/s** | 15.3 MB/s | not graded — external |
+
+Two things this run proved. **G: is the classification fix earning its keep** — Windows reports that spinning drive as `MediaType 4` (SSD), and grading it against the 400 MB/s SATA-SSD floor would have called a healthy drive 28% and Bad. And **F: is a real finding on the dev PC**: 38 MB/s with 15 MB/s random is the signature of a USB 2.0 link, not of an NVMe drive. The report said "38.3 MB/s" and left the reader to notice, so `DriveClassifier.DescribeExternalLink` now names it — worded as an observation, because a 30 MB/s memory stick reading 30 MB/s is working perfectly.
 
 ## Why ClamAV was dropped
 
@@ -108,6 +122,6 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 
 ## Suggested next session
 
-**First: run the benchmarks against the real tools.** The parsers are covered by fixtures built from DiskSpd's own `XmlResultParser.cpp` and 7-Zip's table layout, but neither has yet met real output — which is exactly the gap that produced both entries in the bug log below. Install DiskSpd and 7-Zip from the app's own banner (that also exercises the dependency flow), select the two benchmark checks, scan, and confirm the numbers are plausible for the hardware.
+**First: finish verifying the CPU benchmark.** The disk half has now met real DiskSpd (see the table above, and the two bugs it caught). The 7-Zip half has not: its winget package is a WiX MSI that installs into Program Files, so it needs one UAC prompt and was left for the machine's owner. Install it from the app's own banner — that exercises the dependency flow too — run `bench.cpu`, and confirm the score parses and looks right for the processor.
 
 Then M5: browser-extension audit, multi-user startup coverage, Vietnamese localization, Linux provider. Packaging (SignPath OSS signing, GitHub Release with checksums, winget manifest, SmartScreen submission) can happen in parallel.
