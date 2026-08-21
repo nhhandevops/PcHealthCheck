@@ -39,5 +39,6 @@ public sealed class WindowsModuleProvider : IModuleProvider
         new SecurityPlatformModule(),
         new IntegrityQuickModule(),
         new SensorsModule(),
+        new AllUsersStartupModule(),
     ];
 }

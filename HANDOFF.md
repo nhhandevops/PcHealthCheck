@@ -35,7 +35,8 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | M4 part 2 — on-demand Defender quick/folder scans + opt-in VirusTotal reputation lookups | ✅ done |
 | M3 part 2 — benchmarks (DiskSpd disk profile, 7-Zip CPU bench, personal baselines) | ✅ both verified on real hardware |
 | M5 — browser extension audit | ✅ done |
-| **M5 remainder — multi-user startup, Vietnamese localization, Linux provider** | ⬜ next |
+| M5 — multi-user startup coverage | ✅ shipped, **elevated end-to-end run still pending** (needs one UAC prompt) |
+| **M5 remainder — Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
 | M5 — browser extensions, multi-user startup, localization (Vietnamese), Linux provider | ⬜ |
@@ -82,6 +83,16 @@ Full run: 151 s for four physical drives, all four test files deleted, receipt t
 | F: Realtek RTL9210B-CG (NVMe in USB enclosure) | **38.3 MB/s** | 15.3 MB/s | not graded — external |
 
 Two things this run proved. **G: is the classification fix earning its keep** — Windows reports that spinning drive as `MediaType 4` (SSD), and grading it against the 400 MB/s SATA-SSD floor would have called a healthy drive 28% and Bad. And **F: is a real finding on the dev PC**: 38 MB/s with 15 MB/s random is the signature of a USB 2.0 link, not of an NVMe drive. The report said "38.3 MB/s" and left the reader to notice, so `DriveClassifier.DescribeExternalLink` now names it — worded as an observation, because a 30 MB/s memory stick reading 30 MB/s is working perfectly.
+
+## Startup for other accounts, and the access trap underneath it
+
+`startup.allusers` (admin) closes a real hole: the ordinary startup check only sees the account it runs as, so on a shared PC anything set to run for someone else's account is invisible. It reads each profile's Run/RunOnce keys — reachable only while Windows has that account's hive loaded, i.e. while they are signed in — plus every account's Startup folder, which works either way.
+
+**The trap, found on the dev PC's second account:** when a profile folder is denied, .NET reports paths *beneath* it as **missing**, not forbidden. `Directory.Exists(<their>\…\Startup)` returns `false` for an account whose contents were never visible — so the obvious implementation reports "nothing starts up for this account" about an account it never actually looked at. `UserProfiles.CanRead` therefore probes the profile root by opening it, and the module reports the account as unchecked rather than clean. Locked by a test that runs against whatever real profiles the machine has.
+
+Service identities are filtered out by SID: only `S-1-5-21-…` with RID ≥ 500 is a person. SYSTEM, LOCAL SERVICE, NETWORK SERVICE and the `S-1-5-80-…` per-service SIDs all have profile folders and would otherwise appear as accounts nobody recognises — which is how a real finding gets lost.
+
+**Still to verify:** an elevated end-to-end run. `PcHealthCheck.exe --headless-scan --include-admin --no-history --out <dir>` (one UAC prompt), then check `startup.other_accounts` lists the second account, and that an account whose hive is not loaded produces a note saying so rather than a clean bill. **Known gap:** an account that is not signed in has no loaded hive, so only its Startup folder is covered. Closing that needs `RegLoadAppKey` to open `NTUSER.DAT` read-only and privately — deliberately not done yet, since it is the first time the app would touch another user's registry file at all.
 
 ## The CPU benchmark measures one core, and that was a measurement not a preference
 
