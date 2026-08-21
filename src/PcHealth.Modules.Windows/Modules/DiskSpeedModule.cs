@@ -58,6 +58,11 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
 
         var (targets, skipped) = BenchmarkTargetSelector.Choose(
             ReadVolumes(notes), ReadDisks(notes), DiskSpdRunner.DefaultFileBytes);
+        // The only write this check makes is creating its test file, and on a bus-powered
+        // USB drive that sustained write is what makes the bridge time out — measured on
+        // the machine this was written on: 32 I/O retries from creating the file, and none
+        // at all from either read pass. The reads were never the problem, so the file is
+        // simply kept smaller where the write is the risk.
         foreach (var reason in skipped) notes.Add("Not benchmarked — " + reason);
 
         if (targets.Count == 0)
@@ -74,6 +79,20 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             ct.ThrowIfCancellationRequested();
             progress?.Report(new ModuleProgress($"Measuring {target.DriveLetter} ({target.Model})…"));
             failures += await MeasureTargetAsync(runner, exe, target, context, metrics, notes, ct).ConfigureAwait(false);
+        }
+
+        // Said out loud because this app reads the Windows event log in another check and
+        // counts disk errors there. Sustained writing to a drive in a USB caddy commonly
+        // makes the bridge time out, which Windows records as an I/O retry — so some of the
+        // disk events in this report may have been created by this very test, minutes ago.
+        // Leaving the reader to discover that for themselves would be the app quietly taking
+        // credit for a fault it caused.
+        if (targets.Any(t => t.Class == DriveClass.External))
+        {
+            notes.Add("An external drive was measured. Drives in USB enclosures often log I/O retries in the " +
+                      "Windows event log while a large file is being written to them, and this check writes one. " +
+                      "If the disk-errors count in this report went up since your last scan, compare the timestamps " +
+                      "before treating it as a failing drive — some of them may be from this test.");
         }
 
         return failures == 0 ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted;
@@ -101,8 +120,16 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
         {
             // The first pass creates the file; the second reuses it, so the drive is only
             // written to once no matter how many profiles are measured.
+            // Deep queues are for solid-state drives. Asking a spinning disk behind a USB
+            // bridge for 128 outstanding 4 KB reads made Windows log over a hundred I/O
+            // retries in one evening on the machine this was written on — which the app's
+            // own event-log check then reported as a failing drive. The measurement must
+            // never be the thing that creates the finding.
+            var deepQueue = DiskSpdRunner.DeepQueueSuits(target.Class);
+
+            var fileBytes = DiskSpdRunner.TestFileBytes(target.Class);
             var (sequential, seqError) = await runner
-                .MeasureAsync(exe, DiskProfile.Sequential, file, DiskSpdRunner.DefaultFileBytes, ct)
+                .MeasureAsync(exe, DiskProfile.Sequential, file, fileBytes, deepQueue, ct)
                 .ConfigureAwait(false);
 
             // The size actually on disk, not the size that was asked for. If DiskSpd never
@@ -119,11 +146,11 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             }
 
             var (random, rndError) = await runner
-                .MeasureAsync(exe, DiskProfile.Random4K, file, createBytes: null, ct)
+                .MeasureAsync(exe, DiskProfile.Random4K, file, createBytes: null, deepQueue, ct)
                 .ConfigureAwait(false);
             if (random is null) notes.Add($"{subject}: the small-reads test did not complete — {rndError}");
 
-            AddMetrics(target, subject, sequential, random, metrics);
+            AddMetrics(target, subject, sequential, random, deepQueue, metrics);
             return random is null ? 1 : 0;
         }
         finally
@@ -133,7 +160,8 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
     }
 
     private void AddMetrics(
-        BenchmarkTarget target, string subject, DiskSpdReading sequential, DiskSpdReading? random, List<Metric> metrics)
+        BenchmarkTarget target, string subject, DiskSpdReading sequential, DiskSpdReading? random,
+        bool deepQueue, List<Metric> metrics)
     {
         var expectation = DriveClassifier.Expectations(target.Class);
         var classLabel = DescribeClass(target.Class);
@@ -170,7 +198,12 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
                 Detail: $"{random.ReadIops.ToString("N0", CultureInfo.InvariantCulture)} reads a second, averaging " +
                         $"{random.AverageLatencyMs.ToString("0.00", CultureInfo.InvariantCulture)} ms each. This is " +
                         "the number that decides how quick a PC feels — starting apps, opening menus, searching. " +
-                        "It is reported without a verdict because a fair threshold depends on the exact drive model."));
+                        "It is reported without a verdict because a fair threshold depends on the exact drive model." +
+                        (deepQueue
+                            ? ""
+                            : " Measured with a shallow queue, which is what this kind of drive actually meets in " +
+                              "use — piling on more would only make the test slower and risk provoking errors that " +
+                              "say nothing about the drive.")));
         }
     }
 

@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-08-20** (commit `b8dcb35`, 198 tests passing, Release builds clean with `-warnaserror`).
+Snapshot for continuing work on another machine. Last updated: **2026-08-21** (commit `5d0f8dd`+, 239 tests passing, Release builds clean with `-warnaserror`).
 
 ## What this is
 
@@ -16,7 +16,7 @@ An offline-by-default, read-only-by-default Windows PC health auditor (.NET 10 +
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 198 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 239 tests; WorkerProtocolTests launch the real exe
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
 ```
@@ -34,7 +34,8 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | M4 part 1 — malware history (`malware.defender`) + network integrity (`network.health`) | ✅ done |
 | M4 part 2 — on-demand Defender quick/folder scans + opt-in VirusTotal reputation lookups | ✅ done |
 | M3 part 2 — benchmarks (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ✅ disk verified on real hardware; **7-Zip CPU bench still unverified** (needs an admin install) |
-| **M5 — browser extensions, multi-user startup, Vietnamese localization, Linux provider** | ⬜ next |
+| M5 — browser extension audit | ✅ done |
+| **M5 remainder — multi-user startup, Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
 | M5 — browser extensions, multi-user startup, localization (Vietnamese), Linux provider | ⬜ |
@@ -81,6 +82,23 @@ Full run: 151 s for four physical drives, all four test files deleted, receipt t
 | F: Realtek RTL9210B-CG (NVMe in USB enclosure) | **38.3 MB/s** | 15.3 MB/s | not graded — external |
 
 Two things this run proved. **G: is the classification fix earning its keep** — Windows reports that spinning drive as `MediaType 4` (SSD), and grading it against the 400 MB/s SATA-SSD floor would have called a healthy drive 28% and Bad. And **F: is a real finding on the dev PC**: 38 MB/s with 15 MB/s random is the signature of a USB 2.0 link, not of an NVMe drive. The report said "38.3 MB/s" and left the reader to notice, so `DriveClassifier.DescribeExternalLink` now names it — worded as an observation, because a 30 MB/s memory stick reading 30 MB/s is working perfectly.
+
+## The benchmark must not create the fault it reports
+
+The single most important thing learned building M3 part 2, found only by running it four times on a real PC.
+
+The disk benchmark was generating **~22 Windows I/O retry events per run** on a 2.5" hard disk in a USB caddy — and the app's own event-log check then counted them and graded the machine **Bad**. The 90-day baseline was 69 such events; one evening of testing added over 100.
+
+Two wrong guesses preceded the fix, both worth recording because the reasoning looked sound:
+
+1. *"The deep queue is too aggressive"* — `-b4K -o32 -t4` on a platter. Softening it to `-o4 -t1` cut retries from 22 to 14, so it looked right. It was a real improvement (deep queues are meaningless on a single head) but not the cause.
+2. *"Then it must be the random pass"* — skipping it entirely made things **worse** (23), which finally forced a measurement instead of another guess.
+
+A three-command probe settled it: creating the 1 GiB test file produced **32 retries**, the sequential read pass **0**, the random read pass **0**. The measured phase was never the problem — the *write* was. Without admin rights DiskSpd cannot set a file's valid length and must physically write every byte, so the only lever is fewer bytes. External drives now get a 256 MiB file (25 retries → 4 in isolation, ~22 → 2 across a whole scan) and the module says out loud that a benchmark can inflate the disk-error count, so the reader is not left to blame their drive for something this app did.
+
+**Rule that follows:** any check that exercises hardware must be measured against the app's own detectors before it ships. And when a fix "improves" a number, that is not evidence the cause was found — isolate it.
+
+**Benchmark settings are part of the measurement.** Changing queue depth or file size makes new readings incomparable with recorded history (`D:` moved 210 → 168 MB/s purely from `-o8` → `-o2`). Any future change to these parameters needs a new metric id, or that metric's history cleared, or the trend analyzer will report a methodology change as a failing drive.
 
 ## Why ClamAV was dropped
 

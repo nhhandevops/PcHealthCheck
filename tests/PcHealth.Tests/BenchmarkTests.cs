@@ -264,8 +264,10 @@ public class BenchmarkTests
     [Fact]
     public void The_measured_pass_can_never_write_and_the_shown_command_is_the_real_one()
     {
-        var sequential = DiskSpdRunner.Arguments(DiskProfile.Sequential, @"D:\bench.tmp", DiskSpdRunner.DefaultFileBytes);
-        var random = DiskSpdRunner.Arguments(DiskProfile.Random4K, @"D:\bench.tmp", createBytes: null);
+        var sequential = DiskSpdRunner.Arguments(
+            DiskProfile.Sequential, @"D:\bench.tmp", DiskSpdRunner.DefaultFileBytes, deepQueue: true);
+        var random = DiskSpdRunner.Arguments(
+            DiskProfile.Random4K, @"D:\bench.tmp", createBytes: null, deepQueue: true);
 
         // -w0 is the whole read-only promise; -Sh is what stops this measuring RAM.
         Assert.Contains("-w0", sequential, StringComparison.Ordinal);
@@ -402,6 +404,60 @@ public class BenchmarkTests
     public void Nothing_found_stays_nothing()
     {
         Assert.Null(ToolLocator.PickBuildFor([], Architecture.X64));
+    }
+
+    /// <summary>
+    /// A hundred and seven I/O retries appeared in the Windows event log in one evening on
+    /// the machine this was written on — every one on a spinning drive behind a USB bridge,
+    /// every one at the moment this benchmark ran, and the app's own event check then graded
+    /// the PC Bad because of them. The measurement must never manufacture the finding, so
+    /// deep queues are reserved for drives built to absorb them.
+    /// </summary>
+    [Theory]
+    [InlineData(DriveClass.NvmeSsd, true)]
+    [InlineData(DriveClass.SataSsd, true)]
+    [InlineData(DriveClass.Hdd, false)]
+    [InlineData(DriveClass.External, false)]
+    [InlineData(DriveClass.Unknown, false)]
+    public void Only_solid_state_drives_are_asked_for_a_deep_queue(DriveClass driveClass, bool expected)
+    {
+        Assert.Equal(expected, DiskSpdRunner.DeepQueueSuits(driveClass));
+    }
+
+    /// <summary>
+    /// Measured on real hardware, on the same USB drive, minutes apart: creating a 1 GiB
+    /// test file produced 25 Windows I/O retries and a 256 MiB one produced 4, while the
+    /// read passes over either produced none at all. The write is the whole problem, so it
+    /// is the write that shrinks.
+    /// </summary>
+    [Theory]
+    [InlineData(DriveClass.External, 256L * 1024 * 1024)]
+    [InlineData(DriveClass.NvmeSsd, 1024L * 1024 * 1024)]
+    [InlineData(DriveClass.Hdd, 1024L * 1024 * 1024)]
+    public void External_drives_are_asked_to_absorb_a_smaller_write(DriveClass driveClass, long expected)
+    {
+        Assert.Equal(expected, DiskSpdRunner.TestFileBytes(driveClass));
+    }
+
+    [Fact]
+    public void Even_the_smaller_file_is_far_bigger_than_any_drive_cache()
+    {
+        // 256 MiB against a drive cache measured in tens of megabytes: the measurement is
+        // still of the drive, not of its buffer.
+        Assert.True(DiskSpdRunner.ExternalFileBytes >= 128L * 1024 * 1024);
+    }
+
+    [Fact]
+    public void The_gentle_profile_asks_a_hard_disk_only_for_what_one_head_can_chase()
+    {
+        var gentle = DiskSpdRunner.Arguments(DiskProfile.Random4K, @"D:\bench.tmp", null, deepQueue: false);
+        var deep = DiskSpdRunner.Arguments(DiskProfile.Random4K, @"D:\bench.tmp", null, deepQueue: true);
+
+        Assert.Contains("-o4 -t1", gentle, StringComparison.Ordinal);
+        Assert.Contains("-o32 -t4", deep, StringComparison.Ordinal);
+        // Read-only either way — that promise is not up for negotiation.
+        Assert.Contains("-w0", gentle, StringComparison.Ordinal);
+        Assert.Contains("-Sh", gentle, StringComparison.Ordinal);
     }
 
     private static VolumeInfo Volume(string letter, int disk, long freeGb) =>
