@@ -35,7 +35,7 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | M4 part 2 — on-demand Defender quick/folder scans + opt-in VirusTotal reputation lookups | ✅ done |
 | M3 part 2 — benchmarks (DiskSpd disk profile, 7-Zip CPU bench, personal baselines) | ✅ both verified on real hardware |
 | M5 — browser extension audit | ✅ done |
-| M5 — multi-user startup coverage | ✅ shipped, **elevated end-to-end run still pending** (needs one UAC prompt) |
+| M5 — multi-user startup coverage | ✅ shipped and verified elevated |
 | **M5 remainder — Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
@@ -92,7 +92,9 @@ Two things this run proved. **G: is the classification fix earning its keep** �
 
 Service identities are filtered out by SID: only `S-1-5-21-…` with RID ≥ 500 is a person. SYSTEM, LOCAL SERVICE, NETWORK SERVICE and the `S-1-5-80-…` per-service SIDs all have profile folders and would otherwise appear as accounts nobody recognises — which is how a real finding gets lost.
 
-**Still to verify:** an elevated end-to-end run. `PcHealthCheck.exe --headless-scan --include-admin --no-history --out <dir>` (one UAC prompt), then check `startup.other_accounts` lists the second account, and that an account whose hive is not loaded produces a note saying so rather than a clean bill. **Known gap:** an account that is not signed in has no loaded hive, so only its Startup folder is covered. Closing that needs `RegLoadAppKey` to open `NTUSER.DAT` read-only and privately — deliberately not done yet, since it is the first time the app would touch another user's registry file at all.
+**Verified elevated on the dev PC, 2026-08-21** — and the first real run caught a third instance of this codebase's recurring bug. The report said *"Programs starting for other accounts: 0 — Nothing is set to start for any other account on this PC"* while, three lines above, admitting it could not read that account's registry at all. The count and the sentence beside it now come from `Startup/OtherAccountReport.cs`, a pure class with tests in both directions: a zero from a partial search says "nothing was found in the parts that could be read" plus how many accounts were incomplete, and a zero from a complete search is still allowed to say plainly that nothing is there. An app that hedges even when it did look properly is an app whose warnings stop meaning anything.
+
+**Older note — how to re-run it:** an elevated end-to-end run. `PcHealthCheck.exe --headless-scan --include-admin --no-history --out <dir>` (one UAC prompt), then check `startup.other_accounts` lists the second account, and that an account whose hive is not loaded produces a note saying so rather than a clean bill. **Known gap:** an account that is not signed in has no loaded hive, so only its Startup folder is covered. Closing that needs `RegLoadAppKey` to open `NTUSER.DAT` read-only and privately — deliberately not done yet, since it is the first time the app would touch another user's registry file at all.
 
 ## The CPU benchmark measures one core, and that was a measurement not a preference
 

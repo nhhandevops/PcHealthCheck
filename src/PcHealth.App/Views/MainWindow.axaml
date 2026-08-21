@@ -6,6 +6,38 @@
         Title="PC Health Check"
         Width="1240" Height="820" MinWidth="980" MinHeight="620">
 
+  <Window.Resources>
+    <!-- Shared so the "no admin needed" and "needs administrator" groups render
+         identical cards without the markup existing twice. -->
+      <DataTemplate x:Key="ModuleCard" x:DataType="vm:ModuleRowViewModel">
+        <Border BorderBrush="#40808080" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,6,8">
+          <StackPanel Spacing="3">
+            <CheckBox IsChecked="{Binding IsSelected}" Padding="6,0,0,0">
+              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+            </CheckBox>
+            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.75" FontSize="12" />
+            <TextBlock Text="{Binding ReadsText}" TextWrapping="Wrap" Opacity="0.55" FontSize="11" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Border IsVisible="{Binding NeedsAdmin}" Background="#c62828" CornerRadius="4" Padding="5,1">
+                <TextBlock Text="ADMIN" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+              </Border>
+              <Border IsVisible="{Binding HasWrites}" Background="#b8860b" CornerRadius="4" Padding="5,1">
+                <TextBlock Text="{Binding WritesText}" Foreground="White" FontSize="10" />
+              </Border>
+              <Border IsVisible="{Binding NeedsInternet}" Background="#1565c0" CornerRadius="4" Padding="5,1">
+                <TextBlock Text="INTERNET" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+              </Border>
+              <Border IsVisible="{Binding LoadsDriver}" Background="#6a1b9a" CornerRadius="4" Padding="5,1">
+                <TextBlock Text="KERNEL DRIVER" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+              </Border>
+              <TextBlock Text="{Binding DurationText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </DataTemplate>
+  </Window.Resources>
+
+
   <DockPanel Margin="16">
 
     <StackPanel DockPanel.Dock="Top" Spacing="2" Margin="0,0,0,12">
@@ -42,11 +74,13 @@
         <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,10,0,0">
 
           <!-- On-demand scans. Separate from the health scan because these take minutes
-               and ask Defender to act, rather than only reading what it already knows. -->
-          <Border BorderBrush="#40808080" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,6,0">
-            <StackPanel Spacing="6">
-              <TextBlock Text="Scan for malware now" FontWeight="SemiBold" FontSize="13" />
-              <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap"
+               and ask Defender to act, rather than only reading what it already knows.
+               Collapsed by default: expanded, this panel squeezed the list of checks above
+               it down to two visible rows out of twenty-four, which made a check the user
+               was looking for effectively unfindable. -->
+          <Expander Header="Scan for malware now" FontSize="13" Margin="0,0,6,0">
+            <StackPanel Spacing="6" Margin="0,6,0,0">
+              <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" MaxWidth="370"
                          Text="The checks above read what Defender has already found. These run a fresh scan: a quick scan of the usual hiding places, or one folder of your choosing (read-only — nothing is changed)." />
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button Content="Quick scan…" Command="{Binding RunQuickScanCommand}" FontSize="12" />
@@ -71,7 +105,7 @@
                 </StackPanel>
               </Expander>
             </StackPanel>
-          </Border>
+          </Expander>
 
           <CheckBox IsChecked="{Binding RememberTrends}" Padding="6,0,0,0">
             <StackPanel>
@@ -89,36 +123,19 @@
           </StackPanel>
         </StackPanel>
         <ScrollViewer>
-          <ItemsControl ItemsSource="{Binding Modules}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:ModuleRowViewModel">
-                <Border BorderBrush="#40808080" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,6,8">
-                  <StackPanel Spacing="3">
-                    <CheckBox IsChecked="{Binding IsSelected}" Padding="6,0,0,0">
-                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                    </CheckBox>
-                    <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.75" FontSize="12" />
-                    <TextBlock Text="{Binding ReadsText}" TextWrapping="Wrap" Opacity="0.55" FontSize="11" />
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                      <Border IsVisible="{Binding NeedsAdmin}" Background="#c62828" CornerRadius="4" Padding="5,1">
-                        <TextBlock Text="ADMIN" Foreground="White" FontSize="10" FontWeight="SemiBold" />
-                      </Border>
-                      <Border IsVisible="{Binding HasWrites}" Background="#b8860b" CornerRadius="4" Padding="5,1">
-                        <TextBlock Text="{Binding WritesText}" Foreground="White" FontSize="10" />
-                      </Border>
-                      <Border IsVisible="{Binding NeedsInternet}" Background="#1565c0" CornerRadius="4" Padding="5,1">
-                        <TextBlock Text="INTERNET" Foreground="White" FontSize="10" FontWeight="SemiBold" />
-                      </Border>
-                      <Border IsVisible="{Binding LoadsDriver}" Background="#6a1b9a" CornerRadius="4" Padding="5,1">
-                        <TextBlock Text="KERNEL DRIVER" Foreground="White" FontSize="10" FontWeight="SemiBold" />
-                      </Border>
-                      <TextBlock Text="{Binding DurationText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" />
-                    </StackPanel>
-                  </StackPanel>
-                </Border>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+          <StackPanel>
+            <!-- Split so the administrator checks are findable at a glance rather than
+                 buried at the bottom of twenty-four identical cards. -->
+            <TextBlock Text="{Binding StandardHeader}" FontWeight="SemiBold" FontSize="12"
+                       Opacity="0.7" Margin="2,0,0,6" />
+            <ItemsControl ItemsSource="{Binding StandardModules}" ItemTemplate="{StaticResource ModuleCard}" />
+
+            <TextBlock Text="{Binding AdminHeader}" FontWeight="SemiBold" FontSize="12"
+                       Opacity="0.7" Margin="2,8,0,6" />
+            <TextBlock Text="These need administrator rights. Selecting any of them adds one Windows prompt; the main window never runs as administrator."
+                       FontSize="11" Opacity="0.55" TextWrapping="Wrap" MaxWidth="380" Margin="2,0,0,6" />
+            <ItemsControl ItemsSource="{Binding AdminModules}" ItemTemplate="{StaticResource ModuleCard}" />
+          </StackPanel>
         </ScrollViewer>
       </DockPanel>
 

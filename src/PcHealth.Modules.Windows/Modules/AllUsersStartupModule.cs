@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.Win32;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
@@ -53,9 +52,8 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
             return Task.FromResult(ModuleStatus.Completed);
         }
 
-        var findings = new List<string>();
+        var results = new List<AccountStartupResult>();
         var unchecked_ = new List<string>();
-        var totalItems = 0;
 
         foreach (var profile in others)
         {
@@ -66,28 +64,19 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
             complete &= ReadRunKeys(profile, items, unchecked_);
             complete &= ReadStartupFolder(profile, items, unchecked_);
 
-            totalItems += items.Count;
-            if (items.Count > 0)
-            {
-                findings.Add($"{profile.AccountName}: {string.Join("; ", items.Take(12))}" +
-                             (items.Count > 12 ? " …" : ""));
-            }
-            else if (complete)
-            {
-                findings.Add($"{profile.AccountName}: nothing starts up for this account.");
-            }
+            results.Add(new AccountStartupResult(profile.AccountName, items, complete));
         }
+
+        var totalItems = results.Sum(r => r.Items.Count);
+        var partiallyExamined = results.Count(r => !r.FullyExamined);
 
         metrics.Add(new Metric("startup.other_accounts", "Other accounts on this PC", others.Count,
             HealthCategory.Security, InfoOnly: true,
-            Detail: string.Join(" | ", findings)));
+            Detail: OtherAccountReport.DescribeAccounts(results)));
 
         metrics.Add(new Metric("startup.other_accounts_items", "Programs starting for other accounts", totalItems,
             HealthCategory.Security, InfoOnly: true,
-            Detail: totalItems == 0
-                ? "Nothing is set to start for any other account on this PC."
-                : "These run when that person signs in, not when you do. Anything here you do not recognise is " +
-                  "worth asking about — a program that only starts for one account is a favourite hiding place."));
+            Detail: OtherAccountReport.DescribeTotal(totalItems, partiallyExamined, others.Count)));
 
         // Saying which accounts could not be fully read is the whole point: an account this
         // check silently skipped would otherwise be reported as having nothing to start.
@@ -175,7 +164,4 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
             return false;
         }
     }
-
-    /// <summary>Formats a count without tripping the locale analyzers.</summary>
-    internal static string Count(int value) => value.ToString(CultureInfo.InvariantCulture);
 }

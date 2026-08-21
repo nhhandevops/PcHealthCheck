@@ -44,6 +44,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _hasTrends;
 
     public ObservableCollection<ModuleRowViewModel> Modules { get; } = [];
+
+    /// <summary>
+    /// The same checks split in two for display. With twenty-four cards in one scrolling
+    /// column, an administrator check sat far below the fold with nothing to mark where the
+    /// group began — findable only by scrolling past everything else.
+    /// </summary>
+    public ObservableCollection<ModuleRowViewModel> StandardModules { get; } = [];
+
+    public ObservableCollection<ModuleRowViewModel> AdminModules { get; } = [];
+
+    [ObservableProperty] private string _standardHeader = "";
+    [ObservableProperty] private string _adminHeader = "";
     public ObservableCollection<CategoryCardViewModel> CategoryCards { get; } = [];
     public ObservableCollection<string> ReceiptLines { get; } = [];
 
@@ -75,7 +87,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 consents.GetValueOrDefault(module.Manifest.Id), module.Manifest.CapabilityHash);
             row.SelectionChanged += UpdateSummary;
             Modules.Add(row);
+            (module.Manifest.NeedsAdmin ? AdminModules : StandardModules).Add(row);
         }
+
+        StandardHeader = $"Runs without administrator ({StandardModules.Count.ToString(CultureInfo.InvariantCulture)})";
+        AdminHeader = $"Needs administrator ({AdminModules.Count.ToString(CultureInfo.InvariantCulture)})";
         UpdateSummary();
         InitializeDependencies();
     }

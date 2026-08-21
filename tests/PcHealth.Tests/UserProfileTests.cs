@@ -92,6 +92,66 @@ public class UserProfileTests
         Assert.False(string.IsNullOrWhiteSpace(failure));
     }
 
+    /// <summary>
+    /// The bug that reached a real screen: the check reported "Programs starting for other
+    /// accounts: 0 — Nothing is set to start for any other account on this PC" while, three
+    /// lines above, saying it had not been able to read that account's registry at all.
+    /// A number and the sentence beside it must agree about what was actually looked at.
+    /// </summary>
+    [Fact]
+    public void A_zero_from_a_partial_search_never_claims_nothing_is_there()
+    {
+        var text = OtherAccountReport.DescribeTotal(totalItems: 0, partiallyExamined: 1, accounts: 1);
+
+        Assert.DoesNotContain("Nothing is set to start for any other account", text, StringComparison.Ordinal);
+        Assert.Contains("only what could be read", text, StringComparison.Ordinal);
+        Assert.Contains("a zero here does not mean nothing is there", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_zero_from_a_complete_search_is_allowed_to_say_so()
+    {
+        // The opposite guard: an app that hedges even when it did look properly is an app
+        // whose warnings stop meaning anything.
+        var text = OtherAccountReport.DescribeTotal(totalItems: 0, partiallyExamined: 0, accounts: 2);
+
+        Assert.Contains("Nothing is set to start for any other account", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("does not mean nothing is there", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Findings_still_carry_the_coverage_warning()
+    {
+        var text = OtherAccountReport.DescribeTotal(totalItems: 3, partiallyExamined: 1, accounts: 2);
+
+        Assert.Contains("signs in, not when you do", text, StringComparison.Ordinal);
+        Assert.Contains("could not be examined in full", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_account_that_could_not_be_fully_read_is_marked_as_such_in_its_own_line()
+    {
+        var text = OtherAccountReport.DescribeAccounts(
+        [
+            new AccountStartupResult(@"PC\Alice", [], FullyExamined: true),
+            new AccountStartupResult(@"PC\Bob", [], FullyExamined: false),
+        ]);
+
+        Assert.Contains("Alice: nothing starts up for this account.", text, StringComparison.Ordinal);
+        Assert.Contains("Bob: nothing found in the part that could be read", text, StringComparison.Ordinal);
+        Assert.Contains("NOT fully examined", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void What_was_found_is_listed_per_account()
+    {
+        var text = OtherAccountReport.DescribeAccounts(
+            [new AccountStartupResult(@"PC\Bob", [@"Updater [Run] -> C:\odd.exe"], FullyExamined: true)]);
+
+        Assert.Contains("Updater [Run]", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("NOT fully examined", text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void This_machines_own_profile_list_yields_at_least_the_current_account()
     {
