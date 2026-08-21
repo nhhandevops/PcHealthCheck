@@ -288,7 +288,7 @@ public sealed class TrendHistoryTests : IDisposable
         // Telling someone to check their SATA cable because their CPU score fell would be
         // worse than saying nothing: it sends them looking in the wrong place.
         using var store = NewStore();
-        var cpu = (double mips) => new Metric("bench.cpu.rating_mips", "Processor benchmark score", mips,
+        var cpu = (double mips) => new Metric("bench.cpu.single_thread_mips", "Processor benchmark score", mips,
             HealthCategory.Performance, Unit: "MIPS", Subject: "Intel Core i5-12400F (6 cores / 12 threads)");
         store.RecordScan(DateTimeOffset.Now.AddDays(-40), [cpu(40000)]);
         store.RecordScan(DateTimeOffset.Now.AddDays(-20), [cpu(41000)]);

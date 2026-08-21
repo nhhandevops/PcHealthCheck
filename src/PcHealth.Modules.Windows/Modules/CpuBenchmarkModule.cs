@@ -24,12 +24,13 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
     {
         Id = "bench.cpu",
         Name = "Processor speed (benchmark)",
-        Description = "Loads every processor core for about a minute using 7-Zip's benchmark and records the score, " +
-                      "so a future slowdown from overheating or power settings becomes visible. Writes nothing. " +
+        Description = "Measures how much work one processor core gets through, using 7-Zip's benchmark, and " +
+                      "records it so a future slowdown from overheating or power settings becomes visible. " +
+                      "About 30 seconds, writes nothing, and leaves the rest of the PC usable. " +
                       "Needs 7-Zip installed — the app offers to install it.",
         Reads = ["Processor name and core count (WMI)", "Nothing on disk — the benchmark runs in memory"],
         NeedsAdmin = false,
-        EstimatedDuration = TimeSpan.FromSeconds(70),
+        EstimatedDuration = TimeSpan.FromSeconds(35),
     };
 
     protected override async Task<ModuleStatus> ExecuteAsync(
@@ -46,8 +47,7 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
             return ModuleStatus.Skipped;
         }
 
-        progress?.Report(new ModuleProgress(
-            "Loading every processor core for about a minute — the PC will feel busy and the fans may speed up."));
+        progress?.Report(new ModuleProgress("Measuring one processor core — this takes about 30 seconds."));
 
         var (reading, error) = await new SevenZipBenchmark(context.Processes).MeasureAsync(exe, ct).ConfigureAwait(false);
         if (reading is null)
@@ -58,14 +58,16 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
 
         var subject = DescribeProcessor(notes);
 
-        metrics.Add(new Metric("bench.cpu.rating_mips", "Processor benchmark score",
+        metrics.Add(new Metric("bench.cpu.single_thread_mips", "Processor benchmark score",
             Math.Round(reading.OverallRating, 0), HealthCategory.Performance,
             Unit: "MIPS", Subject: subject, InfoOnly: true,
-            Detail: "7-Zip's own rating with every core loaded. There is no good or bad number here — a quiet " +
-                    "office laptop and a gaming desktop are both healthy at very different scores. What matters " +
-                    "is this number staying steady: run this check again in a month, and a score well below " +
-                    "today's usually means the processor is overheating and slowing itself down, or a power " +
-                    "plan has changed."));
+            Detail: "7-Zip's rating for a single core. There is no good or bad number here — a quiet office " +
+                    "laptop and a gaming desktop are both healthy at very different scores. What matters is this " +
+                    "number staying steady: run the check again in a month, and a score well below today's " +
+                    "usually means the processor is slowing itself down to stay cool, or a power plan has " +
+                    "changed. One core rather than all of them on purpose — loading every core for a minute " +
+                    "heats the chip enough that the test starts measuring its own effect, which was measured at " +
+                    "a 45% swing between back-to-back runs."));
 
         if (reading.CompressRating > 0 && reading.DecompressRating > 0)
         {

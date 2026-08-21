@@ -69,7 +69,7 @@ public static class TrendAnalyzer
     {
         ["bench.disk.seq_read_mbps"] = new("reading long files", DiskAdvice),
         ["bench.disk.rnd4k_read_mbps"] = new("reading small scattered files", DiskAdvice),
-        ["bench.cpu.rating_mips"] = new("processing work", CpuAdvice),
+        ["bench.cpu.single_thread_mips"] = new("processing work", CpuAdvice),
     };
 
     /// <summary>What a slowdown in this measurement usually means, and what to do about it.</summary>

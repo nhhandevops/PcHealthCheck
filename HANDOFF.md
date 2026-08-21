@@ -33,7 +33,7 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | Dependency manager — consented installs (command shown), safe exit removal, 15-day text history | ✅ done |
 | M4 part 1 — malware history (`malware.defender`) + network integrity (`network.health`) | ✅ done |
 | M4 part 2 — on-demand Defender quick/folder scans + opt-in VirusTotal reputation lookups | ✅ done |
-| M3 part 2 — benchmarks (DiskSpd read-only disk profile, 7-Zip CPU bench, personal baselines) | ✅ disk verified on real hardware; **7-Zip CPU bench still unverified** (needs an admin install) |
+| M3 part 2 — benchmarks (DiskSpd disk profile, 7-Zip CPU bench, personal baselines) | ✅ both verified on real hardware |
 | M5 — browser extension audit | ✅ done |
 | **M5 remainder — multi-user startup, Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
@@ -83,9 +83,26 @@ Full run: 151 s for four physical drives, all four test files deleted, receipt t
 
 Two things this run proved. **G: is the classification fix earning its keep** — Windows reports that spinning drive as `MediaType 4` (SSD), and grading it against the 400 MB/s SATA-SSD floor would have called a healthy drive 28% and Bad. And **F: is a real finding on the dev PC**: 38 MB/s with 15 MB/s random is the signature of a USB 2.0 link, not of an NVMe drive. The report said "38.3 MB/s" and left the reader to notice, so `DriveClassifier.DescribeExternalLink` now names it — worded as an observation, because a 30 MB/s memory stick reading 30 MB/s is working perfectly.
 
+## The CPU benchmark measures one core, and that was a measurement not a preference
+
+Verified against real 7-Zip on 2026-08-21, and the verification changed the design.
+
+7-Zip's default all-core run looked like the obvious choice. Five back-to-back runs on the same idle PC said otherwise:
+
+| all-core (`b`) | single-core (`b 1 -mmt1`) |
+|---|---|
+| 52,267 / 43,768 / 41,573 / 36,715 / 28,745 MIPS | 6,026 / 5,853 / 5,914 / 6,074 MIPS |
+| **45% spread**, ~32–60 s, fans audible | **3.6% spread**, ~26 s, quiet |
+
+A minute of all-core work heat-soaks the chip, so each run measures the previous run's heat. The `PerformanceDrop` rule sits at 30%, which that spread would have tripped constantly — a benchmark whose own effect dominates its result detects nothing. Through the whole app, twice: 6,084 and 6,232 MIPS.
+
+Single-core is also what most software actually feels, and a processor that is throttling or stuck on a power-saving plan still shows it. Cooling under sustained load is the sensors module's job, not this one's.
+
+The metric id changed with it — `bench.cpu.rating_mips` → `bench.cpu.single_thread_mips` — because 52,000 and 6,000 are not the same measurement, and per the rule below a changed method needs a new id or the trend analyzer reports it as a failing processor.
+
 ## Runbook — verifying the CPU benchmark against real 7-Zip
 
-The one piece of M3 part 2 that has never met real tool output. Everything below takes about five minutes.
+Kept for re-verifying after a 7-Zip update, or on a machine where the check misbehaves. Everything below takes about five minutes. (The original verification was done without installing anything: 7-Zip's standalone `7za.exe`, unpacked from the `7z2602-extra.7z` release asset using the `7zr.exe` bootstrapper, both public downloads from the ip7z/7zip repo.)
 
 **Why it was left:** `7zip.7zip` is a WiX MSI that installs into Program Files, so it needs one UAC prompt. DiskSpd needed none (portable package), which is why the disk half could be verified unattended and this half could not.
 
@@ -188,6 +205,4 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 
 ## Suggested next session
 
-**First: finish verifying the CPU benchmark** — step-by-step in the runbook above.
-
-Then M5: browser-extension audit, multi-user startup coverage, Vietnamese localization, Linux provider. Packaging (SignPath OSS signing, GitHub Release with checksums, winget manifest, SmartScreen submission) can happen in parallel.
+M5 remainder: browser-extension audit, multi-user startup coverage, Vietnamese localization, Linux provider. Packaging (SignPath OSS signing, GitHub Release with checksums, winget manifest, SmartScreen submission) can happen in parallel.

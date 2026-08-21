@@ -10,9 +10,9 @@ public sealed record CpuBenchmarkReading(double OverallRating, double CompressRa
 /// Uses 7-Zip's built-in benchmark to see how much work the processor actually manages.
 ///
 /// 7-Zip is a good choice for a health check rather than a scoreboard: it is a real
-/// workload — compression is branchy integer code that also leans on memory — it loads
-/// every core, and it is the same on every machine. Nothing is compressed on disk; the
-/// benchmark works entirely in RAM, so this check writes nothing at all.
+/// workload — compression is branchy integer code that also leans on memory — and it is
+/// the same on every machine. Nothing is compressed on disk; the benchmark works entirely
+/// in RAM, so this check writes nothing at all.
 ///
 /// The tool is invoked as an already-installed program and never bundled or linked, so
 /// its LGPL terms bring no obligations here beyond saying where it came from.
@@ -29,8 +29,20 @@ public sealed class SevenZipBenchmark(IProcessRunner processes)
     /// </summary>
     public const string StandaloneToolName = "7za.exe";
 
-    /// <summary>Default dictionary size, all cores — the standard run everyone quotes.</summary>
-    public const string BenchmarkArguments = "b";
+    /// <summary>
+    /// One core, one pass. The obvious choice would be 7-Zip's default all-core run, and it
+    /// was — until it was measured. Five consecutive all-core runs on the same idle PC gave
+    /// 52,267 / 43,768 / 41,573 / 36,715 / 28,745 MIPS: a 45% spread, because each one-minute
+    /// run heat-soaks the chip and the next one measures the heat rather than the processor.
+    /// A benchmark whose own effect dominates its result cannot detect anything, and a 30%
+    /// regression rule sitting on top of it would have cried wolf every time.
+    ///
+    /// The same four runs single-threaded: 6,026 / 5,853 / 5,914 / 6,074 — a 3.6% spread, in
+    /// 26 seconds instead of a minute, with the fans staying quiet. It is also the number
+    /// most software actually feels, and a processor that is throttling or stuck on a
+    /// power-saving plan still shows it here.
+    /// </summary>
+    public const string BenchmarkArguments = "b 1 -mmt1";
 
     public static string? Find()
     {

@@ -369,12 +369,21 @@ public class BenchmarkTests
         Assert.Equal("7za.exe", SevenZipBenchmark.StandaloneToolName);
     }
 
+    /// <summary>
+    /// Measured, not assumed. Five back-to-back all-core runs on one idle PC returned
+    /// 52,267 / 43,768 / 41,573 / 36,715 / 28,745 MIPS — a 45% spread, because a minute of
+    /// all-core work heats the chip and the next run measures the heat. The same machine
+    /// single-threaded: 6,026 / 5,853 / 5,914 / 6,074, a 3.6% spread. A 30% regression rule
+    /// on the first set would have cried wolf constantly; on the second it means something.
+    /// </summary>
     [Fact]
-    public void The_processor_benchmark_never_asks_seven_zip_to_touch_a_file()
+    public void The_processor_benchmark_measures_one_core_so_it_does_not_measure_its_own_heat()
     {
+        Assert.Contains("-mmt1", SevenZipBenchmark.BenchmarkArguments, StringComparison.Ordinal);
         // "b" runs entirely in memory. Any path or archive argument would make this check
         // something quite different from what its consent row promises.
-        Assert.Equal("b", SevenZipBenchmark.BenchmarkArguments);
+        Assert.StartsWith("b ", SevenZipBenchmark.BenchmarkArguments, StringComparison.Ordinal);
+        Assert.DoesNotContain(":", SevenZipBenchmark.BenchmarkArguments, StringComparison.Ordinal);
     }
 
     /// <summary>
