@@ -28,6 +28,7 @@ public sealed class WindowsModuleProvider : IModuleProvider
         new CrashDumpModule(),
         new MalwareDefenderModule(),
         new NetworkHealthModule(),
+        new BrowserExtensionsModule(),
         new DiskSpeedModule(),
         new CpuBenchmarkModule(),
 
