@@ -83,6 +83,54 @@ Full run: 151 s for four physical drives, all four test files deleted, receipt t
 
 Two things this run proved. **G: is the classification fix earning its keep** — Windows reports that spinning drive as `MediaType 4` (SSD), and grading it against the 400 MB/s SATA-SSD floor would have called a healthy drive 28% and Bad. And **F: is a real finding on the dev PC**: 38 MB/s with 15 MB/s random is the signature of a USB 2.0 link, not of an NVMe drive. The report said "38.3 MB/s" and left the reader to notice, so `DriveClassifier.DescribeExternalLink` now names it — worded as an observation, because a 30 MB/s memory stick reading 30 MB/s is working perfectly.
 
+## Runbook — verifying the CPU benchmark against real 7-Zip
+
+The one piece of M3 part 2 that has never met real tool output. Everything below takes about five minutes.
+
+**Why it was left:** `7zip.7zip` is a WiX MSI that installs into Program Files, so it needs one UAC prompt. DiskSpd needed none (portable package), which is why the disk half could be verified unattended and this half could not.
+
+**Step 1 — install 7-Zip.** Preferred route is the app's own purple banner → **Install…**, because that exercises the dependency-manager flow at the same time and records the install in the ledger, so the app offers to remove it again when you close it. The equivalent by hand, which the app shows you before running it:
+
+*Or install nothing at all:* the locator also accepts 7-Zip's standalone `7za.exe`, so unpacking the "7-Zip Extra" archive anywhere on PATH is enough and needs no UAC prompt. Useful for verifying the parser without touching the machine.
+
+```text
+winget install 7zip.7zip --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+```
+
+**Step 2 — confirm the locator finds it.** `SevenZipBenchmark.Find()` looks in Program Files, Program Files (x86), winget's `Links` shim, the `Packages` folder, then PATH. A quick check:
+
+```powershell
+Test-Path "$env:ProgramFiles\7-Zip\7z.exe"
+```
+
+**Step 3 — capture what the parser will actually be given.** This is the step that caught the DiskSpd bugs; do not skip it in favour of trusting the fixture:
+
+```powershell
+& "$env:ProgramFiles\7-Zip\7z.exe" b | Select-Object -Last 8
+```
+
+Expect a table ending in two summary rows. `SevenZipOutputReader` keys on exactly these:
+
+```text
+Avr:      36004   621   5399  33548  |  390298   791   4569  36171
+Tot:              706   4984  34859
+```
+
+- `Tot:` — **last** number is the overall rating in MIPS.
+- `Avr:` — must hold **exactly 8** numbers; compression rating is the 4th, decompression the 8th. Any other column count and the parser deliberately reports 0 for both rather than reading the wrong column.
+
+**Step 4 — run the check and compare.**
+
+```powershell
+PcHealthCheck.exe --headless-scan --no-history --out <dir>
+```
+
+Then in the JSON report, `bench.cpu.rating_mips` must equal the `Tot:` figure from step 3, and `bench.cpu.compress_mips` the `Avr:` 4th column. On the dev PC (i5-12400F, 6c/12t) expect roughly 30,000–45,000 MIPS; a laptop will be far lower and that is not a fault — the metric is `InfoOnly` precisely because MIPS only means something against the same processor.
+
+**If it fails**, the likely cause is the `Avr:` column count differing in a newer 7-Zip. That is the designed-for case: `bench.cpu.rating_mips` still appears (it only needs `Tot:`) and the two compression figures are simply absent. Fix `SevenZipOutputReader.Parse` and add the real row shape to `BenchmarkTests.SevenZipOutput`.
+
+**Not yet covered:** the run loads every core for about a minute, so the fans will spin up — that is the test working, and it is also why a CPU regression later points at temperatures first.
+
 ## The benchmark must not create the fault it reports
 
 The single most important thing learned building M3 part 2, found only by running it four times on a real PC.
@@ -140,6 +188,6 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 
 ## Suggested next session
 
-**First: finish verifying the CPU benchmark.** The disk half has now met real DiskSpd (see the table above, and the two bugs it caught). The 7-Zip half has not: its winget package is a WiX MSI that installs into Program Files, so it needs one UAC prompt and was left for the machine's owner. Install it from the app's own banner — that exercises the dependency flow too — run `bench.cpu`, and confirm the score parses and looks right for the processor.
+**First: finish verifying the CPU benchmark** — step-by-step in the runbook above.
 
 Then M5: browser-extension audit, multi-user startup coverage, Vietnamese localization, Linux provider. Packaging (SignPath OSS signing, GitHub Release with checksums, winget manifest, SmartScreen submission) can happen in parallel.

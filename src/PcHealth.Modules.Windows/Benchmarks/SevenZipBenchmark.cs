@@ -21,14 +21,28 @@ public sealed class SevenZipBenchmark(IProcessRunner processes)
 {
     public const string ToolName = "7z.exe";
 
+    /// <summary>
+    /// The standalone console build. Anyone who unpacked 7-Zip rather than installing it has
+    /// this and not <c>7z.exe</c> — and since the installer is the part that needs a UAC
+    /// prompt, accepting the portable one is the difference between this check working and
+    /// being permanently unavailable on a locked-down machine.
+    /// </summary>
+    public const string StandaloneToolName = "7za.exe";
+
     /// <summary>Default dictionary size, all cores — the standard run everyone quotes.</summary>
     public const string BenchmarkArguments = "b";
 
-    public static string? Find() => ToolLocator.Find(
-        ToolName,
-        "7zip.7zip",
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip"),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "7-Zip"));
+    public static string? Find()
+    {
+        string[] directories =
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "7-Zip"),
+        ];
+
+        return ToolLocator.Find(ToolName, "7zip.7zip", directories)
+               ?? ToolLocator.Find(StandaloneToolName, "7zip.7zip", directories);
+    }
 
     public async Task<(CpuBenchmarkReading? Reading, string? Error)> MeasureAsync(string exePath, CancellationToken ct)
     {

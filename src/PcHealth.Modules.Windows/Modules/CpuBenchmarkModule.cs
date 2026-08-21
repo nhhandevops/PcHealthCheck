@@ -40,7 +40,9 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
         if (exe is null)
         {
             notes.Add("7-Zip is not installed, so the processor was not measured. The app offers to install it " +
-                      "with 'winget install 7zip.7zip' and to remove it again when you close the app.");
+                      "with 'winget install 7zip.7zip' and to remove it again when you close the app. " +
+                      "If you would rather not install anything, unpacking 7-Zip's standalone 7za.exe anywhere " +
+                      "on your PATH works just as well.");
             return ModuleStatus.Skipped;
         }
 

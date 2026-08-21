@@ -361,6 +361,15 @@ public class BenchmarkTests
     }
 
     [Fact]
+    public void The_portable_seven_zip_counts_as_seven_zip()
+    {
+        // The installer is the only part that needs a UAC prompt. Someone who unpacked
+        // 7-Zip instead has 7za.exe and would otherwise be told the check is unavailable.
+        Assert.Equal("7z.exe", SevenZipBenchmark.ToolName);
+        Assert.Equal("7za.exe", SevenZipBenchmark.StandaloneToolName);
+    }
+
+    [Fact]
     public void The_processor_benchmark_never_asks_seven_zip_to_touch_a_file()
     {
         // "b" runs entirely in memory. Any path or archive argument would make this check
