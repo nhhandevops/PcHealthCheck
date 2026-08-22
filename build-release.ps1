@@ -88,12 +88,15 @@ Step 'Checksums'
 # Published so a downloader can prove the file is the one that was built. Until the binary
 # is code-signed this is the only integrity check available to them, so it ships with it.
 $sums = Join-Path $OutputDir 'SHA256SUMS.txt'
-Get-ChildItem $OutputDir -File -Filter '*.zip' |
-    ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name } |
-    Tee-Object -FilePath $sums
-Get-ChildItem $staging -File -Filter '*.exe' |
-    ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name } |
-    Tee-Object -FilePath $sums -Append
+$lines = @()
+$lines += Get-ChildItem $OutputDir -File -Filter '*.zip' |
+    ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name }
+$lines += Get-ChildItem $staging -File -Filter '*.exe' |
+    ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name }
+# ASCII, so no byte-order mark. A BOM makes the first line unreadable to `sha256sum -c` and
+# to most checksum tools, which would break the one integrity check an unsigned download has.
+Set-Content -Path $sums -Value $lines -Encoding ASCII
+$lines | ForEach-Object { Write-Host "  $_" }
 
 Step 'Done'
 Write-Host "  $zip"

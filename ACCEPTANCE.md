@@ -85,7 +85,7 @@ The failure this app has made three times. Worth testing deliberately.
 | E2 | Run "Startup for other accounts" on a PC with a second account that is not signed in | Says their registry could not be read; the count does **not** claim nothing is there | |
 | E3 | Run a scan where everything succeeds | 🔴 The amber box does **not** appear | |
 | E4 | Look at any check reported as Skipped | The note says why (no battery, tool not installed) — never silence | |
-| E5 | Read the INFO rows | No grade, and the detail explains why it cannot fairly be graded | |
+| E5 | Read the INFO rows | No grade, and each is understandable on its own — a plain fact needs no explanation, but anything that *could* be mistaken for an omission must say why it is not graded | |
 
 ## F. Trends
 

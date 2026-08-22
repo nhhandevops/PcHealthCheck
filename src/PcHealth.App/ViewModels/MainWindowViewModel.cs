@@ -14,6 +14,7 @@ using PcHealth.Core.Processes;
 using PcHealth.Core.Reporting;
 using PcHealth.Core.Verdicts;
 using PcHealth.Modules.Windows;
+using PcHealth.Modules.Windows.Benchmarks;
 using PcHealth.Modules.Windows.Support;
 using PcHealth.Net.Optional;
 
@@ -94,6 +95,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AdminHeader = $"Needs administrator ({AdminModules.Count.ToString(CultureInfo.InvariantCulture)})";
         UpdateSummary();
         InitializeDependencies();
+        SweepLeftoverBenchmarkFiles();
+    }
+
+    /// <summary>
+    /// A benchmark file left behind by a run that was killed or lost power is a gigabyte of
+    /// the user's disk that nothing would ever reclaim — the module's own cleanup cannot run
+    /// if the process never got to finish. Doing it at startup means it happens even if they
+    /// never tick that check again, and saying so means it is not a silent deletion.
+    /// </summary>
+    private void SweepLeftoverBenchmarkFiles()
+    {
+        var removed = BenchmarkCleanup.SweepOrphans();
+        if (removed.Count == 0) return;
+
+        ProgressText = $"Cleaned up {removed.Count.ToString(CultureInfo.InvariantCulture)} leftover benchmark " +
+                       $"file(s) from a run that did not finish: {string.Join(", ", removed)}. " +
+                       "Select the checks you consent to, then press Scan.";
     }
 
     private void UpdateSummary()

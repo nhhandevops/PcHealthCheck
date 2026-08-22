@@ -23,8 +23,8 @@ namespace PcHealth.Modules.Windows.Modules;
 internal sealed class DiskSpeedModule : WindowsModuleBase
 {
     private const string StorageNamespace = @"root\Microsoft\Windows\Storage";
-    private const string WorkingFolder = "PcHealthCheck-bench";
-    private const string TestFileName = "bench.tmp";
+    private const string WorkingFolder = BenchmarkCleanup.WorkingFolder;
+    private const string TestFileName = BenchmarkCleanup.TestFileName;
 
     public override ModuleManifest Manifest { get; } = new()
     {
@@ -54,6 +54,14 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
                       "Microsoft (MIT licence); the app offers to install it with 'winget install Microsoft.DiskSpd' " +
                       "and to remove it again when you close the app.");
             return ModuleStatus.Skipped;
+        }
+
+        // An earlier run that was killed, crashed, or lost power could not reach its own
+        // cleanup. Finish that job before starting a new one, and say so rather than
+        // deleting a gigabyte of the user's disk in silence.
+        foreach (var orphan in BenchmarkCleanup.SweepOrphans())
+        {
+            notes.Add($"Removed a leftover test file from an earlier run that did not finish: {orphan}.");
         }
 
         var (targets, skipped) = BenchmarkTargetSelector.Choose(
@@ -140,14 +148,24 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
 
             if (sequential is null)
             {
-                notes.Add($"{subject}: {seqError}");
+                // A benchmark that cannot finish is a finding, not a gap. Where the failure
+                // names a Windows error that says something about the hardware, say what it
+                // means — the raw tool message alone leaves the reader with a number nobody
+                // recognises in place of the most serious thing this check found.
+                var hint = DiskErrorHints.Explain(seqError);
+                notes.Add($"{subject}: {seqError}{(hint is null ? "" : " " + hint)}");
                 return 1;
             }
 
             var (random, rndError) = await runner
                 .MeasureAsync(exe, DiskProfile.Random4K, file, createBytes: null, deepQueue, ct)
                 .ConfigureAwait(false);
-            if (random is null) notes.Add($"{subject}: the small-reads test did not complete — {rndError}");
+            if (random is null)
+            {
+                var rndHint = DiskErrorHints.Explain(rndError);
+                notes.Add($"{subject}: the small-reads test did not complete — {rndError}" +
+                          (rndHint is null ? "" : " " + rndHint));
+            }
 
             AddMetrics(target, subject, sequential, random, deepQueue, metrics);
             return random is null ? 1 : 0;

@@ -514,6 +514,52 @@ public class BenchmarkTests
         Assert.Contains("-Sh", gentle, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Taken verbatim from acceptance testing, DiskSpd's own spelling mistake included. The
+    /// benchmark failing to write is a more serious finding than any speed it was trying to
+    /// measure, and "error code: 1117" tells the reader nothing on its own.
+    /// </summary>
+    [Fact]
+    public void A_device_io_failure_is_explained_and_leads_with_the_backup()
+    {
+        const string real = """
+            WARNING: single-threaded test, -si ignored
+            Error while writng during file creation (error code: 1117)
+
+            Error generating I/O requests
+            """;
+
+        var hint = DiskErrorHints.Explain(real);
+
+        Assert.NotNull(hint);
+        Assert.Contains("device I/O error", hint, StringComparison.Ordinal);
+        Assert.Contains("BACK THIS DRIVE UP", hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(23, "cable")]
+    [InlineData(433, "disconnected")]
+    [InlineData(112, "ran out of space")]
+    public void Other_known_codes_get_their_own_meaning(int code, string expected)
+    {
+        var hint = DiskErrorHints.Explain($"Something failed (error code: {code})");
+
+        Assert.NotNull(hint);
+        Assert.Contains(expected, hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("DiskSpd exited with code 1: something unrecognised")]
+    [InlineData("the number 1117 appears but not as an error code")]
+    public void An_unrecognised_failure_is_left_as_it_is_rather_than_guessed_at(string? output)
+    {
+        // Dressing an unknown failure up in a confident explanation would be worse than the
+        // raw message, which at least is true.
+        Assert.Null(DiskErrorHints.Explain(output));
+    }
+
     private static VolumeInfo Volume(string letter, int disk, long freeGb) =>
         new(letter, disk, GigabytesToBytes(freeGb));
 
