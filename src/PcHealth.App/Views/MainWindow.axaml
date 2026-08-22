@@ -17,7 +17,9 @@
             </CheckBox>
             <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.75" FontSize="12" />
             <TextBlock Text="{Binding ReadsText}" TextWrapping="Wrap" Opacity="0.55" FontSize="11" />
-            <StackPanel Orientation="Horizontal" Spacing="6">
+            <!-- Wraps rather than runs off the card: the WRITES badge carries a full path
+                 and size, which no fixed-width row can hold. -->
+            <WrapPanel ItemSpacing="6" LineSpacing="4">
               <Border IsVisible="{Binding NeedsAdmin}" Background="#c62828" CornerRadius="4" Padding="5,1">
                 <TextBlock Text="ADMIN" Foreground="White" FontSize="10" FontWeight="SemiBold" />
               </Border>
@@ -31,7 +33,7 @@
                 <TextBlock Text="KERNEL DRIVER" Foreground="White" FontSize="10" FontWeight="SemiBold" />
               </Border>
               <TextBlock Text="{Binding DurationText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" />
-            </StackPanel>
+            </WrapPanel>
           </StackPanel>
         </Border>
       </DataTemplate>
@@ -64,11 +66,15 @@
                 CornerRadius="8" Padding="10,8" Margin="0,0,6,8">
           <StackPanel Spacing="6">
             <TextBlock Text="{Binding DependencyOfferText}" TextWrapping="Wrap" FontSize="12" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button Content="Install…" Command="{Binding InstallDependencyCommand}" FontSize="12" />
-              <TextBlock Text="Shows the exact command first · one UAC prompt · uses the internet"
-                         FontSize="11" Opacity="0.65" VerticalAlignment="Center" />
-            </StackPanel>
+            <!-- A Grid, not a horizontal stack: a stack hands its children unlimited width,
+                 so this caption never wrapped and spilled outside the banner. -->
+            <Grid ColumnDefinitions="Auto,*">
+              <Button Grid.Column="0" Content="Install…" Command="{Binding InstallDependencyCommand}"
+                      FontSize="12" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Margin="8,0,0,0"
+                         Text="Shows the exact command first · one UAC prompt · uses the internet"
+                         FontSize="11" Opacity="0.65" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </Grid>
           </StackPanel>
         </Border>
         <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,10,0,0">
@@ -114,13 +120,15 @@
                          FontSize="11" Opacity="0.6" TextWrapping="Wrap" MaxWidth="380" />
             </StackPanel>
           </CheckBox>
-          <StackPanel Orientation="Horizontal" Spacing="8">
+          <!-- Five buttons do not fit this column, so the last one was cut in half. Wrapping
+               costs a second row on a narrow window and nothing on a wide one. -->
+          <WrapPanel ItemSpacing="8" LineSpacing="8">
             <Button Content="Scan now" Command="{Binding ScanCommand}" FontWeight="SemiBold" />
             <Button Content="Cancel" Command="{Binding CancelScanCommand}" />
             <Button Content="Select recommended" Command="{Binding SelectRecommendedCommand}" />
             <Button Content="Clear" Command="{Binding ClearSelectionCommand}" />
             <Button Content="Delete history" Command="{Binding DeleteHistoryCommand}" />
-          </StackPanel>
+          </WrapPanel>
         </StackPanel>
         <ScrollViewer>
           <StackPanel>
