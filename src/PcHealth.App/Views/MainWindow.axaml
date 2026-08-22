@@ -194,10 +194,10 @@
                           <TextBlock Text="{Binding GradeLabel}" Foreground="White" FontSize="10" FontWeight="SemiBold" />
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="2">
-                          <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                          <WrapPanel ItemSpacing="8" LineSpacing="2">
+                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
                             <TextBlock Text="{Binding Subject}" IsVisible="{Binding HasSubject}" Opacity="0.65" />
-                          </StackPanel>
+                          </WrapPanel>
                           <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="12" MaxWidth="640" />
                           <ItemsControl ItemsSource="{Binding Tips}" IsVisible="{Binding HasTips}">
                             <ItemsControl.ItemTemplate>
@@ -248,12 +248,12 @@
                 <DataTemplate x:DataType="vm:CategoryCardViewModel">
                   <Border BorderBrush="#40808080" BorderThickness="1" CornerRadius="10" Padding="14,10" Margin="0,0,6,10">
                     <StackPanel Spacing="8">
-                      <StackPanel Orientation="Horizontal" Spacing="10">
+                      <WrapPanel ItemSpacing="10" LineSpacing="4">
                         <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <Border Background="{Binding GradeBrush}" CornerRadius="8" Padding="8,2" VerticalAlignment="Center">
                           <TextBlock Text="{Binding GradeLabel}" Foreground="White" FontSize="11" FontWeight="SemiBold" />
                         </Border>
-                      </StackPanel>
+                      </WrapPanel>
                       <ItemsControl ItemsSource="{Binding Verdicts}">
                         <ItemsControl.ItemTemplate>
                           <DataTemplate x:DataType="vm:VerdictRowViewModel">
@@ -263,11 +263,15 @@
                                 <TextBlock Text="{Binding GradeLabel}" Foreground="White" FontSize="10" FontWeight="SemiBold" />
                               </Border>
                               <StackPanel Grid.Column="1" Spacing="2">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                  <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <!-- Wraps because the subject can be as long as
+                                     "12th Gen Intel(R) Core(TM) i5-12400F (6 cores / 12 threads)",
+                                     which pushed the measurement itself off the edge: the number
+                                     the whole row exists to show was the first thing clipped. -->
+                                <WrapPanel ItemSpacing="8" LineSpacing="2">
+                                  <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
                                   <TextBlock Text="{Binding Subject}" IsVisible="{Binding HasSubject}" Opacity="0.65" />
-                                  <TextBlock Text="{Binding ValueText}" Opacity="0.85" />
-                                </StackPanel>
+                                  <TextBlock Text="{Binding ValueText}" Opacity="0.85" FontWeight="SemiBold" />
+                                </WrapPanel>
                                 <TextBlock Text="{Binding Detail}" IsVisible="{Binding HasDetail}"
                                            TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
                                 <ItemsControl ItemsSource="{Binding Tips}" IsVisible="{Binding HasTips}">
