@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-08-21** (commit `5d0f8dd`+, 239 tests passing, Release builds clean with `-warnaserror`).
+Snapshot for continuing work on another machine. Last updated: **2026-08-22** (269 tests passing, Release builds clean with `-warnaserror`).
 
 ## What this is
 
@@ -16,7 +16,7 @@ An offline-by-default, read-only-by-default Windows PC health auditor (.NET 10 +
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 239 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 269 tests; WorkerProtocolTests launch the real exe
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
 ```
@@ -160,6 +160,18 @@ Then in the JSON report, `bench.cpu.rating_mips` must equal the `Tot:` figure fr
 **If it fails**, the likely cause is the `Avr:` column count differing in a newer 7-Zip. That is the designed-for case: `bench.cpu.rating_mips` still appears (it only needs `Tot:`) and the two compression figures are simply absent. Fix `SevenZipOutputReader.Parse` and add the real row shape to `BenchmarkTests.SevenZipOutput`.
 
 **Not yet covered:** the run loads every core for about a minute, so the fans will spin up — that is the test working, and it is also why a CPU regression later points at temperatures first.
+
+## Follow-up audit of the three bugs (2026-08-22)
+
+Re-checked the previous day's three findings against the standing bar — *is it tested, did I look for siblings, and does the app say so if it recurs?* Two came back clean; all three turned up something.
+
+**1. The benchmark creating the faults it reports.** Tested (three tests lock the queue depth and file size) and the module warns that benchmarking can inflate the disk-error count. **Sibling found:** the plan always said "skip SMART-flagged drives" and it was never implemented — the benchmark would happily write a gigabyte to a drive Windows already reports as failing, while every other part of this app tells the user to back such a drive up and stop using it. `MSFT_PhysicalDisk.HealthStatus` turns out to be readable unelevated, so the check now refuses those drives and says why.
+
+**2. The CPU benchmark measuring its own heat.** Tested. **Sibling measured rather than assumed:** the disk metrics sit on the same watch list at the same 30% rule. Back-to-back on an idle PC, sequential repeats to within **1.1%** and scattered reads to within **11.1%** — but scattered reads swung **26%** between two healthy full scans, which is almost no margin against 30%. The watch list now carries a per-metric noise floor and scattered reads get 45%. Sequential keeps 30% because it earns it.
+
+**3. A zero meaning "clean" when it meant "not checked".** Tested via `OtherAccountReport`. **Siblings found by auditing every module's failure paths:** `VolumesModule` and `LicenseModule` both added a note when a query failed and still returned `Completed`, so the "Some checks could not finish" banner never appeared. Losing `MSFT_Volume` silently drops file-system *health* (the fallback only reports free space); an unparseable `fsutil` TRIM line on a non-English Windows silently drops TRIM; a failed licensing query silently drops both activation status and the fake-KMS-server check. All now degrade the module. `DriversModule` was already correct (returns `Failed`), and `SecurityPostureModule` and `NetworkHealthModule` correctly suppress the metric instead of emitting a misleading zero.
+
+**The distinction that matters when adding these:** *"I deliberately did not check this here"* (TRIM needing admin, deferred to the elevated scan) must NOT degrade status, or the banner fires on every normal scan and stops meaning anything. Only *"I tried and it broke"* counts. Verified on the dev PC: `volumes` and `license` still report `Completed`, so the stricter reporting does not cry wolf.
 
 ## The benchmark must not create the fault it reports
 

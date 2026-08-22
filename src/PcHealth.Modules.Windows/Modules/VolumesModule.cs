@@ -22,6 +22,8 @@ internal sealed partial class VolumesModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
+        var failures = 0;
+
         var volumes = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
             "SELECT DriveLetter, FileSystemLabel, DriveType, HealthStatus, Size, SizeRemaining FROM MSFT_Volume",
             out var msftError);
@@ -61,7 +63,15 @@ internal sealed partial class VolumesModule : WindowsModuleBase
         }
         else
         {
-            if (msftError is not null) notes.Add($"MSFT_Volume unavailable ({msftError}); falling back to Win32_LogicalDisk.");
+            // The fallback reports free space but NOT the file system's own health flag, so
+            // a volume that needs repair would go unmentioned. That is lost coverage, not a
+            // clean result, and the module has to say so rather than quietly reporting less.
+            if (msftError is not null)
+            {
+                notes.Add($"MSFT_Volume unavailable ({msftError}); fell back to Win32_LogicalDisk, which reports " +
+                          "free space but not file-system health — so volume health was NOT checked this time.");
+                failures++;
+            }
             foreach (var disk in Wmi.TryQuery(@"root\cimv2",
                 "SELECT DeviceID, VolumeName, FreeSpace, Size FROM Win32_LogicalDisk WHERE DriveType = 3", out var ldError))
             {
@@ -69,7 +79,7 @@ internal sealed partial class VolumesModule : WindowsModuleBase
                 var size = Wmi.Get<ulong>(disk, "Size");
                 var free = Wmi.Get<ulong>(disk, "FreeSpace");
                 if (size is > 0 && free is not null) AddFreeSpaceMetric(metrics, subject, size.Value, free.Value);
-                if (ldError is not null) { notes.Add($"LogicalDisk query: {ldError}"); break; }
+                if (ldError is not null) { notes.Add($"LogicalDisk query: {ldError}"); failures++; break; }
             }
         }
 
@@ -88,7 +98,11 @@ internal sealed partial class VolumesModule : WindowsModuleBase
             }
             else
             {
-                notes.Add("Could not interpret fsutil TRIM output on this system language; skipped.");
+                // A parse that fails on a non-English Windows is exactly the locale trap this
+                // codebase already has analyzers for; it must not pass as "TRIM is fine".
+                notes.Add("Could not interpret the TRIM setting from fsutil on this system's language, so TRIM " +
+                          "was NOT checked. It is not known whether it is on or off.");
+                failures++;
             }
         }
         else
@@ -96,7 +110,8 @@ internal sealed partial class VolumesModule : WindowsModuleBase
             notes.Add("TRIM query unavailable without admin on this system; it is covered by the elevated scan.");
         }
 
-        return metrics.Count > 0 ? ModuleStatus.Completed : ModuleStatus.Failed;
+        if (metrics.Count == 0) return ModuleStatus.Failed;
+        return failures == 0 ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted;
     }
 
     private static void AddFreeSpaceMetric(List<Metric> metrics, string subject, ulong size, ulong free)

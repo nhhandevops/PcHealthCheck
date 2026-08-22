@@ -58,11 +58,6 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
 
         var (targets, skipped) = BenchmarkTargetSelector.Choose(
             ReadVolumes(notes), ReadDisks(notes), DiskSpdRunner.DefaultFileBytes);
-        // The only write this check makes is creating its test file, and on a bus-powered
-        // USB drive that sustained write is what makes the bridge time out — measured on
-        // the machine this was written on: 32 I/O retries from creating the file, and none
-        // at all from either read pass. The reads were never the problem, so the file is
-        // simply kept smaller where the write is the risk.
         foreach (var reason in skipped) notes.Add("Not benchmarked — " + reason);
 
         if (targets.Count == 0)
@@ -127,6 +122,10 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             // never be the thing that creates the finding.
             var deepQueue = DiskSpdRunner.DeepQueueSuits(target.Class);
 
+            // The only write this check makes is creating its test file, and on a bus-powered
+            // USB drive that sustained write is what makes the bridge time out — measured
+            // here: 32 I/O retries from creating a 1 GiB file, and none at all from either
+            // read pass. So the file is kept smaller exactly where the write is the risk.
             var fileBytes = DiskSpdRunner.TestFileBytes(target.Class);
             var (sequential, seqError) = await runner
                 .MeasureAsync(exe, DiskProfile.Sequential, file, fileBytes, deepQueue, ct)
@@ -265,7 +264,7 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
     private static List<PhysicalDiskInfo> ReadDisks(List<string> notes)
     {
         var rows = Wmi.TryQuery(StorageNamespace,
-            "SELECT DeviceId, FriendlyName, MediaType, BusType FROM MSFT_PhysicalDisk", out var error);
+            "SELECT DeviceId, FriendlyName, MediaType, BusType, HealthStatus FROM MSFT_PhysicalDisk", out var error);
         if (error is not null)
         {
             notes.Add($"Drive models could not be read: {error}");
@@ -282,7 +281,10 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             disks.Add(new PhysicalDiskInfo(
                 number,
                 Wmi.GetString(row, "FriendlyName")?.Trim() ?? "unnamed drive",
-                DriveClassifier.Classify(Wmi.Get<ushort>(row, "MediaType"), Wmi.Get<ushort>(row, "BusType"))));
+                DriveClassifier.Classify(Wmi.Get<ushort>(row, "MediaType"), Wmi.Get<ushort>(row, "BusType")))
+            {
+                HealthStatus = Wmi.Get<ushort>(row, "HealthStatus"),
+            });
         }
         return disks;
     }

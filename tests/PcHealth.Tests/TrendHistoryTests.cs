@@ -282,6 +282,43 @@ public sealed class TrendHistoryTests : IDisposable
         Assert.Contains("usual 3000", finding.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Measured, not assumed: scattered reads repeat to within 11% back to back but swung
+    /// 26% between two healthy full scans, while sequential reads repeat to within 1%. One
+    /// threshold for both would either miss real regressions or cry wolf on the noisy one.
+    /// </summary>
+    [Fact]
+    public void The_noisiest_measurement_gets_a_wider_margin_than_the_steadiest()
+    {
+        using var store = NewStore();
+        var scattered = (double mbps) => new Metric("bench.disk.rnd4k_read_mbps", "Small scattered reads", mbps,
+            HealthCategory.Performance, Unit: "MB/s", Subject: "C: (SSD)");
+        var sequential = (double mbps) => new Metric("bench.disk.seq_read_mbps", "Sequential read speed", mbps,
+            HealthCategory.Performance, Unit: "MB/s", Subject: "C: (SSD)");
+
+        store.RecordScan(DateTimeOffset.Now.AddDays(-40), [scattered(1000), sequential(1000)]);
+        store.RecordScan(DateTimeOffset.Now.AddDays(-20), [scattered(1000), sequential(1000)]);
+
+        // A 35% drop: real for the steady measurement, still inside the noise of the other.
+        var findings = TrendAnalyzer.Analyze([scattered(650), sequential(650)], store);
+
+        var finding = Assert.Single(findings);
+        Assert.Equal("bench.disk.seq_read_mbps", finding.MetricId);
+    }
+
+    [Fact]
+    public void The_noisy_measurement_is_still_reported_when_it_really_collapses()
+    {
+        using var store = NewStore();
+        var scattered = (double mbps) => new Metric("bench.disk.rnd4k_read_mbps", "Small scattered reads", mbps,
+            HealthCategory.Performance, Unit: "MB/s", Subject: "C: (SSD)");
+        store.RecordScan(DateTimeOffset.Now.AddDays(-40), [scattered(1000)]);
+        store.RecordScan(DateTimeOffset.Now.AddDays(-20), [scattered(1000)]);
+
+        var finding = Assert.Single(TrendAnalyzer.Analyze([scattered(400)], store));
+        Assert.Equal(Grade.Bad, finding.Grade);
+    }
+
     [Fact]
     public void A_slower_processor_gets_processor_advice_not_disk_advice()
     {

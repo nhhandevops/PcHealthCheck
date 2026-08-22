@@ -238,6 +238,42 @@ public class BenchmarkTests
         Assert.Equal(["D:", "C:"], targets.OrderBy(t => t.DiskNumber).Select(t => t.DriveLetter));
     }
 
+    /// <summary>
+    /// The gap the follow-up audit found: everything else in this app tells someone with a
+    /// failing drive to back it up and stop using it, while the benchmark would cheerfully
+    /// write a gigabyte to it to see how fast it still was.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]   // Warning
+    [InlineData(2)]   // Unhealthy
+    public void A_drive_windows_calls_failing_is_never_written_to(int health)
+    {
+        var disk = new PhysicalDiskInfo(0, "ST2000DM008", DriveClass.Hdd) { HealthStatus = (ushort)health };
+
+        var (targets, skipped) = BenchmarkTargetSelector.Choose(
+            [Volume("D:", 0, 900)], [disk], GigabytesToBytes(1));
+
+        Assert.Empty(targets);
+        var reason = Assert.Single(skipped);
+        Assert.Contains("reports this drive as failing", reason, StringComparison.Ordinal);
+        Assert.Contains("backed up and left alone", reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0)]      // Healthy
+    [InlineData(null)]   // Windows did not say
+    public void A_healthy_or_unknown_drive_is_still_measured(int? health)
+    {
+        // Refusing every drive whose health is merely unknown would disable the check on
+        // most external hardware, which reports nothing at all.
+        var disk = new PhysicalDiskInfo(0, "ST2000DM008", DriveClass.Hdd) { HealthStatus = (ushort?)health };
+
+        var (targets, _) = BenchmarkTargetSelector.Choose(
+            [Volume("D:", 0, 900)], [disk], GigabytesToBytes(1));
+
+        Assert.Single(targets);
+    }
+
     [Fact]
     public void A_drive_without_comfortable_headroom_is_skipped_and_said_so()
     {

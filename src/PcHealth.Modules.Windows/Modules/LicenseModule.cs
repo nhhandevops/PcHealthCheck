@@ -34,7 +34,12 @@ internal sealed partial class LicenseModule : WindowsModuleBase
             "SELECT Name, Description, LicenseStatus, PartialProductKey, GracePeriodRemaining FROM SoftwareLicensingProduct " +
             $"WHERE ApplicationID = '{WindowsAppId}'",
             out var error);
-        if (error is not null) notes.Add($"SoftwareLicensingProduct query: {error}");
+        var failures = 0;
+        if (error is not null)
+        {
+            notes.Add($"The Windows licence could not be read ({error}), so activation status was NOT checked.");
+            failures++;
+        }
 
         var active = products.FirstOrDefault(p => !string.IsNullOrEmpty(Wmi.GetString(p, "PartialProductKey")));
         string channel = "Unknown";
@@ -69,7 +74,7 @@ internal sealed partial class LicenseModule : WindowsModuleBase
         }
 
         // Genuine check — local, offline, no data leaves the machine.
-        metrics.Add(new Metric("license.genuine", "Genuine Windows check", QueryGenuineState(notes),
+        metrics.Add(new Metric("license.genuine", "Genuine Windows check", QueryGenuineState(notes, ref failures),
             HealthCategory.SoftwareOs,
             Detail: "Local validation via the Windows Software Licensing API (SLIsGenuineLocal)."));
 
@@ -77,7 +82,12 @@ internal sealed partial class LicenseModule : WindowsModuleBase
         var service = Wmi.TryQuery(@"root\cimv2",
             "SELECT KeyManagementServiceMachine, OA3xOriginalProductKey FROM SoftwareLicensingService", out var svcError)
             .FirstOrDefault();
-        if (svcError is not null) notes.Add($"SoftwareLicensingService query: {svcError} (OA3/KMS details may need the elevated scan).");
+        if (svcError is not null)
+        {
+            notes.Add($"Licensing service details could not be read ({svcError}), so the check for a fake KMS " +
+                      "activation server — the usual sign of an activation crack — did NOT run.");
+            failures++;
+        }
         if (service is not null)
         {
             var kmsHost = Wmi.GetString(service, "KeyManagementServiceMachine")?.Trim();
@@ -101,10 +111,17 @@ internal sealed partial class LicenseModule : WindowsModuleBase
                 Detail: oa3Present ? "An OEM product key is stored in the firmware. The key itself is never read into reports." : "No firmware-embedded key (typical for retail/self-built PCs), or it needs the elevated scan to read."));
         }
 
-        return Task.FromResult(metrics.Count > 0 ? ModuleStatus.Completed : ModuleStatus.Failed);
+        if (metrics.Count == 0) return Task.FromResult(ModuleStatus.Failed);
+        return Task.FromResult(failures == 0 ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted);
     }
 
-    private static string QueryGenuineState(List<string> notes)
+    /// <summary>
+    /// Returns "Unknown" when the check cannot run, and counts that as a failure. The metric
+    /// value alone is honest, but without degrading the module's status the report's
+    /// "some checks could not finish" banner never appears, and a licence section that never
+    /// managed to validate anything reads exactly like one that validated fine.
+    /// </summary>
+    private static string QueryGenuineState(List<string> notes, ref int failures)
     {
         try
         {
@@ -112,7 +129,9 @@ internal sealed partial class LicenseModule : WindowsModuleBase
             var hr = SLIsGenuineLocal(in appId, out var state, IntPtr.Zero);
             if (hr != 0)
             {
-                notes.Add($"SLIsGenuineLocal returned HRESULT 0x{hr:X8}.");
+                notes.Add($"The genuine-Windows check could not complete (HRESULT 0x{hr:X8}), so whether this " +
+                          "copy of Windows validates was NOT established.");
+                failures++;
                 return "Unknown";
             }
             return state switch
@@ -126,7 +145,8 @@ internal sealed partial class LicenseModule : WindowsModuleBase
         }
         catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
         {
-            notes.Add($"Genuine check unavailable: {e.GetType().Name}.");
+            notes.Add($"The genuine-Windows check is unavailable on this system ({e.GetType().Name}), so it did NOT run.");
+            failures++;
             return "Unknown";
         }
     }

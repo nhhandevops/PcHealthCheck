@@ -12,7 +12,17 @@ public sealed record BenchmarkTarget(
 public sealed record VolumeInfo(string DriveLetter, int DiskNumber, long FreeBytes);
 
 /// <summary>One physical drive as Windows reports it.</summary>
-public sealed record PhysicalDiskInfo(int DiskNumber, string Model, DriveClass Class);
+public sealed record PhysicalDiskInfo(int DiskNumber, string Model, DriveClass Class)
+{
+    /// <summary>
+    /// MSFT_PhysicalDisk.HealthStatus: 0 Healthy, 1 Warning, 2 Unhealthy. Null when Windows
+    /// did not say, which is treated as healthy — refusing to measure every drive whose
+    /// health is merely unknown would disable the check on most external hardware.
+    /// </summary>
+    public ushort? HealthStatus { get; init; }
+
+    public bool WindowsCallsItUnhealthy => HealthStatus is 1 or 2;
+}
 
 /// <summary>
 /// Decides which drives to benchmark.
@@ -46,6 +56,18 @@ public static class BenchmarkTargetSelector
             if (!byNumber.TryGetValue(group.Key, out var disk))
             {
                 skipped.Add($"{Describe(group)}: Windows did not report which physical drive this is.");
+                continue;
+            }
+
+            // A drive Windows already reports as failing is the one drive this must not
+            // touch. Everything else in this app tells the user to back such a drive up and
+            // stop using it; writing a gigabyte to it to see how fast it still is would be
+            // the app contradicting its own advice, and could finish the drive off.
+            if (disk.WindowsCallsItUnhealthy)
+            {
+                skipped.Add($"{Describe(group)} ({disk.Model}): Windows reports this drive as failing. " +
+                            "Benchmarking writes to it, and a drive in that state should be backed up and left " +
+                            "alone, not measured.");
                 continue;
             }
 

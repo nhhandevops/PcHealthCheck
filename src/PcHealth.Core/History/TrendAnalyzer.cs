@@ -68,12 +68,26 @@ public static class TrendAnalyzer
     private static readonly Dictionary<string, PerformanceWatch> PerformanceWatchList = new(StringComparer.Ordinal)
     {
         ["bench.disk.seq_read_mbps"] = new("reading long files", DiskAdvice),
-        ["bench.disk.rnd4k_read_mbps"] = new("reading small scattered files", DiskAdvice),
+        // Scattered reads are the noisiest thing measured here. Back to back on an idle PC
+        // they vary about 11%, but across whole scans — where the drive has just been worked
+        // by other checks — a 26% swing was seen between two healthy runs. Against the
+        // ordinary 30% rule that leaves almost no margin, and a threshold a healthy machine
+        // trips is a bug in the threshold rather than a finding.
+        ["bench.disk.rnd4k_read_mbps"] = new("reading small scattered files", DiskAdvice, NoticeableDrop: 0.55),
         ["bench.cpu.single_thread_mips"] = new("processing work", CpuAdvice),
     };
 
-    /// <summary>What a slowdown in this measurement usually means, and what to do about it.</summary>
-    private sealed record PerformanceWatch(string Activity, Func<Grade, IReadOnlyList<string>> Advice);
+    /// <summary>
+    /// What a slowdown in this measurement usually means, what to do about it, and how far
+    /// it has to fall before it means anything at all. The last part is per-measurement
+    /// because their natural variance differs by an order of magnitude: sequential reads
+    /// repeat to within 1%, scattered reads to within 11-26%.
+    /// </summary>
+    private sealed record PerformanceWatch(
+        string Activity,
+        Func<Grade, IReadOnlyList<string>> Advice,
+        double NoticeableDrop = TrendAnalyzer.NoticeableDrop,
+        double SevereDrop = TrendAnalyzer.SevereDrop);
 
     private static IReadOnlyList<string> DiskAdvice(Grade grade) =>
     [
@@ -94,11 +108,12 @@ public static class TrendAnalyzer
     ];
 
     /// <summary>Below this share of the usual figure, say something. Anything milder is noise:
-    /// a background update or an antivirus scan easily costs 10-20%.</summary>
-    private const double NoticeableDrop = 0.70;
+    /// a background update or an antivirus scan easily costs 10-20%. Individual measurements
+    /// override it where their own variance says they must.</summary>
+    internal const double NoticeableDrop = 0.70;
 
     /// <summary>Below this share, treat it as a real problem rather than a busy moment.</summary>
-    private const double SevereDrop = 0.50;
+    internal const double SevereDrop = 0.50;
 
     /// <summary>Metrics that fall toward a limit (battery capacity heading for replacement territory).</summary>
     private static readonly Dictionary<string, (double Limit, string What)> FallingToLimit = new(StringComparer.Ordinal)
@@ -186,10 +201,10 @@ public static class TrendAnalyzer
         if (usual <= 0) return null;
 
         var share = current / usual;
-        if (share >= NoticeableDrop) return null;
+        if (share >= watch.NoticeableDrop) return null;
 
         var slowerBy = (1 - share) * 100;
-        var grade = share < SevereDrop ? Grade.Bad : Grade.Normal;
+        var grade = share < watch.SevereDrop ? Grade.Bad : Grade.Normal;
         var oldest = series[0];
 
         var message =
