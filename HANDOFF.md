@@ -38,7 +38,8 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | M5 — multi-user startup coverage | ✅ shipped and verified elevated |
 | **M5 remainder — Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
-| Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
+| Packaging — `build-release.ps1`, icon, version 1.0.0-rc.1, docs | ✅ done |
+| **Acceptance testing — `ACCEPTANCE.md`, then signing and publishing per `RELEASING.md`** | ⬜ next |
 
 ## Architecture in five lines
 
@@ -226,6 +227,17 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 - **On-demand Defender scans** via `MpCmdRun.exe` (found under the newest versioned platform folder — version-compare, never string sort). Quick scan `-Scan -ScanType 1`; folder scan `-Scan -ScanType 3 -File <path> -DisableRemediation`, which changes nothing *and* scans inside archives. Neither needs admin — measured on the dev PC: an unelevated quick scan took 130 s. Verdicts come from exit codes (0 clean, 2 found-or-incomplete, anything else = unknown and never clean) plus structured WMI records — never MpCmdRun's localized console text.
 - **VirusTotal reputation lookups** on startup items: least-trusted first, deduplicated by hash, capped at 20 with the skipped count stated in the consent dialog. The user's own API key, memory-only. `NetworkActivityLog` counts every request so the receipt reports a checked number rather than a promise.
 - `StartupInventory` extracted from `StartupModule` so the startup check and the reputation lookup grade the same list.
+
+## Shipping
+
+- `build-release.ps1` — tests, privacy gate, self-contained publish, zip, SHA-256. One command.
+- `USER-GUIDE.md` — for the person running it, not for whoever builds it. Ships inside the zip.
+- `ACCEPTANCE.md` — 19 blocking rows out of ~60. Run before giving the app to anyone.
+- `RELEASING.md` — the steps a script cannot do: SignPath application (needs a **public** repo, takes weeks), GitHub release, SmartScreen submission, winget manifest.
+
+Deliberately not done: no installer (nothing in Program Files or the registry — the packaging keeps the same promise the app makes about the machine), no auto-update (it would mean a connection nobody asked for), no MSIX until signing exists (an unsigned MSIX cannot be installed at all).
+
+Deliberately **not** a single file either. It builds and runs, but the .NET host then unpacks the native libraries into a temp folder on first run — an undisclosed write, from an app whose whole argument is that it discloses every write. Seven visible files next to the exe are the more honest trade.
 
 ## Suggested next session
 
