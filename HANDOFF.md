@@ -39,7 +39,8 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | **M5 remainder — Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — `build-release.ps1`, icon, version 1.0.0-rc.1, docs | ✅ done |
-| **Acceptance testing — `ACCEPTANCE.md`, then signing and publishing per `RELEASING.md`** | ⬜ next |
+| Acceptance — first pass run 2026-08-22, 4 defects found and fixed | ✅ see `ACCEPTANCE-RUN-2026-08-22.md` |
+| **Acceptance — the 14 rows that need a person, then signing per `RELEASING.md`** | ⬜ next |
 
 ## Architecture in five lines
 
