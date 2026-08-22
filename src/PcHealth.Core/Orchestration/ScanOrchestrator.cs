@@ -102,7 +102,14 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
             GeneratedAt = DateTimeOffset.Now,
             MachineName = Environment.MachineName,
             OsDescription = RuntimeInformation.OSDescription,
-            AppVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "dev",
+            // The informational version keeps the pre-release suffix ("1.0.0-rc.1"); the
+            // assembly version cannot carry one, and a report that claims to come from
+            // "1.0.0" when it came from a release candidate is a traceability hole.
+            AppVersion = Assembly.GetEntryAssembly()
+                ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?.Split('+')[0]
+                ?? Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)
+                ?? "dev",
             RanElevated = ranElevated,
             Modules = summaries,
             Verdicts = verdicts,

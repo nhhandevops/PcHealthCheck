@@ -5,7 +5,20 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>PcHealth.App</RootNamespace>
     <AssemblyName>PcHealthCheck</AssemblyName>
-    <Version>0.1.0</Version>
+    <!-- A release candidate on purpose: feature-complete and ready for acceptance testing,
+         but not yet through it. The report prints this string verbatim so any finding can be
+         traced back to the exact build that produced it. -->
+    <Version>1.0.0-rc.1</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- Shown in the exe's Properties dialog. An unsigned binary with blank metadata is what
+         a user is asked to trust with administrator rights; filling it in is the least the
+         app can do while code signing is still pending. -->
+    <Product>PC Health Check</Product>
+    <Authors>Nguyen Huu Hoang An</Authors>
+    <Company>Nguyen Huu Hoang An</Company>
+    <Copyright>Copyright (c) 2026 Nguyen Huu Hoang An</Copyright>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Required by the LibraryImport source generator (named-pipe client PID lookup, worker confirmation dialog). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

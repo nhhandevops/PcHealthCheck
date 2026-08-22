@@ -4,3 +4,6 @@ obj/
 *.user
 TestResults/
 artifacts/
+
+# Output of build-release.ps1 — rebuilt from source, never committed.
+release/
