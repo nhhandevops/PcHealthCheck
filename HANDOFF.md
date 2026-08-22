@@ -39,7 +39,6 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | **M5 remainder — Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — SignPath OSS signing, GitHub Release + checksums, winget manifest, SmartScreen submission | ⬜ |
-| M5 — browser extensions, multi-user startup, localization (Vietnamese), Linux provider | ⬜ |
 
 ## Architecture in five lines
 
