@@ -24,7 +24,6 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
 {
     private const string StorageNamespace = @"root\Microsoft\Windows\Storage";
     private const string WorkingFolder = BenchmarkCleanup.WorkingFolder;
-    private const string TestFileName = BenchmarkCleanup.TestFileName;
 
     public override ModuleManifest Manifest { get; } = new()
     {
@@ -53,6 +52,19 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             notes.Add("DiskSpd is not installed, so no speeds were measured. It is a small free tool from " +
                       "Microsoft (MIT licence); the app offers to install it with 'winget install Microsoft.DiskSpd' " +
                       "and to remove it again when you close the app.");
+            return ModuleStatus.Skipped;
+        }
+
+        // Two copies measuring the same drives at once both report about half its real
+        // speed, because they are competing for it — and with trend history on, those
+        // numbers become the baseline everything later is judged against. Better to measure
+        // nothing and say why.
+        using var gate = BenchmarkGate.TryEnter();
+        if (gate is null)
+        {
+            notes.Add("Another copy of this app is already running a disk benchmark. Nothing was measured here: " +
+                      "two benchmarks sharing the same drives would each report roughly half the real speed, and " +
+                      "a wrong number is worse than a missing one. Close the other window and scan again.");
             return ModuleStatus.Skipped;
         }
 
@@ -106,7 +118,7 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
         List<Metric> metrics, List<string> notes, CancellationToken ct)
     {
         var folder = Path.Combine(target.DriveLetter + @"\", WorkingFolder);
-        var file = Path.Combine(folder, TestFileName);
+        var file = Path.Combine(folder, BenchmarkGate.TestFileNameFor(Environment.ProcessId));
         var subject = $"{target.DriveLetter} ({target.Model})";
 
         try

@@ -22,6 +22,13 @@ public static class BenchmarkCleanup
     public const string WorkingFolder = "PcHealthCheck-bench";
     public const string TestFileName = "bench.tmp";
 
+    /// <summary>
+    /// Matches this instance's file and every other instance's. The wildcard is safe only
+    /// because it is confined to a folder nothing but this app creates, and because the
+    /// folder is still removed only when empty.
+    /// </summary>
+    public const string TestFilePattern = "bench*.tmp";
+
     /// <summary>Paths removed, in the order they were found. Empty on the normal path.</summary>
     public static IReadOnlyList<string> SweepOrphans() => SweepOrphans(ReadyLocalDrives());
 
@@ -36,13 +43,15 @@ public static class BenchmarkCleanup
         foreach (var drive in roots)
         {
             var folder = Path.Combine(drive, WorkingFolder);
-            var file = Path.Combine(folder, TestFileName);
             try
             {
-                if (File.Exists(file))
+                if (Directory.Exists(folder))
                 {
-                    File.Delete(file);
-                    removed.Add(file);
+                    foreach (var file in Directory.EnumerateFiles(folder, TestFilePattern))
+                    {
+                        File.Delete(file);
+                        removed.Add(file);
+                    }
                 }
 
                 // Removed only when empty, so a folder someone else has put something in
