@@ -126,6 +126,42 @@ public class ReportExportTests
         Assert.Contains("not the same as being healthy", html, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Found in acceptance testing, and the fourth time this app has presented unchecked as
+    /// clean: the user selected an admin check, declined the Windows prompt, and the report
+    /// said "GOOD" with nothing to indicate an entire check had never run. The headline
+    /// grade is a verdict on the checks that ran, and has to say so when some did not.
+    /// </summary>
+    [Fact]
+    public void The_headline_grade_is_marked_incomplete_when_a_check_did_not_run()
+    {
+        var report = Report(verdicts:
+        [
+            new Verdict(new Metric("storage.volume.free_pct", "Free space", 90, HealthCategory.Storage,
+                Unit: "%", Subject: "C:"), Grade.Good, null, [], null),
+        ]) with
+        {
+            Modules =
+            [
+                new ModuleRunSummary("volumes", "Volumes", ModuleStatus.Completed, TimeSpan.Zero, null, []),
+                new ModuleRunSummary("disk.smart", "Drive SMART health", ModuleStatus.Failed, TimeSpan.Zero,
+                    "Administrator access was declined, so the admin checks were skipped.", []),
+            ],
+        };
+
+        var html = HtmlReportExporter.ToHtml(report);
+
+        Assert.Contains("INCOMPLETE", html, StringComparison.Ordinal);
+        Assert.Contains("Some checks could not finish", html, StringComparison.Ordinal);
+        Assert.Contains("Administrator access was declined", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_complete_scan_is_not_labelled_incomplete()
+    {
+        Assert.DoesNotContain("INCOMPLETE", HtmlReportExporter.ToHtml(Report()), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_fully_successful_scan_shows_no_incomplete_warning()
     {

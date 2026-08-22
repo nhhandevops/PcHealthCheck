@@ -25,8 +25,8 @@ promises — the failures were in cleanup, concurrency and packaging.
 | Rows verified | 34 |
 | Rows needing a person | 14 (listed below) |
 | Rows not testable here | 3 |
-| Defects found | 4 — all fixed, all now covered by tests |
-| Tests | 269 → 289 |
+| Defects found | 5 — all fixed, all now covered by tests |
+| Tests | 269 → 291 |
 
 ---
 
@@ -113,6 +113,32 @@ UP". Unrecognised failures are still passed through untouched rather than dresse
 download has.
 
 **Fixed** — written as ASCII.
+
+### 5. Declining the UAC prompt produced "GOOD" with an entire check missing — row E1 🔴
+
+**Found by the project owner, running row E1 by hand.** An admin check was selected, the
+Windows prompt declined, and the report showed **Overall: GOOD** with no amber box at all.
+
+The cause: a declined prompt means the admin modules produce no result *at all*, so nothing
+in the report knows they were ever selected. The "some checks could not finish" warning had
+nothing to find. Every other path — a failed query, a partial module — was covered; the one
+where a check never starts was not.
+
+This is the **fourth** time this app has presented unchecked as clean, and the first found by
+a person rather than by code review.
+
+**Fixed** — a selected admin check that produced no result is now recorded as `Failed` with
+the reason, so it appears in the modules table, raises the amber box, and reaches the HTML and
+JSON reports. The headline grade is additionally marked **INCOMPLETE**, in the window and in
+the report, because "GOOD" is the most reassuring word this app can say and it is a verdict on
+the checks that ran, not on the PC.
+
+### Also from the same session — the group heading was too easy to miss
+
+The tester found the "Needs administrator" heading but called it easy to overlook, especially
+for someone new. It was plain grey text the same size as the body. It is now bold, larger, and
+sits on a coloured band. A heading nobody notices leaves the administrator checks looking like
+more of the list above them.
 
 ---
 

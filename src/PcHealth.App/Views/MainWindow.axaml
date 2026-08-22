@@ -126,14 +126,21 @@
           <StackPanel>
             <!-- Split so the administrator checks are findable at a glance rather than
                  buried at the bottom of twenty-four identical cards. -->
-            <TextBlock Text="{Binding StandardHeader}" FontWeight="SemiBold" FontSize="12"
-                       Opacity="0.7" Margin="2,0,0,6" />
+            <TextBlock Text="{Binding StandardHeader}" FontWeight="Bold" FontSize="15"
+                       Margin="2,0,0,8" />
             <ItemsControl ItemsSource="{Binding StandardModules}" ItemTemplate="{StaticResource ModuleCard}" />
 
-            <TextBlock Text="{Binding AdminHeader}" FontWeight="SemiBold" FontSize="12"
-                       Opacity="0.7" Margin="2,8,0,6" />
-            <TextBlock Text="These need administrator rights. Selecting any of them adds one Windows prompt; the main window never runs as administrator."
-                       FontSize="11" Opacity="0.55" TextWrapping="Wrap" MaxWidth="380" Margin="2,0,0,6" />
+            <!-- Given a coloured band because the first tester scrolled straight past the
+                 plain-text version: a heading nobody notices leaves the administrator checks
+                 looking like more of the list above them. -->
+            <Border Background="#18c62828" BorderBrush="#60c62828" BorderThickness="0,0,0,2"
+                    CornerRadius="6" Padding="8,6" Margin="0,18,6,8">
+              <StackPanel Spacing="2">
+                <TextBlock Text="{Binding AdminHeader}" FontWeight="Bold" FontSize="15" />
+                <TextBlock Text="These need administrator rights. Selecting any of them adds one Windows prompt; the main window never runs as administrator."
+                           FontSize="11" Opacity="0.75" TextWrapping="Wrap" MaxWidth="360" />
+              </StackPanel>
+            </Border>
             <ItemsControl ItemsSource="{Binding AdminModules}" ItemTemplate="{StaticResource ModuleCard}" />
           </StackPanel>
         </ScrollViewer>

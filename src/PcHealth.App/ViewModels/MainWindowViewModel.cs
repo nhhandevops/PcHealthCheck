@@ -213,6 +213,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     _elevationNote = (_elevationNote is null ? "" : _elevationNote + " ") +
                         $"The helper refused unrecognized checks: {string.Join(", ", outcome.RejectedModuleIds)}.";
                 }
+
+                // An admin check that produced no result did not run at all — the prompt was
+                // declined, the helper could not start, the id was refused. Until this was
+                // written those checks simply vanished: nothing in the report knew they had
+                // been selected, so the "some checks could not finish" warning had nothing to
+                // find and the scan reported GOOD with an entire check missing. Found in
+                // acceptance testing, and the fourth time this app has presented unchecked as
+                // clean. A selected check that never ran has to appear as one.
+                var produced = results.Select(r => r.ModuleId).ToHashSet(StringComparer.Ordinal);
+                foreach (var absent in adminModules.Where(m => !produced.Contains(m.Manifest.Id)))
+                {
+                    results.Add(new ModuleResult
+                    {
+                        ModuleId = absent.Manifest.Id,
+                        Status = ModuleStatus.Failed,
+                        Error = outcome.Message ?? "This check needs administrator rights and did not run.",
+                    });
+                }
             }
 
             var names = selected.ToDictionary(m => m.Manifest.Id, m => m.Manifest.Name, StringComparer.Ordinal);
@@ -275,13 +293,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void PresentReport(ScanReport report)
     {
         LastReport = report;
-        OverallLabel = GradeVisuals.Label(report.OverallGrade);
-        OverallBrush = GradeVisuals.Brush(report.OverallGrade);
 
         // A check that could not finish must never read as "nothing wrong here".
         var incomplete = report.Modules
             .Where(m => m.Status is ModuleStatus.Failed or ModuleStatus.PartiallyCompleted)
             .ToList();
+
+        // "GOOD" is the most reassuring word this app can say, and it is a verdict on the
+        // checks that ran, not on the PC, whenever some of them did not.
+        OverallLabel = incomplete.Count == 0
+            ? GradeVisuals.Label(report.OverallGrade)
+            : GradeVisuals.Label(report.OverallGrade) + " — INCOMPLETE";
+        OverallBrush = GradeVisuals.Brush(report.OverallGrade);
         HasIncompleteChecks = incomplete.Count > 0;
         IncompleteChecksText = incomplete.Count == 0
             ? ""

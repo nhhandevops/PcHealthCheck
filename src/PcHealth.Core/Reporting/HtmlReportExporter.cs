@@ -55,6 +55,13 @@ public static class HtmlReportExporter
 
         sb.Append("<h1>PC Health Report ");
         sb.Append(GradeChip(report.OverallGrade));
+        // The grade covers the checks that ran. Where some did not, saying so beside it stops
+        // the headline reading as a verdict on the whole machine — a scan that skipped an
+        // entire check reported "GOOD" until acceptance testing caught it.
+        if (report.Modules.Any(m => m.Status is ModuleStatus.Failed or ModuleStatus.PartiallyCompleted))
+        {
+            sb.Append(" <span class=\"chip g-Unknown\">INCOMPLETE</span>");
+        }
         sb.Append("</h1>\n<div class=\"meta\">");
         sb.Append(E($"{report.MachineName} — {report.OsDescription} — generated {report.GeneratedAt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} by PcHealthCheck {report.AppVersion}"));
         sb.Append(report.RanElevated ? " (elevated scan)" : " (standard scan, no admin)");
