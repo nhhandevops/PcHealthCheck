@@ -14,6 +14,67 @@ Two things shape everything below:
 
 ---
 
+## 0. Quick start
+
+### Put it somewhere permanent
+
+Extract the zip to a folder you will not accidentally delete. A good place, and the one
+Windows itself uses for per-user programs:
+
+```text
+%LOCALAPPDATA%\Programs\PcHealthCheck
+```
+
+Not Program Files — that needs administrator rights, and this app deliberately installs
+nothing and asks for nothing it does not need.
+
+### Make it one double-click
+
+Right-click **PcHealthCheck.exe** → **Show more options** → **Send to** → **Desktop (create
+shortcut)**. Or, to have it in the Start menu so typing "PC Health" finds it, drop a shortcut
+into:
+
+```text
+%APPDATA%\Microsoft\Windows\Start Menu\Programs
+```
+
+Both in one line of PowerShell:
+
+```powershell
+$exe = "$env:LOCALAPPDATA\Programs\PcHealthCheck\PcHealthCheck.exe"
+$ws = New-Object -ComObject WScript.Shell
+foreach ($where in @([Environment]::GetFolderPath('Desktop'),
+                     "$env:APPDATA\Microsoft\Windows\Start Menu\Programs")) {
+    $l = $ws.CreateShortcut((Join-Path $where 'PC Health Check.lnk'))
+    $l.TargetPath = $exe; $l.WorkingDirectory = Split-Path $exe; $l.IconLocation = "$exe,0"
+    $l.Save()
+}
+```
+
+To undo any of this: delete the shortcuts and delete the folder. That is the whole uninstall.
+
+### Your first run — two minutes
+
+1. Double-click the shortcut.
+2. Press **Select recommended**.
+3. **Untick "Disk speed (read benchmark)"** for now. It is the only check that writes to your
+   drives, it takes about a minute per drive, and everything else finishes in seconds. Leave
+   it for when you have time.
+4. Press **Scan now**, and accept the single Windows prompt when it appears.
+
+About thirty seconds later you have the full picture. Read the red rows first, then the amber
+box if there is one.
+
+### Your second run — the one that matters
+
+Run it again in a week or two with **everything** ticked, including the benchmarks.
+
+The first scan is only a snapshot. The second is where this app earns its keep: a counter
+that has started climbing, a drive that has lost a third of its speed, a battery that has
+aged. None of that is visible in a single reading, however carefully you look at it.
+
+---
+
 ## 1. Getting started
 
 ### Install
