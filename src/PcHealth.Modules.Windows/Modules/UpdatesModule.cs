@@ -25,10 +25,12 @@ internal sealed class UpdatesModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
+        var failures = new ModuleFailures(notes);
         DateTime? lastSuccess = null;
 
         // Installed hotfixes (locale-tolerant date parsing; WUA history below is the primary signal).
-        foreach (var qfe in Wmi.TryQuery(@"root\cimv2", "SELECT HotFixID, InstalledOn FROM Win32_QuickFixEngineering", out var qfeError))
+        foreach (var qfe in Wmi.TryQuery(@"root\cimv2", "SELECT HotFixID, InstalledOn FROM Win32_QuickFixEngineering",
+            failures, "Installed hotfix list"))
         {
             if (TryParseQfeDate(Wmi.GetString(qfe, "InstalledOn")) is { } date && (lastSuccess is null || date > lastSuccess))
             {
@@ -39,10 +41,17 @@ internal sealed class UpdatesModule : WindowsModuleBase
         var pendingCount = -1;
         var repeatedFailure = false;
         string? repeatedTitle = null;
+        // Non-null the moment anything stops the update history being walked end to end. The
+        // repeated-failure verdict at the bottom is only a fact while this stays null.
+        string? historyError = null;
         try
         {
             var sessionType = Type.GetTypeFromProgID("Microsoft.Update.Session");
-            if (sessionType is not null)
+            if (sessionType is null)
+            {
+                historyError = "the Windows Update COM API is not registered on this PC";
+            }
+            else
             {
                 dynamic session = Activator.CreateInstance(sessionType)!;
                 dynamic searcher = session.CreateUpdateSearcher();
@@ -55,7 +64,10 @@ internal sealed class UpdatesModule : WindowsModuleBase
                 }
                 catch (Exception e)
                 {
-                    notes.Add($"Cached pending-update search unavailable: {e.GetType().Name}.");
+                    // pendingCount stays -1 so updates.pending_count is omitted rather than
+                    // reported as zero — but omitting it silently would leave a report that never
+                    // says nobody managed to look for updates waiting to install.
+                    failures.Record("Cached pending-update search unavailable", e.GetType().Name);
                 }
 
                 int historyTotal = (int)searcher.GetTotalHistoryCount();
@@ -88,7 +100,7 @@ internal sealed class UpdatesModule : WindowsModuleBase
         }
         catch (Exception e)
         {
-            notes.Add($"Windows Update COM API unavailable: {e.GetType().Name}: {e.Message}");
+            historyError = $"{e.GetType().Name}: {e.Message}";
         }
 
         if (lastSuccess is { } success)
@@ -99,7 +111,10 @@ internal sealed class UpdatesModule : WindowsModuleBase
         }
         else
         {
-            notes.Add("Could not determine the last successful update date.");
+            // Not a failure on its own: a PC that has genuinely never installed an update has no
+            // date to find. Whichever read actually broke — the hotfix list or the update
+            // history — recorded itself as a failure, so the status already reflects that.
+            failures.Note("Could not determine the last successful update date.");
         }
 
         if (pendingCount >= 0)
@@ -109,13 +124,36 @@ internal sealed class UpdatesModule : WindowsModuleBase
                 Detail: "Counted from the local Windows Update cache — this scan did not contact the internet, so the number can lag behind reality."));
         }
 
-        metrics.Add(new Metric("updates.repeated_failures", "An update keeps failing", repeatedFailure,
-            HealthCategory.SoftwareOs,
-            Detail: repeatedFailure
-                ? $"'{repeatedTitle}' failed at least twice — the Windows Update stack may need repair."
-                : "No update failed more than once in recent history."));
+        // A repeated failure that was already seen survives a history walk that threw afterwards:
+        // two entries carrying the same title and result code 4 were read end to end, and nothing
+        // further down the list can un-see them. The malformed entry that throws is most likely on
+        // exactly the damaged update stack this metric exists to catch, so discarding the finding
+        // would drop the only Bad verdict this module can raise, and its DISM/sfc repair advice
+        // with it, in favour of "could not finish".
+        if (historyError is null || repeatedFailure)
+        {
+            metrics.Add(new Metric("updates.repeated_failures", "An update keeps failing", repeatedFailure,
+                HealthCategory.SoftwareOs,
+                Detail: repeatedFailure
+                    ? $"'{repeatedTitle}' failed at least twice — the Windows Update stack may need repair."
+                    : "No update failed more than once in recent history."));
+        }
 
-        return Task.FromResult(metrics.Count > 0 ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted);
+        if (historyError is not null)
+        {
+            // The history read broke either way, so the scan still says a check could not finish.
+            // What changes is the claim left standing: with no repeated failure seen, the metric
+            // above is suppressed because "No update failed more than once" would be a green
+            // verdict on a history this scan never opened; with one seen, that finding is fact and
+            // only the part of the history nobody got to read is named as missing.
+            failures.Record("Windows Update history", repeatedFailure
+                ? $"{historyError} — the repeated failure reported above was seen before the read stopped, " +
+                  "but the rest of the update history was not examined."
+                : $"{historyError} — so whether an update keeps failing was NOT checked. " +
+                  "That is not the same as no update failing.");
+        }
+
+        return Task.FromResult(failures.Resolve(gotAnything: metrics.Count > 0));
     }
 
     private static DateTime? TryParseQfeDate(string? raw)

@@ -28,11 +28,25 @@ internal sealed class BatteryModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
-        var batteries = Wmi.TryQuery(@"root\cimv2", "SELECT Name FROM Win32_Battery", out var wmiError);
-        if (wmiError is not null) notes.Add($"Battery query: {wmiError}");
+        var failures = new ModuleFailures(notes);
+        var batteries = Wmi.TryQuery(@"root\cimv2", "SELECT Name FROM Win32_Battery", failures, "Battery query");
+
+        // A failed query hands back exactly the same empty list a desktop does, and the old code
+        // read that emptiness as proof of a desktop: a laptop whose WMI was broken was told, in
+        // writing, that it had no battery. When the query did not run we do not know what this
+        // machine is, so the module says so rather than claiming a skip it never earned.
+        if (failures.Any)
+        {
+            failures.Note("Whether this PC has a battery at all could not be established, so battery wear was NOT checked.");
+            return failures.Resolve(gotAnything: false);
+        }
+
         if (batteries.Count == 0)
         {
-            notes.Add("No battery detected — desktop system, module skipped.");
+            // The query succeeded and came back empty, which is a real answer: there is no
+            // battery here. This deliberate skip must NOT degrade the status, or the "some
+            // checks could not finish" banner would fire on every healthy desktop scan.
+            failures.Note("No battery detected — desktop system, module skipped.");
             return ModuleStatus.Skipped;
         }
 

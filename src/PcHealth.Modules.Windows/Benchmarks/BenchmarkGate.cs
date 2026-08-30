@@ -65,9 +65,19 @@ public sealed class BenchmarkGate : IDisposable
     public void Dispose() => _lock?.Dispose();
 
     /// <summary>
+    /// What every test file's name starts with. The consent text the user reads before agreeing
+    /// to this check is built from this same constant (see <c>DiskSpeedModule.Manifest</c>),
+    /// because the two have already drifted apart once: the per-process suffix below was added to
+    /// stop two instances deleting each other's file, and the consent row was left promising
+    /// "bench.tmp" — a path that no longer existed. This is the only check in the app that writes
+    /// to the user's drives, so its disclosure being accurate is not a detail.
+    /// </summary>
+    public const string TestFilePrefix = "bench-";
+
+    /// <summary>
     /// Each instance writes its own file, so one cannot delete another's mid-measurement.
     /// The gate makes that collision unlikely; unique names make it impossible.
     /// </summary>
     public static string TestFileNameFor(int processId) =>
-        $"bench-{processId.ToString(CultureInfo.InvariantCulture)}.tmp";
+        $"{TestFilePrefix}{processId.ToString(CultureInfo.InvariantCulture)}.tmp";
 }

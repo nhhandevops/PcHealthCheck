@@ -30,10 +30,12 @@ internal sealed class DiskSmartModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
+        var failures = new ModuleFailures(notes);
+
         // Inventory first: PNPDeviceID is what links a SMART instance to a real drive.
         var drives = Wmi.TryQuery(@"root\cimv2",
-            "SELECT Model, PNPDeviceID, InterfaceType, Index, Size FROM Win32_DiskDrive", out var driveError);
-        if (driveError is not null) notes.Add($"Disk inventory: {driveError}");
+            "SELECT Model, PNPDeviceID, InterfaceType, Index, Size FROM Win32_DiskDrive",
+            failures, "Disk inventory");
 
         var byPnpId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var drive in drives)
@@ -56,6 +58,18 @@ internal sealed class DiskSmartModule : WindowsModuleBase
                       "This usually means the scan is not running with administrator rights.");
             return Task.FromResult(ModuleStatus.Failed);
         }
+
+        // The two classes are two different halves of the SMART check: the status class carries the
+        // drive's own "I am about to fail" flag, the data class carries the attribute table with the
+        // reallocated and pending sector counts. Requiring BOTH to fail before saying anything meant
+        // that losing one half left a report with no trace of the loss — a drive whose attribute
+        // table would not read looked exactly like a drive with nothing wrong with it.
+        failures.RecordIf(
+            "The drives' own failure-prediction flag could not be read, so this scan cannot say whether any drive is warning about itself",
+            statusError);
+        failures.RecordIf(
+            "The SMART attribute tables could not be read, so reallocated and pending sectors — the strongest warning signs there are — were NOT checked",
+            dataError);
 
         foreach (var row in status)
         {
@@ -84,16 +98,18 @@ internal sealed class DiskSmartModule : WindowsModuleBase
         var withoutSmart = Math.Max(0, drives.Count - Math.Max(status.Count, data.Count));
         if (withoutSmart > 0)
         {
-            notes.Add($"{withoutSmart} of {drives.Count} drives do not expose SMART through Windows " +
-                      "(typical for USB-connected drives and for NVMe SSDs, whose health is covered by the storage reliability check).");
+            // Not a failure: a USB or NVMe drive that has no ATA SMART table to give is a fact
+            // about the hardware, not a check that broke, and must not raise the report's banner.
+            failures.Note($"{withoutSmart} of {drives.Count} drives do not expose SMART through Windows " +
+                          "(typical for USB-connected drives and for NVMe SSDs, whose health is covered by the storage reliability check).");
         }
         if (drivesWithAttributes == 0 && metrics.Count == 0)
         {
-            notes.Add("No drive returned a readable SMART attribute table.");
-            return Task.FromResult(ModuleStatus.PartiallyCompleted);
+            failures.Note("No drive returned a readable SMART attribute table.");
+            return Task.FromResult(failures.Resolve(ModuleStatus.PartiallyCompleted, gotAnything: false));
         }
 
-        return Task.FromResult(ModuleStatus.Completed);
+        return Task.FromResult(failures.Resolve());
     }
 
     private static void AddAttributeMetrics(List<Metric> metrics, string subject, IReadOnlyList<SmartAttribute> attributes)

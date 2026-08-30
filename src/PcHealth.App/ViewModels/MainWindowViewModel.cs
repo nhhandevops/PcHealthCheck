@@ -206,7 +206,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 results.AddRange(outcome.Results);
                 receiptEntries.AddRange(outcome.Receipt);
-                ranElevated = outcome.Status == ElevatedScanStatus.Completed && outcome.Results.Count > 0;
+                // Whether the elevated helper actually gathered anything, which is a different
+                // question from whether it exited cleanly. A helper that delivered every admin
+                // result and then died before its completion message is a Failed scan carrying
+                // real elevated results; reading elevation off Status would stamp "(standard scan,
+                // no admin)" and "This scan used no administrator rights." onto a report full of
+                // them. The receipt is this app's honesty artifact — it must not understate either.
+                ranElevated = outcome.RanElevated;
                 _elevationNote = outcome.Message;
                 if (outcome.RejectedModuleIds.Count > 0)
                 {
@@ -215,22 +221,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
 
                 // An admin check that produced no result did not run at all — the prompt was
-                // declined, the helper could not start, the id was refused. Until this was
-                // written those checks simply vanished: nothing in the report knew they had
-                // been selected, so the "some checks could not finish" warning had nothing to
-                // find and the scan reported GOOD with an entire check missing. Found in
-                // acceptance testing, and the fourth time this app has presented unchecked as
-                // clean. A selected check that never ran has to appear as one.
-                var produced = results.Select(r => r.ModuleId).ToHashSet(StringComparer.Ordinal);
-                foreach (var absent in adminModules.Where(m => !produced.Contains(m.Manifest.Id)))
-                {
-                    results.Add(new ModuleResult
-                    {
-                        ModuleId = absent.Manifest.Id,
-                        Status = ModuleStatus.Failed,
-                        Error = outcome.Message ?? "This check needs administrator rights and did not run.",
-                    });
-                }
+                // declined, the helper could not start, the id was refused. Shared with the
+                // headless path rather than written out twice: this logic was fixed here first
+                // and the copy in HeadlessScan kept the original bug for another four days.
+                results.AddRange(MissingAdminChecks.AsFailedResults(results, adminModules, outcome.Message));
             }
 
             var names = selected.ToDictionary(m => m.Manifest.Id, m => m.Manifest.Name, StringComparer.Ordinal);

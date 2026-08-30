@@ -36,7 +36,10 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
         Reads = ["Drive model, media type and bus type (WMI)", "A temporary file this check creates itself — no existing file is opened"],
         NeedsAdmin = false,
         Writes = new WriteSpec(
-            @"<drive>:\PcHealthCheck-bench\bench.tmp on each drive tested",
+            // Built from the constants the writer actually uses, not typed out again. The previous
+            // hand-written copy said "bench.tmp" and stayed saying it after the file gained a
+            // per-process suffix, so the consent row named a path the app never created.
+            $@"<drive>:\{WorkingFolder}\{BenchmarkGate.TestFilePrefix}<process id>.tmp on each drive tested",
             DiskSpdRunner.DefaultFileBytes,
             "deleted as soon as the check finishes, including on cancel or failure"),
         EstimatedDuration = TimeSpan.FromMinutes(3),

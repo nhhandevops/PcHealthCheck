@@ -37,13 +37,18 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
+        var failures = new ModuleFailures(notes);
+
         var exe = SevenZipBenchmark.Find();
         if (exe is null)
         {
-            notes.Add("7-Zip is not installed, so the processor was not measured. The app offers to install it " +
-                      "with 'winget install 7zip.7zip' and to remove it again when you close the app. " +
-                      "If you would rather not install anything, unpacking 7-Zip's standalone 7za.exe anywhere " +
-                      "on your PATH works just as well.");
+            // Choosing not to install a benchmark tool is not a broken check, so this stays a
+            // plain note: if it degraded the scan, every PC without 7-Zip would raise the
+            // "some checks could not finish" banner and the banner would stop meaning anything.
+            failures.Note("7-Zip is not installed, so the processor was not measured. The app offers to install it " +
+                          "with 'winget install 7zip.7zip' and to remove it again when you close the app. " +
+                          "If you would rather not install anything, unpacking 7-Zip's standalone 7za.exe anywhere " +
+                          "on your PATH works just as well.");
             return ModuleStatus.Skipped;
         }
 
@@ -52,11 +57,11 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
         var (reading, error) = await new SevenZipBenchmark(context.Processes).MeasureAsync(exe, ct).ConfigureAwait(false);
         if (reading is null)
         {
-            notes.Add($"The processor benchmark did not complete: {error}");
-            return ModuleStatus.PartiallyCompleted;
+            failures.Record("The processor benchmark did not complete", error ?? "7-Zip gave no reason.");
+            return failures.Resolve(gotAnything: metrics.Count > 0);
         }
 
-        var subject = DescribeProcessor(notes);
+        var subject = DescribeProcessor(failures);
 
         metrics.Add(new Metric("bench.cpu.single_thread_mips", "Processor benchmark score",
             Math.Round(reading.OverallRating, 0), HealthCategory.Performance,
@@ -77,19 +82,30 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
                         "Compression leans on memory speed as well as the processor, so the two moving apart over " +
                         "time can point at memory rather than the chip."));
         }
+        else
+        {
+            // SevenZipOutputReader zeroes both figures when the "Avr:" row is not the eight
+            // columns it expects, rather than reading a rating out of the wrong column.
+            // Suppressing the metric is right; reporting the scan as clean afterwards is not —
+            // a parser that refused to guess must not read back as a processor that was
+            // measured in full, and a graded 0 MIPS would be the same lie the other way round.
+            failures.Record("Compression and decompression scores",
+                "7-Zip's benchmark table was not the shape this app knows how to read, so those two figures " +
+                "were NOT measured. The overall score above comes from a different row and is unaffected.");
+        }
 
-        return ModuleStatus.Completed;
+        return failures.Resolve(gotAnything: metrics.Count > 0);
     }
 
-    private static string DescribeProcessor(List<string> notes)
+    private static string DescribeProcessor(ModuleFailures failures)
     {
+        // A name that could not be read is not cosmetic: the subject is what the trend history
+        // keys on, so falling back to "this processor" starts a second, empty history and the
+        // run-it-again-in-a-month comparison this check exists for never happens.
         var row = Wmi.TryQuery(@"root\cimv2",
-            "SELECT Name, NumberOfCores, NumberOfLogicalProcessors FROM Win32_Processor", out var error).FirstOrDefault();
-        if (row is null)
-        {
-            if (error is not null) notes.Add($"The processor name could not be read: {error}");
-            return "this processor";
-        }
+            "SELECT Name, NumberOfCores, NumberOfLogicalProcessors FROM Win32_Processor",
+            failures, "The processor name could not be read").FirstOrDefault();
+        if (row is null) return "this processor";
 
         var name = Wmi.GetString(row, "Name")?.Trim() ?? "unknown processor";
         var cores = Wmi.Get<uint>(row, "NumberOfCores");

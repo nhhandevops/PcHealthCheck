@@ -27,9 +27,12 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
+        var failures = new ModuleFailures(notes);
+
         var disks = new Dictionary<string, (string Name, ushort MediaType)>(StringComparer.OrdinalIgnoreCase);
         var physicalDisks = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
-            "SELECT DeviceId, FriendlyName, MediaType, Size FROM MSFT_PhysicalDisk", out var diskError);
+            "SELECT DeviceId, FriendlyName, MediaType, Size FROM MSFT_PhysicalDisk",
+            failures, "Physical disk inventory");
         foreach (var disk in physicalDisks)
         {
             var deviceId = Wmi.GetString(disk, "DeviceId");
@@ -37,17 +40,39 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
             var sizeGb = Wmi.Get<ulong>(disk, "Size") is { } size ? $" — {Math.Round(size / 1e9)} GB" : "";
             disks[deviceId] = ($"{Wmi.GetString(disk, "FriendlyName")?.Trim()}{sizeGb}", Wmi.Get<ushort>(disk, "MediaType") ?? 0);
         }
-        if (diskError is not null) notes.Add($"Physical disk inventory: {diskError}");
 
         var counters = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
             "SELECT * FROM MSFT_StorageReliabilityCounter", out var counterError);
+        var associationRouteAnswered = false;
         if (counters.Count == 0)
         {
             // The class is normally reached through an association; fall back to the
             // PowerShell pipeline that does exactly that, projected as JSON (locale-proof).
-            notes.Add("Reliability counters were not directly enumerable; used the storage association instead.");
-            foreach (var row in await QueryViaPowerShellAsync(context, ct).ConfigureAwait(false)) counters.Add(row);
-            if (counterError is not null && counters.Count == 0) notes.Add($"Reliability counters: {counterError}");
+            // A direct query that returned nothing is the ordinary case here, so its error only
+            // becomes a failure once this second route has also failed to answer the question —
+            // which is why the fallback reports whether it ran, not just what it found.
+            failures.Note("Reliability counters were not directly enumerable; used the storage association instead.");
+            var (rows, completed) = await QueryViaPowerShellAsync(context, failures, ct).ConfigureAwait(false);
+            associationRouteAnswered = completed;
+            foreach (var row in rows) counters.Add(row);
+        }
+
+        if (counters.Count == 0 && associationRouteAnswered)
+        {
+            // The association route ran to completion and found nothing, which IS the answer the
+            // direct query failed to give: no drive here reports counters. Recording the direct
+            // query's error as a failure at this point would degrade the module — and fire the
+            // report's amber "Some checks could not finish" banner — on every ordinary PC whose
+            // drives (SATA HDDs, older SATA SSDs) expose no counters, while also suppressing the
+            // true finding that the successful read earned.
+            //
+            // The other way out of an empty result, an association route that did not complete,
+            // adds nothing here: it has already recorded its own failure, so the module degrades
+            // correctly, and repeating the direct query's error would put two entries in that
+            // banner's semicolon-joined reason list for one unanswered question.
+            failures.Note(counterError is null
+                ? "No drive on this system exposes reliability counters."
+                : $"No drive on this system exposes reliability counters (the direct query was unavailable: {counterError}).");
         }
 
         foreach (var counter in counters)
@@ -87,11 +112,15 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
             }
         }
 
-        if (counters.Count == 0) notes.Add("No drive on this system exposes reliability counters.");
+        await AddVolumeDirtyFlagsAsync(context, metrics, failures, ct).ConfigureAwait(false);
 
-        await AddVolumeDirtyFlagsAsync(context, metrics, notes, ct).ConfigureAwait(false);
-
-        return metrics.Count > 0 ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted;
+        // Counting metrics cannot answer "did this module get what it came for": the dirty-flag
+        // check adds one metric per fixed volume whatever happened to the reliability counters, so
+        // the count is never zero on a real PC. Losing the wear, temperature and error counters
+        // entirely therefore reported Completed. Only a recorded failure decides that now; the
+        // count is left to distinguish a partial result from having gathered nothing at all.
+        var gotAnything = metrics.Count > 0;
+        return failures.Resolve(gotAnything ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted, gotAnything);
     }
 
     private static void AddErrorCounter(
@@ -103,7 +132,14 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
             Subject: subject, Detail: detail));
     }
 
-    private static async Task<List<Dictionary<string, object?>>> QueryViaPowerShellAsync(ModuleContext context, CancellationToken ct)
+    /// <summary>
+    /// Runs the storage-association route. <c>Completed</c> says whether the route actually
+    /// answered the question, which no row count can express: zero rows from a run that finished
+    /// is the finding "no drive here reports counters", zero rows from a run that broke is a
+    /// question never asked. Returning only rows left the caller unable to tell them apart.
+    /// </summary>
+    private static async Task<(List<Dictionary<string, object?>> Rows, bool Completed)> QueryViaPowerShellAsync(
+        ModuleContext context, ModuleFailures failures, CancellationToken ct)
     {
         var rows = new List<Dictionary<string, object?>>();
         const string script = "Get-PhysicalDisk | ForEach-Object { $d = $_; $c = $_ | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue; " +
@@ -113,7 +149,16 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
 
         var run = await context.Processes.RunAsync("disk.reliability", "powershell.exe",
             $"-NoProfile -NonInteractive -Command \"{script}\"", TimeSpan.FromSeconds(60), ct: ct).ConfigureAwait(false);
-        if (!run.Succeeded || string.IsNullOrWhiteSpace(run.StdOut)) return rows;
+        if (!run.Succeeded)
+        {
+            // This is the route that actually reaches the counters on most systems, so a run that
+            // could not complete leaves their health unknown rather than absent. Empty output from
+            // a run that DID complete is different: it means no drive here reports counters.
+            failures.Record("Reliability counters via the storage association",
+                run.TimedOut ? "the query timed out" : $"exit {run.ExitCode}");
+            return (rows, false);
+        }
+        if (string.IsNullOrWhiteSpace(run.StdOut)) return (rows, true);
 
         try
         {
@@ -136,23 +181,63 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
                 rows.Add(row);
             }
         }
-        catch (JsonException) { /* unparseable output is treated as "no data" */ }
-        return rows;
+        catch (JsonException e)
+        {
+            // Output arrived and could not be understood, which is not the same as a drive having
+            // nothing to report — treating it as "no data" hid a read this scan never managed.
+            // Unanswered for the same reason, so the caller must not conclude "no drive here
+            // reports counters" from the empty list this leaves behind.
+            failures.Record("Reliability counters returned output that could not be read", e.Message);
+            return (rows, false);
+        }
+        return (rows, true);
     }
 
     private static async Task AddVolumeDirtyFlagsAsync(
-        ModuleContext context, List<Metric> metrics, List<string> notes, CancellationToken ct)
+        ModuleContext context, List<Metric> metrics, ModuleFailures failures, CancellationToken ct)
     {
+        // FileSystem comes back with the letter because the dirty bit is a property of the file
+        // system, not of the drive, and only the answer to "which file system" separates a volume
+        // that refused to be read from one that had nothing to say.
         var volumes = Wmi.TryQuery(@"root\cimv2",
-            "SELECT DeviceID FROM Win32_LogicalDisk WHERE DriveType = 3", out var error);
+            "SELECT DeviceID, FileSystem FROM Win32_LogicalDisk WHERE DriveType = 3",
+            failures, "Volume enumeration for dirty check");
+        var noDirtyBit = new List<string>();
         foreach (var volume in volumes)
         {
             var letter = Wmi.GetString(volume, "DeviceID");
             if (string.IsNullOrEmpty(letter)) continue;
 
+            // Only NTFS and ReFS carry a dirty bit; on anything else the FSCTL behind
+            // "fsutil dirty query" is refused by the file system with ERROR_INVALID_FUNCTION,
+            // and elevation cannot change that. DriveType 3 is no promise of either: on this
+            // project's reference laptop the Google Drive mounts on G: and I: are reported as
+            // fixed FAT32 volumes, as is any exFAT/FAT32 secondary internal data drive. Asking
+            // those anyway and recording the refusal as a failure raised the report's amber
+            // "Some checks could not finish" banner on every elevated scan of a healthy PC, and
+            // a banner that is always on teaches the reader to ignore the one that matters.
+            // Nothing here went unread, so this is a deliberate non-check in the same sense as a
+            // USB drive that exposes no ATA SMART table.
+            var fileSystem = Wmi.GetString(volume, "FileSystem")?.Trim();
+            if (!string.Equals(fileSystem, "NTFS", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(fileSystem, "ReFS", StringComparison.OrdinalIgnoreCase))
+            {
+                noDirtyBit.Add($"{letter} ({(string.IsNullOrEmpty(fileSystem) ? "file system not reported" : fileSystem)})");
+                continue;
+            }
+
             var run = await context.Processes.RunAsync("disk.reliability", "fsutil",
                 $"dirty query {letter}", TimeSpan.FromSeconds(15), ct: ct).ConfigureAwait(false);
-            if (!run.Succeeded) continue;
+            if (!run.Succeeded)
+            {
+                // This volume does have a dirty bit and would not give it up, so the question
+                // went unanswered. Skipping it silently left the report with no row for it at
+                // all, which reads as "nothing to say about that drive" rather than "this drive
+                // was never asked whether Windows has queued a file-system repair for it".
+                failures.Record($"Pending file-system check on {letter} could not be read",
+                    run.TimedOut ? "the query timed out" : $"exit {run.ExitCode}");
+                continue;
+            }
 
             // Locale-proof: "NOT" appears in the negative form in most locales, so key on
             // the stable volume token and treat only an explicit non-dirty answer as clean.
@@ -163,7 +248,14 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
                     ? "Windows flagged this volume as needing a file-system check; it will run CHKDSK at the next restart."
                     : "The file system was shut down cleanly."));
         }
-        if (error is not null) notes.Add($"Volume enumeration for dirty check: {error}");
+
+        // Said once for all of them rather than once each, so a PC with several cloud mounts does
+        // not fill the module's note column with the same sentence repeated.
+        if (noDirtyBit.Count > 0)
+        {
+            failures.Note($"No pending file-system check to read on {string.Join(", ", noDirtyBit)} — " +
+                          "only NTFS and ReFS volumes carry a dirty bit.");
+        }
     }
 
     [GeneratedRegex(@"\bNOT\b|\bnicht\b|\bpas\b|\bkhông\b", RegexOptions.IgnoreCase)]

@@ -109,7 +109,9 @@ public static class SevenZipOutputReader
 
         // Avr: compress(speed, usage, R/U, rating) | decompress(speed, usage, R/U, rating).
         // Anything other than those eight columns means the table is not the shape expected,
-        // and a number read from the wrong column is worse than no number.
+        // and a number read from the wrong column is worse than no number. The zero is a
+        // sentinel for "not measured", never a score: CpuBenchmarkModule suppresses the metric
+        // and reports the scan incomplete rather than publishing a processor that rated 0 MIPS.
         var compress = average is { Length: 8 } ? average[3] : 0;
         var decompress = average is { Length: 8 } ? average[7] : 0;
 

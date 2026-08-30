@@ -32,6 +32,23 @@ internal static class Wmi
         return results;
     }
 
+    /// <summary>
+    /// Query that records its own failure. Preferred over the <c>out string?</c> overload,
+    /// because that one hands the caller an error it is free to note and then ignore — which is
+    /// exactly how a module ends up reporting <c>Completed</c> about a check that never ran.
+    /// Here the failure reaches the module's status whether the caller thinks about it or not.
+    ///
+    /// <paramref name="what"/> names the thing that could not be read, in words the person
+    /// reading the report would use: "Battery query", not "Win32_Battery".
+    /// </summary>
+    public static List<Dictionary<string, object?>> TryQuery(
+        string scope, string wql, ModuleFailures failures, string what)
+    {
+        var rows = TryQuery(scope, wql, out var error);
+        failures.RecordIf(what, error);
+        return rows;
+    }
+
     /// <summary>Query that swallows failures into an error string instead of throwing.</summary>
     public static List<Dictionary<string, object?>> TryQuery(string scope, string wql, out string? error)
     {

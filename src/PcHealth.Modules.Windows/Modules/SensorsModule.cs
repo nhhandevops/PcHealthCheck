@@ -67,8 +67,10 @@ internal sealed class SensorsModule : WindowsModuleBase
             IsBatteryEnabled = false,
         };
 
+        var failures = new ModuleFailures(notes);
         var peaks = new Dictionary<(HardwareType Hardware, SensorType Type, string Name), SensorReading>();
         var detectedHardwareNote = "";
+        var cpuTemperatureOffered = false;
         try
         {
             computer.Open();
@@ -92,6 +94,13 @@ internal sealed class SensorsModule : WindowsModuleBase
                 Collect(computer.Hardware, peaks);
                 if (i < SampleCount - 1) await Task.Delay(SampleInterval, ct).ConfigureAwait(false);
             }
+
+            // Whether a processor temperature sensor exists at all, captured here because Close()
+            // empties the hardware list. This, and not a registry key, is what separates "the read
+            // was attempted and gave nothing back" from "there was never anything here to read":
+            // a virtual machine exposes no CPU temperature sensor whatever driver is installed.
+            cpuTemperatureOffered = computer.Hardware.Any(h => h.HardwareType == HardwareType.Cpu
+                && h.Sensors.Any(sensor => sensor.SensorType == SensorType.Temperature));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -114,8 +123,15 @@ internal sealed class SensorsModule : WindowsModuleBase
             return ModuleStatus.PartiallyCompleted;
         }
 
-        BuildMetrics(peaks, metrics, notes, detectedHardwareNote);
-        return ModuleStatus.Completed;
+        BuildMetrics(peaks, metrics, failures, detectedHardwareNote, cpuTemperatureOffered);
+
+        // Reading some sensors is not the same as reading the ones this section is named for: a
+        // report with no CPU temperature must not arrive as a finished check. Resolve keeps the
+        // one distinction that matters — a driver the user chose not to install leaves this
+        // Completed, a reading that was attempted and came back with nothing does not. Sampling
+        // can also end with readings that produce no metric at all (a peak that is only a CPU load
+        // figure, say), and a failure with nothing gathered is Failed, not a partial result.
+        return failures.Resolve(gotAnything: metrics.Count > 0);
     }
 
     private static void Collect(
@@ -141,7 +157,8 @@ internal sealed class SensorsModule : WindowsModuleBase
 
     private static void BuildMetrics(
         Dictionary<(HardwareType Hardware, SensorType Type, string Name), SensorReading> peaks,
-        List<Metric> metrics, List<string> notes, string detectedHardwareNote)
+        List<Metric> metrics, ModuleFailures failures, string detectedHardwareNote,
+        bool cpuTemperatureOffered)
     {
         List<SensorReading> Readings(SensorType type, params HardwareType[] hardware) =>
             [.. peaks.Where(p => p.Key.Type == type && hardware.Contains(p.Key.Hardware)).Select(p => p.Value)];
@@ -160,12 +177,41 @@ internal sealed class SensorsModule : WindowsModuleBase
                         "limit briefly under heavy load, so a high peak alone is not a fault — sustained heat with " +
                         "reduced clock speeds is."));
         }
+        else if (Ring0Driver.IsPawnIoRunning())
+        {
+            // The driver this reading depends on is loaded and running, and still nothing came
+            // back. That is a read that was attempted and failed.
+            //
+            // The gate is the driver's RUNNING state, not the presence of a temperature sensor.
+            // LibreHardwareMonitor activates a processor's temperature sensors from CPUID before
+            // any driver is involved and only their values need ring0, so "a sensor was offered
+            // and read back empty" is what every ordinary PC without PawnIO looks like — measured
+            // on an i7-7820HQ: eleven CPU temperature sensors, every value null. Degrading on that
+            // would raise the amber "some checks could not finish" banner on the majority of
+            // machines, where nothing is wrong and nothing was missed.
+            failures.Record("CPU temperature",
+                "PawnIO is running but the processor temperature came back empty on every sample — " +
+                $"this chipset may not be supported. {detectedHardwareNote}");
+        }
+        else if (Ring0Driver.IsPawnIoInstalled())
+        {
+            // Registered but not running: nothing was attempted, so nothing failed. This is also
+            // what a virtual machine looks like, where no virtual CPU exposes a temperature for
+            // any driver to read. Name what to check and leave the status alone.
+            failures.Note(
+                "Processor temperature is unavailable. PawnIO is installed on this PC but its driver " +
+                "is not running, so either this is a virtual machine — no virtual CPU exposes a " +
+                "temperature — or the driver was blocked or removed: check the PawnIO service, or " +
+                $"reinstall it from pawnio.eu. {detectedHardwareNote}");
+        }
         else
         {
-            notes.Add(Ring0Driver.IsPawnIoInstalled()
-                ? "No CPU temperature was readable even though the low-level driver is installed — this " +
-                  $"chipset may not be supported. {detectedHardwareNote}"
-                : Ring0Driver.MissingDriverAdvice);
+            // Not having PawnIO is the user's decision, not a fault: this app never installs a
+            // kernel driver, and graphics and memory readings still work without one. Degrading
+            // here would raise "some checks could not finish" on every scan on every PC without
+            // the driver — which is most of them — and a banner that always shows is one nobody
+            // reads, including on the scan where something really did break.
+            failures.Note(Ring0Driver.MissingDriverAdvice);
         }
 
         AddGpuTemperature(gpuTemperatures, "GPU Core", "gpu.temperature_c", "GPU temperature", metrics);

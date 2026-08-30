@@ -31,23 +31,41 @@ internal sealed class StartupModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
+        var failures = new ModuleFailures(notes);
         var items = StartupInventory.Collect(notes, ct);
 
         // Winlogon Shell/Userinit — classic persistence spot; anything beyond the defaults is suspicious.
         using (var winlogon = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"))
         {
-            var shell = winlogon?.GetValue("Shell")?.ToString()?.Trim();
-            var userinit = winlogon?.GetValue("Userinit")?.ToString()?.Trim().TrimEnd(',');
-            var shellOk = string.IsNullOrEmpty(shell) || shell.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase);
-            var userinitOk = string.IsNullOrEmpty(userinit)
-                || userinit.EndsWith(@"\userinit.exe", StringComparison.OrdinalIgnoreCase)
-                || userinit.Equals("userinit.exe", StringComparison.OrdinalIgnoreCase)
-                || userinit.EndsWith(@"\userinit.exe""", StringComparison.OrdinalIgnoreCase);
-            metrics.Add(new Metric("startup.winlogon_default", "Winlogon shell is standard", shellOk && userinitOk,
-                HealthCategory.Security,
-                Detail: shellOk && userinitOk
-                    ? "Shell and Userinit have their default values."
-                    : $"Non-default Winlogon values — Shell: '{shell}', Userinit: '{userinit}'. This is a known malware persistence point."));
+            if (winlogon is null)
+            {
+                // Both values come back null when the key cannot be opened, and IsNullOrEmpty(null)
+                // is true for both, so the old code graded an unreadable key as "Shell and Userinit
+                // have their default values": the security check for a known malware persistence
+                // point asserting clean from a read that returned nothing. No metric is emitted
+                // here, because unchecked is not the same as checked and standard.
+                failures.Record("Winlogon values",
+                    "the registry key could not be opened, so the Shell/Userinit persistence point was NOT checked");
+            }
+            else
+            {
+                // A value that is absent or empty under a key we DID open is a genuine reading —
+                // Windows falls back to explorer.exe/userinit.exe — which is why the IsNullOrEmpty
+                // cases below still count as standard. That is the case an unopenable key above
+                // must never be confused with.
+                var shell = winlogon.GetValue("Shell")?.ToString()?.Trim();
+                var userinit = winlogon.GetValue("Userinit")?.ToString()?.Trim().TrimEnd(',');
+                var shellOk = string.IsNullOrEmpty(shell) || shell.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase);
+                var userinitOk = string.IsNullOrEmpty(userinit)
+                    || userinit.EndsWith(@"\userinit.exe", StringComparison.OrdinalIgnoreCase)
+                    || userinit.Equals("userinit.exe", StringComparison.OrdinalIgnoreCase)
+                    || userinit.EndsWith(@"\userinit.exe""", StringComparison.OrdinalIgnoreCase);
+                metrics.Add(new Metric("startup.winlogon_default", "Winlogon shell is standard", shellOk && userinitOk,
+                    HealthCategory.Security,
+                    Detail: shellOk && userinitOk
+                        ? "Shell and Userinit have their default values."
+                        : $"Non-default Winlogon values — Shell: '{shell}', Userinit: '{userinit}'. This is a known malware persistence point."));
+            }
         }
 
         var active = items.Where(i => !i.Disabled).ToList();
@@ -73,6 +91,6 @@ internal sealed class StartupModule : WindowsModuleBase
                 ? "No tampered/invalid signatures."
                 : "Invalid signature (possible tampering): " + string.Join("; ", invalid.Select(i => $"{i.Name} ({i.ResolvedPath})"))));
 
-        return Task.FromResult(ModuleStatus.Completed);
+        return Task.FromResult(failures.Resolve());
     }
 }

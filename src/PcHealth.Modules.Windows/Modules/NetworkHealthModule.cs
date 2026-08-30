@@ -28,23 +28,25 @@ internal sealed class NetworkHealthModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
-        AddLinkSpeeds(metrics, notes);
-        AddHostsFileFindings(metrics, notes);
-        AddProxyFindings(metrics);
-        AddDnsInformation(metrics, notes);
-        return Task.FromResult(metrics.Count > 0 ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted);
+        var failures = new ModuleFailures(notes);
+
+        AddLinkSpeeds(metrics, failures);
+        AddHostsFileFindings(metrics, failures);
+        AddProxyFindings(metrics, failures);
+        AddDnsInformation(metrics, failures);
+
+        // Four independent checks, any one of which can break while the others succeed. The old
+        // "any metric at all means Completed" test let a failed adapter or DNS query hide behind
+        // the hosts-file metrics that did come back — and in this module a silent gap reads as
+        // "no sign of tampering here", which is the one thing it must never say without looking.
+        return Task.FromResult(failures.Resolve(gotAnything: metrics.Count > 0));
     }
 
-    private static void AddLinkSpeeds(List<Metric> metrics, List<string> notes)
+    private static void AddLinkSpeeds(List<Metric> metrics, ModuleFailures failures)
     {
         var adapters = Wmi.TryQuery(@"root\StandardCimv2",
             "SELECT Name, InterfaceDescription, Speed, MediaConnectState, HardwareInterface, Virtual, ConnectorPresent " +
-            "FROM MSFT_NetAdapter", out var error);
-        if (error is not null)
-        {
-            notes.Add($"Network adapter query: {error}");
-            return;
-        }
+            "FROM MSFT_NetAdapter", failures, "Network adapter query");
 
         foreach (var adapter in adapters)
         {
@@ -73,7 +75,7 @@ internal sealed class NetworkHealthModule : WindowsModuleBase
         }
     }
 
-    private static void AddHostsFileFindings(List<Metric> metrics, List<string> notes)
+    private static void AddHostsFileFindings(List<Metric> metrics, ModuleFailures failures)
     {
         var hostsPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.System), "drivers", "etc", "hosts");
@@ -82,14 +84,21 @@ internal sealed class NetworkHealthModule : WindowsModuleBase
         {
             if (!File.Exists(hostsPath))
             {
-                notes.Add("No hosts file found (unusual, but harmless).");
+                // A file that is not there is an answer rather than a failed read — nothing can be
+                // redirected by a hosts file that does not exist — so this stays a plain note and
+                // does not fire the "some checks could not finish" banner.
+                failures.Note("No hosts file found (unusual, but harmless).");
                 return;
             }
             lines = File.ReadAllLines(hostsPath);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            notes.Add($"Could not read the hosts file: {e.Message}");
+            // Both metrics below assert an absence — "nothing is redirecting Windows Update or
+            // antivirus" — which is exactly the claim an unread file cannot support. Suppressing
+            // them is right, but staying silent about the one file malware edits most often is
+            // not: the scan has to come back marked incomplete.
+            failures.Record("Could not read the hosts file", e.Message);
             return;
         }
 
@@ -112,13 +121,24 @@ internal sealed class NetworkHealthModule : WindowsModuleBase
                   ". These override normal name lookups. Ad-blocking lists and developer test entries are common and harmless — but make sure you recognise each one."));
     }
 
-    private static void AddProxyFindings(List<Metric> metrics)
+    private static void AddProxyFindings(List<Metric> metrics, ModuleFailures failures)
     {
         using var key = Registry.CurrentUser.OpenSubKey(
             @"Software\Microsoft\Windows\CurrentVersion\Internet Settings");
-        var proxyEnabled = (key?.GetValue("ProxyEnable") as int?) == 1;
-        var proxyServer = key?.GetValue("ProxyServer") as string;
-        var autoConfig = key?.GetValue("AutoConfigURL") as string;
+        if (key is null)
+        {
+            // A key that will not open reads back identically to a PC with no proxy set: every
+            // value comes out null, and the metric below would then state "web traffic goes out
+            // normally" about settings nobody managed to look at. Proxy hijacking is one of the
+            // things this module is here to catch, so it says it did not check instead.
+            failures.Record("Proxy settings",
+                "the Internet Settings registry key could not be opened, so proxy redirection was NOT checked.");
+            return;
+        }
+
+        var proxyEnabled = (key.GetValue("ProxyEnable") as int?) == 1;
+        var proxyServer = key.GetValue("ProxyServer") as string;
+        var autoConfig = key.GetValue("AutoConfigURL") as string;
 
         var redirected = proxyEnabled || !string.IsNullOrWhiteSpace(autoConfig);
         metrics.Add(new Metric("network.proxy_clean", "Web traffic not redirected", !redirected,
@@ -130,15 +150,10 @@ internal sealed class NetworkHealthModule : WindowsModuleBase
                 : "No proxy or auto-config script is set, so web traffic goes out normally."));
     }
 
-    private static void AddDnsInformation(List<Metric> metrics, List<string> notes)
+    private static void AddDnsInformation(List<Metric> metrics, ModuleFailures failures)
     {
         var configured = Wmi.TryQuery(@"root\StandardCimv2",
-            "SELECT InterfaceAlias, ServerAddresses FROM MSFT_DNSClientServerAddress", out var error);
-        if (error is not null)
-        {
-            notes.Add($"DNS query: {error}");
-            return;
-        }
+            "SELECT InterfaceAlias, ServerAddresses FROM MSFT_DNSClientServerAddress", failures, "DNS query");
 
         var servers = new List<string>();
         foreach (var row in configured)

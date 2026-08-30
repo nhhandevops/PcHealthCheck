@@ -22,7 +22,24 @@ public sealed record ElevatedScanOutcome(
     IReadOnlyList<ModuleResult> Results,
     IReadOnlyList<ReceiptEntry> Receipt,
     IReadOnlyList<string> RejectedModuleIds,
-    string? Message);
+    string? Message)
+{
+    /// <summary>
+    /// Whether an elevated helper actually gathered anything, which is what the report and the
+    /// receipt mean by "elevated scan". Every <see cref="ModuleResult"/> in here arrived over the
+    /// private pipe from the elevated process, so a single result is proof that the UAC prompt was
+    /// accepted and the helper ran.
+    ///
+    /// Read this rather than deriving elevation from <see cref="Status"/>. Status is a verdict on
+    /// the helper session, and a helper that hands back every result and then dies before the
+    /// end-of-scan message is reported Failed — correctly, the session did break. Reading
+    /// elevation from Status made that case stamp "(standard scan, no admin)" on a report holding
+    /// every admin result, and print the receipt line "This scan used no administrator rights."
+    /// The receipt is this app's honesty artifact; it must not understate what the scan did any
+    /// more than it may overstate it.
+    /// </summary>
+    public bool RanElevated => Results.Count > 0;
+}
 
 /// <summary>
 /// UI side of the split-privilege design. Creates a private named pipe, launches ONE
@@ -105,6 +122,7 @@ public sealed partial class ElevatedWorkerSession
             List<ReceiptEntry> receipt = [];
             List<string> rejected = [];
             string? error = null;
+            var reachedEndOfScan = false;
 
             while (await channel.ReceiveAsync(ct).ConfigureAwait(false) is { } message)
             {
@@ -122,10 +140,25 @@ public sealed partial class ElevatedWorkerSession
                     case ScanCompletedMessage done:
                         receipt = done.Receipt;
                         rejected = done.RejectedModuleIds;
+                        reachedEndOfScan = true;
                         goto finished;
                 }
             }
         finished:
+            // ReceiveAsync returns null when the pipe closes, which is exactly how a helper that
+            // crashed, was killed, or exited early ends this loop: no ScanCompletedMessage, no
+            // WorkerErrorMessage, just silence. Falling out of the loop that way used to arrive
+            // here with `error` still null and report ElevatedScanStatus.Completed, so a scan
+            // whose elevated half died halfway through was presented as a scan that finished,
+            // with whatever results had already arrived standing in for all of them. The absence
+            // of the end-of-scan message IS the failure, and saying so here is what lets the
+            // caller mark the checks that never reported as checks that did not run.
+            if (!reachedEndOfScan && error is null)
+            {
+                error = "The elevated helper stopped before it finished the administrator checks, " +
+                        "so some of them did not run.";
+            }
+
             return new ElevatedScanOutcome(
                 error is null ? ElevatedScanStatus.Completed : ElevatedScanStatus.Failed,
                 results, receipt, rejected, error);

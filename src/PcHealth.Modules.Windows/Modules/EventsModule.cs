@@ -29,7 +29,9 @@ internal sealed class EventsModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
-        AddCount(metrics, notes, "System",
+        var failures = new ModuleFailures(notes);
+
+        AddCount(metrics, failures, "System",
             Filter(NinetyDaysMs,
                 "(Provider[@Name='disk'] or Provider[@Name='stordisk'] or Provider[@Name='storahci'] or Provider[@Name='stornvme'] or Provider[@Name='Ntfs'])",
                 "(EventID=7 or EventID=51 or EventID=55 or EventID=129 or EventID=153 or EventID=157)"),
@@ -37,57 +39,61 @@ internal sealed class EventsModule : WindowsModuleBase
             "Bad blocks, retried I/O, controller resets, or NTFS corruption events. Any growth here deserves attention — and a backup.");
         ct.ThrowIfCancellationRequested();
 
-        AddCount(metrics, notes, "System",
+        AddCount(metrics, failures, "System",
             Filter(NinetyDaysMs, "Provider[@Name='Microsoft-Windows-WHEA-Logger']", "(EventID=17 or EventID=19)"),
             "events.whea_corrected_90d", "Corrected hardware errors (90 days)", HealthCategory.Stability,
             "Hardware errors the platform corrected (often PCIe or CPU cache). Rare ones are normal; daily ones are not.");
         ct.ThrowIfCancellationRequested();
 
-        AddCount(metrics, notes, "System",
+        AddCount(metrics, failures, "System",
             Filter(NinetyDaysMs, "Provider[@Name='Microsoft-Windows-WHEA-Logger']", "(EventID=1 or EventID=18 or EventID=20)"),
             "events.whea_uncorrectable_90d", "Uncorrectable hardware errors (90 days)", HealthCategory.Stability,
             "Fatal machine-check events — failing CPU, RAM, or motherboard territory.");
         ct.ThrowIfCancellationRequested();
 
-        AddCount(metrics, notes, "System",
+        AddCount(metrics, failures, "System",
             Filter(NinetyDaysMs, "Provider[@Name='Microsoft-Windows-Kernel-Power']", "EventID=41"),
             "events.kernel_power_41_90d", "Unexpected shutdowns (90 days)", HealthCategory.Stability,
             "Kernel-Power 41: the machine lost power or hard-froze without a clean shutdown.");
         ct.ThrowIfCancellationRequested();
 
-        AddCount(metrics, notes, "System",
+        AddCount(metrics, failures, "System",
             Filter(NinetyDaysMs, "Provider[@Name='Microsoft-Windows-WER-SystemErrorReporting']", "EventID=1001"),
             "events.bugcheck_90d", "Blue screens (90 days)", HealthCategory.Stability,
             "Recorded bugchecks (BSOD).");
         ct.ThrowIfCancellationRequested();
 
-        AddCount(metrics, notes, "System",
+        AddCount(metrics, failures, "System",
             Filter(NinetyDaysMs, "Provider[@Name='Display']", "EventID=4101"),
             "events.gpu_tdr_90d", "GPU driver resets (90 days)", HealthCategory.Stability,
             "Display driver stopped responding and was recovered (TDR) — the classic dying-GPU or unstable-driver signal.");
         ct.ThrowIfCancellationRequested();
 
-        AddCount(metrics, notes, "Application",
+        AddCount(metrics, failures, "Application",
             Filter(SevenDaysMs, "Provider[@Name='Application Error']", "EventID=1000"),
             "events.app_crashes_7d", "Application crashes (7 days)", HealthCategory.Stability,
             "Crashes across all applications this week. Many crashes in many different apps can indicate RAM or disk trouble.");
 
-        return Task.FromResult(metrics.Count > 0 ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted);
+        // Six of these seven counts landing is not a clean scan: the seventh is a whole class of
+        // fault — blue screens, disk errors — that nobody looked at this time. Counting on
+        // metrics.Count let one surviving query hide every query that broke, so the omission
+        // AddCount is careful to make was never mentioned anywhere the reader could see it.
+        return Task.FromResult(failures.Resolve(gotAnything: metrics.Count > 0));
     }
 
     private static string Filter(long windowMs, string providerClause, string idClause) =>
         $"*[System[{providerClause} and {idClause} and TimeCreated[timediff(@SystemTime) <= {windowMs}]]]";
 
     private static void AddCount(
-        List<Metric> metrics, List<string> notes, string log, string xpath,
+        List<Metric> metrics, ModuleFailures failures, string log, string xpath,
         string metricId, string label, HealthCategory category, string explanation)
     {
-        int? count = CountEvents(log, xpath, notes);
-        if (count is null) return; // query failed — note recorded, metric omitted (Unknown, not zero)
+        int? count = CountEvents(log, xpath, failures, label);
+        if (count is null) return; // query failed — failure recorded, metric omitted (Unknown, not zero)
         metrics.Add(new Metric(metricId, label, (double)count.Value, category, Detail: explanation));
     }
 
-    private static int? CountEvents(string log, string xpath, List<string> notes)
+    private static int? CountEvents(string log, string xpath, ModuleFailures failures, string label)
     {
         try
         {
@@ -103,7 +109,9 @@ internal sealed class EventsModule : WindowsModuleBase
         }
         catch (Exception e) when (e is EventLogException or UnauthorizedAccessException)
         {
-            notes.Add($"Event query on '{log}' failed: {e.Message}");
+            // Named by the count that is missing rather than by the log: "the System log failed"
+            // does not tell the reader that blue screens are the thing nobody counted this scan.
+            failures.Record($"'{label}' could not be counted from the {log} event log", e.Message);
             return null;
         }
     }

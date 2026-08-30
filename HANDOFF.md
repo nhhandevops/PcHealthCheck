@@ -1,10 +1,12 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-08-22** (269 tests passing, Release builds clean with `-warnaserror`).
+Snapshot for continuing work on another machine. Last updated: **2026-08-26** (291 tests passing, Release builds clean with `-warnaserror`).
 
 ## What this is
 
 An offline-by-default, read-only-by-default Windows PC health auditor (.NET 10 + Avalonia 12). One app that grades hardware + software health (Good / Normal / Bad) with fix tips, failure forecasting, per-module consent, and a post-scan receipt of everything it touched. Full background: [README.md](README.md), [PRIVACY.md](PRIVACY.md), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Build and tooling faults that no unit test covers are logged in
+[docs/warning_bug_and_solutions.md](docs/warning_bug_and_solutions.md).
 
 ## Repository
 
@@ -39,8 +41,10 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | **M5 remainder — Vietnamese localization, Linux provider** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — `build-release.ps1`, icon, version 1.0.0-rc.1, docs | ✅ done |
-| Acceptance — first pass run 2026-08-22, 4 defects found and fixed | ✅ see `ACCEPTANCE-RUN-2026-08-22.md` |
-| **Acceptance — the 14 rows that need a person, then signing per `RELEASING.md`** | ⬜ next |
+| Acceptance — first pass run 2026-08-22, 5 defects found and fixed | ✅ see `ACCEPTANCE-RUN-2026-08-22.md` |
+| Acceptance — second pass 2026-08-26 on a Windows 10 laptop, 1 defect (checksum) found and fixed | ✅ see `ACCEPTANCE-RUN-2026-08-26.md` |
+| **Acceptance — J3 (Vietnamese Windows), J1 (a PC with no SDK), the D rows, and the 14 rows that need a person** | ⬜ next |
+| **Then signing per `RELEASING.md`** | ⬜ after that |
 
 ## Architecture in five lines
 
@@ -62,6 +66,54 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 8. **Logic that only runs on an unhealthy PC needs unit tests, because a dev machine never executes it.** Keep such logic in a pure class taking plain records (`Security/ThreatAssessment.cs` is the pattern) so the WMI layer stays a thin adapter over tested code.
 9. **Privacy claims are code, not copy.** When a feature changes what the app can do, the claims move with it in the same commit: PRIVACY.md, the HTML report line, and the receipt. Prefer a counted number (`NetworkActivityLog.Count`) over an absolute a later feature could quietly falsify. "Network connections during this scan: 0" stays true by construction — no check contains network code — and the CI gate is what keeps it that way.
 10. **A cap must say what it dropped.** The VirusTotal lookup is capped at 20 files for the free tier, and the consent dialog states how many were left unchecked. Silent truncation reads as "everything was checked".
+
+## The sixth time, and the structural fix (2026-08-26)
+
+Rules 7 and 8 above were audited against every module rather than against the three bugs that
+prompted them. **Sixteen more instances** turned up — the same defect the project had already
+shipped five times, in modules nobody had re-read since writing them.
+
+The two worst, both verified by hand before anything was changed:
+
+- **`BatteryModule`** — a *failed* `Win32_Battery` query returns the same empty list a desktop
+  does, and the module read that emptiness as proof: it told the user in writing **"No battery
+  detected — desktop system"** and returned `Skipped`, which does not raise the banner. On a
+  laptop.
+- **`StartupModule`** — `OpenSubKey(...Winlogon)` was read through null-conditional access, so an
+  unopenable key left both values null, `IsNullOrEmpty(null)` was true for both, and the module
+  emitted `startup.winlogon_default = **true**` with "Shell and Userinit have their default
+  values." The *security* check for a known malware persistence point, asserting clean from a
+  read that returned nothing.
+
+A third deserves naming because the previous audit missed the module entirely:
+**`NetworkHealthModule`** emitted the graded `network.proxy_clean = true` — "web traffic goes out
+normally" — from a **null registry key**, asserting an absence of proxy hijacking nobody had
+looked for.
+
+**Why it kept coming back, and what changed.** Every module hand-rolled its own bookkeeping: add
+a note, remember to increment a `failures` counter, remember to return `PartiallyCompleted`. The
+modules that got it right (`VolumesModule`, `LicenseModule`, `MalwareDefenderModule`) did nothing
+clever — they simply remembered. Sixteen did not. Fixing them one at a time is what the
+2026-08-22 audit did, and it produced sixteen more.
+
+`Support/ModuleFailures.cs` now makes recording the note and degrading the status **the same
+call**, so they cannot come apart, and `Wmi.TryQuery(scope, wql, failures, what)` records its own
+failure so it reaches the status whether the caller thinks about it or not.
+
+**The over-correction is the more dangerous bug, and the tests say so in both directions.**
+Making every "I did not check this" degrade would fire the amber banner on every healthy scan of
+every ordinary PC — PawnIO missing, no battery in a desktop, TRIM deferred to the elevated run —
+and a warning that is always on teaches the reader to ignore it. `ModuleFailures.Note` exists for
+exactly that case, `ModuleFailuresTests` locks both directions, and the fix was checked
+empirically: a scan on a healthy laptop with none of the three optional tools installed returns
+the identical 15 Completed / 2 Skipped it returned before the change, with no banner.
+
+**`HeadlessScan` had defect #5 verbatim, still present.** The declined-UAC-prompt fix of
+2026-08-22 was applied to `MainWindowViewModel` only; the headless path still merged just the
+results the elevated run produced, so a declined prompt made the check vanish and printed
+"Overall: GOOD". It now synthesises a `Failed` result per absent admin module through a shared
+helper, and returns documented exit codes instead of `0` unconditionally — a scan whose checks
+could not finish was previously indistinguishable, to any script, from a clean one.
 
 ## Benchmarks (M3 part 2)
 

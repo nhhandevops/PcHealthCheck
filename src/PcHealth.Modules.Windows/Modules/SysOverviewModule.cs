@@ -26,10 +26,11 @@ internal sealed class SysOverviewModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
+        var failures = new ModuleFailures(notes);
+
         var os = Wmi.TryQuery(@"root\cimv2",
             "SELECT Caption, Version, BuildNumber, OSArchitecture, LastBootUpTime, TotalVisibleMemorySize FROM Win32_OperatingSystem",
             out var osError).FirstOrDefault();
-        if (osError is not null) notes.Add($"OS query: {osError}");
 
         if (os is not null)
         {
@@ -74,9 +75,20 @@ internal sealed class SysOverviewModule : WindowsModuleBase
                     Detail: isWindows11 ? "Windows 11 — in support." : "Unrecognized/very old Windows build."));
             }
         }
+        else
+        {
+            // Every graded verdict this module produces is derived from that one row — above all
+            // os.supported, the warning that a Windows 10 machine is about to stop receiving
+            // security updates. The pending-reboot metric further down is added unconditionally,
+            // so without degrading here the module always finishes holding at least one metric,
+            // reports Completed, and the end-of-support verdict disappears with nobody told.
+            failures.Record("Windows version",
+                $"{osError ?? "Win32_OperatingSystem returned no rows"} — the Windows edition, uptime and " +
+                "whether this Windows is still supported were NOT checked.");
+        }
 
-        var cs = Wmi.TryQuery(@"root\cimv2", "SELECT Manufacturer, Model FROM Win32_ComputerSystem", out var csError).FirstOrDefault();
-        if (csError is not null) notes.Add($"ComputerSystem query: {csError}");
+        var cs = Wmi.TryQuery(@"root\cimv2", "SELECT Manufacturer, Model FROM Win32_ComputerSystem",
+            failures, "Computer model query").FirstOrDefault();
         if (cs is not null)
         {
             metrics.Add(new Metric("hw.model", "Computer", $"{Wmi.GetString(cs, "Manufacturer")} {Wmi.GetString(cs, "Model")}".Trim(),
@@ -86,7 +98,7 @@ internal sealed class SysOverviewModule : WindowsModuleBase
         metrics.Add(new Metric("os.pending_reboot", "Reboot pending", IsRebootPending(), HealthCategory.SoftwareOs,
             Detail: "Checked Component Based Servicing and Windows Update reboot flags."));
 
-        return Task.FromResult(metrics.Count > 0 ? ModuleStatus.Completed : ModuleStatus.Failed);
+        return Task.FromResult(failures.Resolve(gotAnything: metrics.Count > 0));
     }
 
     private static bool IsRebootPending()
