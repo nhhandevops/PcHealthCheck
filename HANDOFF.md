@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-08-26** (291 tests passing, Release builds clean with `-warnaserror`).
+Snapshot for continuing work on another machine. Last updated: **2026-10-21** (341 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
 
 ## What this is
 
@@ -10,7 +10,7 @@ Build and tooling faults that no unit test covers are logged in
 
 ## Repository
 
-`https://github.com/nhhandevops/PcHealthCheck` — **private**, default branch `main`. CI (`build`) runs on every push: build with `-warnaserror`, tests, the no-`System.Net` privacy gate, then a single-file self-contained publish with SHA-256 checksums uploaded as an artifact.
+`https://github.com/nhhandevops/PcHealthCheck` — **private**, default branch `main`. CI (`build`) runs on every push: build with `-warnaserror`, tests, the no-`System.Net` privacy gate, then a single-file self-contained publish with SHA-256 checksums uploaded as an artifact, kept 7 days. The upload step is `continue-on-error`: a full storage quota warns instead of failing a good commit (CI-001).
 
 ## Getting started on a fresh machine
 
@@ -18,7 +18,8 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 269 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 341 tests; WorkerProtocolTests launch the real exe
+powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
 ```
@@ -43,6 +44,10 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | Packaging — `build-release.ps1`, icon, version 1.0.0-rc.1, docs | ✅ done |
 | Acceptance — first pass run 2026-08-22, 5 defects found and fixed | ✅ see `ACCEPTANCE-RUN-2026-08-22.md` |
 | Acceptance — second pass 2026-08-26 on a Windows 10 laptop, 1 defect (checksum) found and fixed | ✅ see `ACCEPTANCE-RUN-2026-08-26.md` |
+| Reinstall of the dev laptop (2026-10-17 → 19): restored from the backup, every step verified | ✅ |
+| Daily smoke `daily-smoke.ps1`; privacy gate that could never fail, fixed (PRIV-001) | ✅ 2026-10-19 |
+| Full hardware audit of a ThinkPad T470p against the app's own report: 6 misgrades fixed (HW-001), gaps listed in `docs/feature-gap-2026-10-21.md` | ✅ P1s 2026-10-21 · P2/P3 open |
+| Parallel scan, rule 11 below: 19.8 s → ~9 s | ✅ 2026-10-21 |
 | **Acceptance — J3 (Vietnamese Windows), J1 (a PC with no SDK), the D rows, and the 14 rows that need a person** | ⬜ next |
 | **Then signing per `RELEASING.md`** | ⬜ after that |
 
@@ -274,7 +279,7 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 - Unelevated `MSFT_MpPreference` returns "N/A: Must be an administrator…" placeholder strings instead of failing.
 - Multi-line git commit messages with quotes: write to a file, `git commit -F file` (PowerShell here-strings break).
 - xUnit here is v2: no `Assert.SkipWhen`.
-- CI (`.github/workflows/build.yml`) has never run yet — it activates on first push. It builds `-warnaserror`, runs tests, enforces the System.Net gate, publishes a single-file exe with SHA-256 checksums.
+- CI (`.github/workflows/build.yml`) runs on every push: `-warnaserror` build, tests, the System.Net gate, a single-file publish with SHA-256 checksums. When it goes red, check **which step** first (`gh run view <id> --json jobs`): on 2026-10-21 a red run was the artifact quota, not the code (CI-001). On a reinstalled machine `gh` needs `gh auth login` even when `git push` already works.
 
 ## What M4 part 2 shipped
 
@@ -294,6 +299,38 @@ Deliberately not done: no installer (nothing in Program Files or the registry �
 
 Deliberately **not** a single file either. It builds and runs, but the .NET host then unpacks the native libraries into a temp folder on first run — an undisclosed write, from an app whose whole argument is that it discloses every write. Seven visible files next to the exe are the more honest trade.
 
+## What changed 2026-10-19 → 10-21, in brief
+
+- **Memory is its own category now** (`HealthCategory.Memory`, added last in the enum). It holds `memory.commit_pct`
+  (from Win32_OperatingSystem, unelevated), `memory.low_memory_events_30d` (System event 2004),
+  `memory.used_pct` (sensors, admin) and `ram.total_gb`. Commit, not physical use, is what runs out.
+- **The sensors check falls back to Windows' ACPI thermal zone** (`cpu.zone_temperature_c`) when the processor's own
+  sensor needs PawnIO. Readings outside 35–125 °C are treated as not read (many desktops expose a fixed ~27 °C
+  placeholder). If nothing is readable, an Info row says the Sensors grade covers the GPU only.
+- **USB drives:** an empty reliability record, or exactly 0% wear over USB, is reported as *not read*, never graded
+  (`ReliabilityCounterCheck`). A Seagate HDD in a USB caddy reports itself as an SSD with spindle speed 0.
+- **Disk-error events name the drive** (`DiskEventAttribution`), separating the Windows disk from others.
+- **Windows 10 end of support is 2027-10-12** (consumer ESU, extended by Microsoft on 2026-06-25). It is hard-coded
+  in `SysOverviewModule`, so re-check it if Microsoft moves it again.
+- Details and verification for all of the above: `docs/warning_bug_and_solutions.md` (PRIV-001, HW-001, CI-001).
+
 ## Suggested next session
 
-M5 remainder: browser-extension audit, multi-user startup coverage, Vietnamese localization, Linux provider. Packaging (SignPath OSS signing, GitHub Release with checksums, winget manifest, SmartScreen submission) can happen in parallel.
+**Needs a person:** row J3, the app on a Windows set to Tiếng Việt (highest-value acceptance row left); then
+J1 and the other person-only rows in `NEXT-STEPS.md`; and the decisions YOU-1 to YOU-3 (public repo for signing,
+version bump, fix-then-accept).
+
+**Engineering, in order:** the P2 list in `docs/feature-gap-2026-10-21.md`:
+1. CPU throttling under load (`% Processor Performance`) and Kernel-Power 86 / thermal sleeps.
+2. A lifetime CRC (199) count on a scan with no history graded Normal plus "watch for growth", not Bad.
+3. Battery: pack identity and age, charge state, AC/DC time, and urgency that depends on how the laptop is used.
+4. SMART spare blocks, program/erase fails, SATA downshift, host writes vs rated TBW.
+5. Top memory and CPU consumers in the report.
+
+After those:
+- start the elevated helper alongside the local modules
+- speed up `startup`, which at 8–10 s now sets the scan time
+- move the CI actions to `@v5` (Node 20 is deprecated)
+- the Linux provider, still blocked on the privilege-model decision (M5-LNX)
+
+**Every day:** run `daily-smoke.ps1` ("do the daily smokes").

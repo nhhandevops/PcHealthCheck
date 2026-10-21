@@ -13,13 +13,14 @@ namespace PcHealth.Modules.Windows.Modules;
 internal sealed class EventsModule : WindowsModuleBase
 {
     private const long NinetyDaysMs = 90L * 24 * 60 * 60 * 1000;
+    private const long ThirtyDaysMs = 30L * 24 * 60 * 60 * 1000;
     private const long SevenDaysMs = 7L * 24 * 60 * 60 * 1000;
 
     public override ModuleManifest Manifest { get; } = new()
     {
         Id = "events.errors",
         Name = "Error history (event logs)",
-        Description = "Disk errors, hardware (WHEA) errors, unexpected power loss, blue screens, GPU driver resets, and app-crash frequency from the Windows event logs.",
+        Description = "Disk errors (and which drive), hardware (WHEA) errors, unexpected power loss, blue screens, GPU driver resets, low-memory warnings, and app-crash frequency from the Windows event logs.",
         Reads = ["System event log", "Application event log"],
         NeedsAdmin = false,
         EstimatedDuration = TimeSpan.FromSeconds(8),
@@ -31,12 +32,17 @@ internal sealed class EventsModule : WindowsModuleBase
     {
         var failures = new ModuleFailures(notes);
 
+        AddDiskErrors(metrics, failures);
+        ct.ThrowIfCancellationRequested();
+
+        // Event 2004: Windows was close to running out of commit (RAM plus page file). Physical
+        // memory in use cannot show this - on 2026-10-21 a laptop read "83% in use, Good" between
+        // three of these, one of which took the desktop window manager down with it (HW-001).
         AddCount(metrics, failures, "System",
-            Filter(NinetyDaysMs,
-                "(Provider[@Name='disk'] or Provider[@Name='stordisk'] or Provider[@Name='storahci'] or Provider[@Name='stornvme'] or Provider[@Name='Ntfs'])",
-                "(EventID=7 or EventID=51 or EventID=55 or EventID=129 or EventID=153 or EventID=157)"),
-            "events.disk_errors_90d", "Disk I/O errors (90 days)", HealthCategory.Storage,
-            "Bad blocks, retried I/O, controller resets, or NTFS corruption events. Any growth here deserves attention — and a backup.");
+            Filter(ThirtyDaysMs, "Provider[@Name='Microsoft-Windows-Resource-Exhaustion-Detector']", "EventID=2004"),
+            "memory.low_memory_events_30d", "Low-memory warnings (30 days)", HealthCategory.Memory,
+            "Times Windows logged that it was close to running out of memory (RAM plus page file, event 2004). " +
+            "Each one usually means programs slowed down, refused to open, or crashed.");
         ct.ThrowIfCancellationRequested();
 
         AddCount(metrics, failures, "System",
@@ -93,7 +99,45 @@ internal sealed class EventsModule : WindowsModuleBase
         metrics.Add(new Metric(metricId, label, (double)count.Value, category, Detail: explanation));
     }
 
-    private static int? CountEvents(string log, string xpath, ModuleFailures failures, string label)
+    private static void AddDiskErrors(List<Metric> metrics, ModuleFailures failures)
+    {
+        const string label = "Disk I/O errors (90 days)";
+        // iaStorA/iaStorAC/iaStorAVC are Intel RST, the storage driver on many laptops; without
+        // them its controller resets (129) were never counted.
+        var xpath = Filter(NinetyDaysMs,
+            "(Provider[@Name='disk'] or Provider[@Name='stordisk'] or Provider[@Name='storahci'] or Provider[@Name='stornvme'] or " +
+            "Provider[@Name='iaStorA'] or Provider[@Name='iaStorAC'] or Provider[@Name='iaStorAVC'] or Provider[@Name='Ntfs'])",
+            "(EventID=7 or EventID=51 or EventID=55 or EventID=129 or EventID=153 or EventID=157)");
+
+        var devices = new List<string?>();
+        int? count = CountEvents("System", xpath, failures, label, record => devices.Add(FirstInsertionString(record)));
+        if (count is null) return;
+
+        var byDrive = DiskEventAttribution.Describe(devices, SystemDiskNumber());
+        metrics.Add(new Metric("events.disk_errors_90d", label, (double)count.Value, HealthCategory.Storage,
+            Detail: "Bad blocks, retried I/O, controller resets, or NTFS corruption events. Any growth here deserves attention — and a backup." +
+                    (byDrive.Length > 0 ? " " + byDrive : "")));
+    }
+
+    private static string? FirstInsertionString(EventRecord record)
+    {
+        try { return record.Properties.Count > 0 ? record.Properties[0].Value as string : null; }
+        catch (EventLogException) { return null; }
+    }
+
+    /// <summary>
+    /// The disk Windows boots from. Unknown is fine: the attribution then lists disk numbers
+    /// without naming one as the system disk, so nothing is claimed that was not read.
+    /// </summary>
+    private static int? SystemDiskNumber()
+    {
+        var row = Wmi.TryQuery(@"root\Microsoft\Windows\Storage", "SELECT Number FROM MSFT_Disk WHERE IsBoot = TRUE", out _)
+            .FirstOrDefault();
+        return row is null ? null : Wmi.Get<int>(row, "Number");
+    }
+
+    private static int? CountEvents(
+        string log, string xpath, ModuleFailures failures, string label, Action<EventRecord>? inspect = null)
     {
         try
         {
@@ -102,7 +146,11 @@ internal sealed class EventsModule : WindowsModuleBase
             var count = 0;
             for (var record = reader.ReadEvent(); record is not null; record = reader.ReadEvent())
             {
-                using (record) { count++; }
+                using (record)
+                {
+                    count++;
+                    inspect?.Invoke(record);
+                }
                 if (count >= 5000) break; // cap pathological logs; 5000 already means "very bad"
             }
             return count;

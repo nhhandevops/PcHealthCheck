@@ -29,16 +29,17 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
     {
         var failures = new ModuleFailures(notes);
 
-        var disks = new Dictionary<string, (string Name, ushort MediaType)>(StringComparer.OrdinalIgnoreCase);
+        var disks = new Dictionary<string, (string Name, ushort MediaType, ushort BusType)>(StringComparer.OrdinalIgnoreCase);
         var physicalDisks = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
-            "SELECT DeviceId, FriendlyName, MediaType, Size FROM MSFT_PhysicalDisk",
+            "SELECT DeviceId, FriendlyName, MediaType, BusType, Size FROM MSFT_PhysicalDisk",
             failures, "Physical disk inventory");
         foreach (var disk in physicalDisks)
         {
             var deviceId = Wmi.GetString(disk, "DeviceId");
             if (deviceId is null) continue;
             var sizeGb = Wmi.Get<ulong>(disk, "Size") is { } size ? $" — {Math.Round(size / 1e9)} GB" : "";
-            disks[deviceId] = ($"{Wmi.GetString(disk, "FriendlyName")?.Trim()}{sizeGb}", Wmi.Get<ushort>(disk, "MediaType") ?? 0);
+            disks[deviceId] = ($"{Wmi.GetString(disk, "FriendlyName")?.Trim()}{sizeGb}", Wmi.Get<ushort>(disk, "MediaType") ?? 0,
+                Wmi.Get<ushort>(disk, "BusType") ?? 0);
         }
 
         var counters = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
@@ -83,11 +84,33 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
                 : $"Disk {deviceId ?? "?"}";
             var isSsd = deviceId is not null && disks.TryGetValue(deviceId, out var d) && d.MediaType == 4;
 
+            if (ReliabilityCounterCheck.IsPlaceholder(
+                    Wmi.Get<ushort>(counter, "Wear"), Wmi.Get<ushort>(counter, "Temperature"),
+                    Wmi.Get<ulong>(counter, "PowerOnHours"), Wmi.Get<ulong>(counter, "ReadErrorsTotal"),
+                    Wmi.Get<ulong>(counter, "WriteErrorsTotal")))
+            {
+                // Expected for USB enclosures, so a note rather than a failure: degrading here
+                // would fire the "could not finish" banner every time a USB drive is plugged in.
+                failures.Note($"{subject}: Windows returned an empty health record for this drive (typical of USB " +
+                              "enclosures), so its wear and temperature were not read - not the same as healthy.");
+                continue;
+            }
+
+            var onUsb = deviceId is not null && disks.TryGetValue(deviceId, out var u) && u.BusType == ReliabilityCounterCheck.BusTypeUsb;
+
             if (Wmi.Get<ushort>(counter, "Wear") is { } wear && (isSsd || wear > 0))
             {
-                metrics.Add(new Metric("storage.wear_pct", "SSD endurance used", (double)wear,
-                    HealthCategory.Storage, Unit: "%", Subject: subject,
-                    Detail: "Percentage of the drive's rated write endurance consumed. 100% does not mean instant failure, but it is past its warranty life."));
+                if (ReliabilityCounterCheck.WearIsTrustworthy(wear, onUsb))
+                {
+                    metrics.Add(new Metric("storage.wear_pct", "SSD endurance used", (double)wear,
+                        HealthCategory.Storage, Unit: "%", Subject: subject,
+                        Detail: "Percentage of the drive's rated write endurance consumed. 100% does not mean instant failure, but it is past its warranty life."));
+                }
+                else
+                {
+                    failures.Note($"{subject}: connected over USB, whose adapter reported 0% wear. USB adapters often send a " +
+                                  "placeholder, and some report hard disks as SSDs, so this was not graded.");
+                }
             }
 
             if (Wmi.Get<ushort>(counter, "Temperature") is { } temp && temp > 0)

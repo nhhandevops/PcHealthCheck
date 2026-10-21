@@ -23,6 +23,27 @@
       "forecast": "Sustained heat shortens the life of every component near it, and thermal shutdowns risk file-system damage."
     },
     {
+      "id": "rule.sensors.cpu-zone-temp",
+      "metricId": "cpu.zone_temperature_c",
+      "bands": [
+        { "grade": "Good", "lt": 80 },
+        { "grade": "Normal", "lt": 95 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Warm near the processor. Normal under heavy load; if it stays this high while the PC is doing little, dust or old thermal paste is the usual cause.",
+          "This is the motherboard's sensor, not the processor's own. Installing PawnIO lets the app read the processor directly."
+        ],
+        "Bad": [
+          "Very hot near the processor. At this level the processor slows itself down to protect itself, so the PC feels slower than it should.",
+          "Clean the fan and heatsink. On a laptop several years old, fresh thermal paste often lowers temperatures a lot.",
+          "Check the charger is the wattage the laptop needs: an underpowered charger can also hold the processor back."
+        ]
+      },
+      "forecast": "Sustained heat shortens the life of every component near it, and thermal shutdowns risk file-system damage."
+    },
+    {
       "id": "rule.sensors.gpu-temp",
       "metricId": "gpu.temperature_c",
       "bands": [

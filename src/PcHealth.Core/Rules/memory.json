@@ -1,0 +1,45 @@
+{
+  "rules": [
+    {
+      "id": "rule.memory.commit",
+      "metricId": "memory.commit_pct",
+      "bands": [
+        { "grade": "Good", "lt": 80 },
+        { "grade": "Normal", "lt": 90 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Windows has promised most of what it can hand out. If this is normal for how you use the PC, check Task Manager > Details > 'Commit size' for the programs holding the most.",
+          "If one program keeps growing for hours (a browser, or dwm.exe after a graphics driver bug), restarting it or updating its driver usually fixes it."
+        ],
+        "Bad": [
+          "Windows is close to its limit: at 100% programs crash or refuse to start, even if 'memory in use' looks moderate.",
+          "Close what you are not using, then check Task Manager > Details > 'Commit size' for the program holding the most.",
+          "A larger page file (or a second one on another drive) raises the limit at once; more RAM is the lasting fix if this is normal use."
+        ]
+      },
+      "forecast": "When the limit is reached Windows shows 'out of memory', and programs can close without saving."
+    },
+    {
+      "id": "rule.memory.low-memory-events",
+      "metricId": "memory.low_memory_events_30d",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 1 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Windows came close to running out of memory once this month. Worth noting what was open; if it happens again, see the tips for repeated warnings."
+        ],
+        "Bad": [
+          "Windows ran out of memory more than once this month, and programs may have crashed because of it.",
+          "Event Viewer > Windows Logs > System, event 2004 (Resource-Exhaustion-Detector), names the programs using the most each time.",
+          "Common causes: a virtual machine or local AI model sized for more RAM than this PC has, many browser tabs, or a leaking program such as dwm.exe with an outdated graphics driver.",
+          "Raise the page-file limit (or add one on another drive) as a quick fix; add RAM if this is how the PC is normally used."
+        ]
+      }
+    }
+  ]
+}

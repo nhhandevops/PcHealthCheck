@@ -316,7 +316,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ? "These measurements moved since an earlier scan — a counter that is still climbing matters far more than any single reading."
             : report.History is { EarlierScans: > 0 } coverage
                 ? $"Nothing has moved: every measurement matches the {coverage.EarlierScans} earlier scan(s) {coverage.SpanText}."
-                : "First recorded scan — run again in a week or two and the app will tell you what changed.";
+                : report.History is { ScanCount: > 0 }
+                    ? "First recorded scan — run again in a week or two and the app will tell you what changed."
+                    : "This scan was not added to the history, so changes over time are not shown.";
 
         foreach (var group in report.Verdicts
                      .GroupBy(v => v.Metric.Category)

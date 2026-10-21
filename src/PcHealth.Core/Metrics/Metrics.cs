@@ -21,6 +21,9 @@ public enum HealthCategory
     SoftwareOs,
     Stability,
     Battery,
+
+    /// <summary>Added 2026-10-21, last so stored values of the others keep their numbers.</summary>
+    Memory,
 }
 
 /// <summary>A typed metric value: exactly one of Number / Text / Flag is set.</summary>

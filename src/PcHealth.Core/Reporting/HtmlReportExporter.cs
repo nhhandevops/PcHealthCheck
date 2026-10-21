@@ -118,11 +118,18 @@ public static class HtmlReportExporter
             sb.Append(CultureInfo.InvariantCulture,
                 $"<p><em>Nothing has moved: every measurement matches the {coverage.EarlierScans} earlier scan(s) {coverage.SpanText}.</em></p>\n");
         }
-        else
+        else if (report.History is { ScanCount: > 0 })
         {
             sb.Append("<p><em>This is the first recorded scan, so there is nothing to compare against yet. " +
                       "Run the app again in a week or two — a counter that is <strong>growing</strong> is far more " +
                       "informative than any single reading.</em></p>\n");
+        }
+        else
+        {
+            // History switched off (--no-history) or unavailable: nothing was recorded, so telling
+            // the reader this is "the first recorded scan" and to run again was simply untrue.
+            sb.Append("<p><em>This scan was not compared with earlier ones and was not added to the history, " +
+                      "so changes over time are not shown.</em></p>\n");
         }
 
         foreach (var group in report.Verdicts.GroupBy(v => v.Metric.Category).OrderBy(g => g.Key))

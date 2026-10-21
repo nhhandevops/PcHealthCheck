@@ -8,16 +8,19 @@ namespace PcHealth.Modules.Windows.Modules;
 /// <summary>OS edition/build, hardware model, uptime, pending reboot, OS support status.</summary>
 internal sealed class SysOverviewModule : WindowsModuleBase
 {
-    // Consumer ESU for Windows 10 ends 2026-10-13; after that any Win10 machine is out of support
-    // regardless of enrollment (research critic correction).
-    private static readonly DateTime Windows10EndOfSupport = new(2026, 10, 13);
+    // Consumer ESU for Windows 10 ends 2027-10-12; after that any Win10 machine is out of support
+    // regardless of enrollment. Microsoft moved this once already: it was 2026-10-13 until a quiet
+    // documentation update on 2026-06-25, and the app kept telling every Windows 10 user they
+    // had no updates left (HW-001). Re-check https://www.microsoft.com/en-us/windows/extended-security-updates
+    // before trusting this date.
+    private static readonly DateTime Windows10EndOfSupport = new(2027, 10, 12);
 
     public override ModuleManifest Manifest { get; } = new()
     {
         Id = "sys.overview",
         Name = "System overview",
         Description = "Windows edition, build and support status, hardware model, uptime, and whether a reboot is pending.",
-        Reads = ["Windows version info (WMI)", "Computer model (WMI)", "Pending-reboot registry flags"],
+        Reads = ["Windows version info (WMI)", "Memory in use and the limit Windows can hand out (WMI)", "Computer model (WMI)", "Pending-reboot registry flags"],
         NeedsAdmin = false,
         EstimatedDuration = TimeSpan.FromSeconds(3),
     };
@@ -29,7 +32,7 @@ internal sealed class SysOverviewModule : WindowsModuleBase
         var failures = new ModuleFailures(notes);
 
         var os = Wmi.TryQuery(@"root\cimv2",
-            "SELECT Caption, Version, BuildNumber, OSArchitecture, LastBootUpTime, TotalVisibleMemorySize FROM Win32_OperatingSystem",
+            "SELECT Caption, Version, BuildNumber, OSArchitecture, LastBootUpTime, TotalVisibleMemorySize, TotalVirtualMemorySize, FreeVirtualMemory FROM Win32_OperatingSystem",
             out var osError).FirstOrDefault();
 
         if (os is not null)
@@ -50,7 +53,20 @@ internal sealed class SysOverviewModule : WindowsModuleBase
             if (Wmi.Get<ulong>(os, "TotalVisibleMemorySize") is { } ramKb)
             {
                 metrics.Add(new Metric("ram.total_gb", "Installed RAM", Math.Round(ramKb / 1048576.0, 1),
-                    HealthCategory.SoftwareOs, Unit: "GB", InfoOnly: true));
+                    HealthCategory.Memory, Unit: "GB", InfoOnly: true));
+            }
+
+            // Commit, not physical use, is what runs out: Windows refuses or crashes programs when
+            // the memory it has promised reaches RAM plus page file. TotalVirtualMemorySize is that
+            // limit and FreeVirtualMemory what is left of it, both in KB.
+            if (Wmi.Get<ulong>(os, "TotalVirtualMemorySize") is { } limitKb && limitKb > 0 &&
+                Wmi.Get<ulong>(os, "FreeVirtualMemory") is { } freeKb)
+            {
+                var usedKb = limitKb - Math.Min(freeKb, limitKb);
+                metrics.Add(new Metric("memory.commit_pct", "Memory promised to programs", Math.Round(100.0 * usedKb / limitKb),
+                    HealthCategory.Memory, Unit: "%",
+                    Detail: $"{usedKb / 1048576.0:0.0} GB of the {limitKb / 1048576.0:0.0} GB Windows can hand out (RAM plus page file). " +
+                            "At 100% programs crash or refuse to start. Measured while the scan ran, so it reflects what was open then."));
             }
 
             var isWindows11 = build >= 22000;

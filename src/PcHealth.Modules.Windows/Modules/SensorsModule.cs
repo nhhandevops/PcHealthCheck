@@ -24,7 +24,7 @@ internal sealed class SensorsModule : WindowsModuleBase
         Id = "sensors",
         Name = "Temperatures & fans",
         Description = "CPU and GPU temperatures, fan speeds and memory use. Graphics and memory need no driver; processor and motherboard sensors additionally use the PawnIO kernel driver if you have installed it. Reads only — it never changes fan curves, clocks or voltages.",
-        Reads = ["CPU/GPU/motherboard sensors (kernel driver)", "Memory usage"],
+        Reads = ["CPU/GPU/motherboard sensors (kernel driver)", "Windows thermal-zone temperature (WMI, no driver)", "Memory usage"],
         NeedsAdmin = true,
         LoadsDriver = true,
         EstimatedDuration = TimeSpan.FromSeconds(8),
@@ -215,6 +215,8 @@ internal sealed class SensorsModule : WindowsModuleBase
             failures.Note(Ring0Driver.MissingDriverAdvice);
         }
 
+        if (!metrics.Any(m => m.Id == "cpu.temperature_c")) AddThermalZoneFallback(metrics);
+
         AddGpuTemperature(gpuTemperatures, "GPU Core", "gpu.temperature_c", "GPU temperature", metrics);
         AddGpuTemperature(gpuTemperatures, "GPU Hot Spot", "gpu.hotspot_c", "GPU hot spot", metrics);
         AddGpuTemperature(gpuTemperatures, "GPU Memory Junction", "gpu.memory_junction_c", "GPU memory temperature", metrics);
@@ -240,11 +242,53 @@ internal sealed class SensorsModule : WindowsModuleBase
         var cpuFans = Readings(SensorType.Fan, HardwareType.Motherboard, HardwareType.SuperIO);
         AddAirflowMetric(cpuTemperatures, cpuFans, SensorAnalysis.CpuFansExpectedAboveC, "processor", metrics);
 
-        if (Readings(SensorType.Load, HardwareType.Memory).FirstOrDefault(r => r.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase)) is { } memory)
+        // Exactly "Memory": the same hardware also reports "Virtual Memory" (commit), and a
+        // Contains match took whichever came first. Commit is graded separately, from WMI.
+        if (Readings(SensorType.Load, HardwareType.Memory).FirstOrDefault(r => r.Name.Equals("Memory", StringComparison.OrdinalIgnoreCase)) is { } memory)
         {
             metrics.Add(new Metric("memory.used_pct", "Memory in use", Math.Round(memory.Latest),
-                HealthCategory.Sensors, Unit: "%",
+                HealthCategory.Memory, Unit: "%",
                 Detail: "Measured while the scan ran, so it reflects what was open at the time."));
+        }
+    }
+
+    /// <summary>
+    /// Without PawnIO the processor's own sensor is out of reach, and the Sensors card used to
+    /// read Good on the graphics card alone, which said nothing about the processor (HW-001).
+    /// Windows' ACPI thermal zone needs no driver: on a ThinkPad T470p it read 90-97 °C while the
+    /// processor was throttling. Many desktops report a fixed placeholder there instead, so a
+    /// reading outside <see cref="SensorAnalysis.PlausibleZoneCelsius"/> is treated as not read,
+    /// and "not read" is said out loud rather than left for the card to paper over.
+    /// </summary>
+    private static void AddThermalZoneFallback(List<Metric> metrics)
+    {
+        double? peak = null;
+        for (var sample = 0; sample < 3; sample++)
+        {
+            var zones = Wmi.TryQuery(@"root\cimv2",
+                "SELECT Name, Temperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation", out _);
+            foreach (var zone in zones)
+            {
+                if (Wmi.Get<double>(zone, "Temperature") is { } kelvin &&
+                    SensorAnalysis.PlausibleZoneCelsius(kelvin) is { } celsius && (peak is null || celsius > peak))
+                    peak = celsius;
+            }
+            if (sample < 2) Thread.Sleep(1000);
+        }
+
+        if (peak is { } temperature)
+        {
+            metrics.Add(new Metric("cpu.zone_temperature_c", "Temperature near the processor", Math.Round(temperature),
+                HealthCategory.Sensors, Unit: "°C", Subject: "ACPI thermal zone",
+                Detail: "Windows' thermal-zone reading, the motherboard's sensor near the processor, highest of three samples a " +
+                        "second apart. The processor's own sensor needs PawnIO; this one can read a few degrees differently, but " +
+                        "it shows whether the machine is running hot."));
+        }
+        else
+        {
+            metrics.Add(new Metric("sensors.cpu_temperature_read", "Processor temperature read", false,
+                HealthCategory.Sensors, InfoOnly: true,
+                Detail: "No processor temperature could be read on this PC, so the Sensors grade covers only the graphics card and fans."));
         }
     }
 

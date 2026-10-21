@@ -73,6 +73,16 @@ public class ReportExportTests
     }
 
     [Fact]
+    public void A_scan_that_recorded_no_history_does_not_claim_to_be_the_first()
+    {
+        // --no-history: nothing was stored, so "first recorded scan, run again" was untrue (HW-001).
+        var html = HtmlReportExporter.ToHtml(Report(history: HistoryOutcome.Disabled.Coverage));
+
+        Assert.DoesNotContain("first recorded scan", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not added to the history", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Escapes_content_so_a_device_name_cannot_inject_markup()
     {
         var verdicts = new[]

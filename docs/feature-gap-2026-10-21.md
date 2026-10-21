@@ -46,6 +46,7 @@ projection, which needs 14+ days of history.
 ## Order of work
 
 P1: the app shows something wrong, or shows an unread value as healthy. All confirmed by hand.
+**All five done on 2026-10-21. See HW-001 for what changed and how it was verified.**
 1. Windows 10 end date: 2027-10-12, kept in data rather than a constant (`SysOverviewModule.cs:11-13`).
 2. Memory: add commit charge vs limit and an Event 2004 count, and give RAM its own card instead of "Sensors" (`SensorsModule.cs:242-247` reads physical load only).
 3. Rule 7, two places:

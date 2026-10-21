@@ -72,7 +72,15 @@ git). To reproduce: `Get-PhysicalDisk | Get-StorageReliabilityCounter` (admin) o
 SSD; `Get-WinEvent -FilterHashtable @{LogName='System';Id=2004}` on a machine under memory
 pressure.
 
-**Fix — proposed, NOT done.** (1) Move the ESU end date to 2027-10-12 and keep it in data, not
+**Fixed 2026-10-21.** All four, plus the drive attribution and the history line below. Locked by
+`HardwareAuditFixTests` and `ReportExportTests`, and confirmed on the T470p with an elevated scan:
+Memory card Bad (4 low-memory warnings), Sensors Bad (processor zone 96 °C), both USB drives
+reported as not read, and Windows 10 supported until 2027-10-12. A Seagate hard disk in a USB caddy
+showed a sixth case of the same fault, "SSD endurance used 0%, Good", because the caddy reports
+it as an SSD with spindle speed 0. Over USB, 0% wear is no longer graded
+(`ReliabilityCounterCheck.WearIsTrustworthy`).
+
+**The plan, as originally proposed:** (1) Move the ESU end date to 2027-10-12 and keep it in data, not
 in an inline constant, since Microsoft has now moved it once. (2) Add a commit-charge metric
 (`\Memory\% Committed Bytes In Use`) plus an event-2004 count. (3) Treat a reliability counter
 whose Wear and Temperature are both 0 and whose other fields are all empty as **not read**. (4) Let

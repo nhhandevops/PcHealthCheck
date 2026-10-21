@@ -55,6 +55,20 @@ public static class SensorAnalysis
         return fansOnThisDevice.All(f => f.Peak <= 0);
     }
 
+    public const double ZoneMinPlausibleC = 35;
+    public const double ZoneMaxPlausibleC = 125;
+
+    /// <summary>
+    /// A Windows thermal-zone reading (whole kelvin) as °C, or null when it cannot be a reading
+    /// from near a running processor. Many desktops expose a fixed placeholder around 27-30 °C
+    /// that never moves; grading that as "cool" would pass off a reading nobody took as healthy.
+    /// </summary>
+    public static double? PlausibleZoneCelsius(double kelvin)
+    {
+        var celsius = kelvin - 273.15;
+        return celsius is >= ZoneMinPlausibleC and <= ZoneMaxPlausibleC ? Math.Round(celsius, 1) : null;
+    }
+
     /// <summary>
     /// Picks the reading that best represents overall package temperature. Vendors name
     /// this differently (Intel "CPU Package", AMD "Core (Tctl/Tdie)"), so prefer the known
