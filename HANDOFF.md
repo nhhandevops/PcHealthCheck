@@ -284,6 +284,7 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 ## Shipping
 
 - `build-release.ps1` — tests, privacy gate, self-contained publish, zip, SHA-256. One command.
+- `daily-smoke.ps1` — the daily check (added 2026-10-19), about two minutes and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
 - `USER-GUIDE.md` — for the person running it, not for whoever builds it. Ships inside the zip.
 - `ACCEPTANCE.md` — 19 blocking rows out of ~60. Run before giving the app to anyone.
 - `RELEASING.md` — the steps a script cannot do: SignPath application (needs a **public** repo, takes weeks), GitHub release, SmartScreen submission, winget manifest.

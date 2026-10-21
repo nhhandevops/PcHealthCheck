@@ -51,9 +51,11 @@ Step 'Privacy gate'
 # The same check CI runs. A release that quietly gained network code somewhere outside the
 # opt-in assembly would break the app's central promise, so it is verified here too rather
 # than trusted to have been caught earlier.
+# -SimpleMatch is literal, so the pattern carries no regex escape: 'System\.Net' would look for a
+# backslash no source file contains, and the gate would pass everything (PRIV-001).
 $leaks = Get-ChildItem (Join-Path $PSScriptRoot 'src'), (Join-Path $PSScriptRoot 'tests') -Recurse -Include *.cs, *.csproj |
     Where-Object { $_.FullName -notmatch 'PcHealth\.Net\.Optional' -and $_.FullName -notmatch '\\(obj|bin)\\' } |
-    Select-String -Pattern 'System\.Net' -SimpleMatch
+    Select-String -Pattern 'System.Net' -SimpleMatch
 if ($leaks) {
     $leaks | ForEach-Object { Write-Host "  $($_.Path):$($_.LineNumber)" -ForegroundColor Red }
     throw 'System.Net referenced outside PcHealth.Net.Optional.'

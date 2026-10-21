@@ -10,6 +10,103 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## HW-001 — First full audit of a real laptop: four things the app misgraded
+
+**Symptom.** On 2026-10-21 an elevated `--headless-scan --include-admin` of a ThinkPad T470p
+(i7-7820HQ, 16 GB, Intel SSD Pro 1500, battery at 50%) was compared with an independent
+read-only audit of the same machine. Most grades matched. These four did not:
+
+| Metric | App said | Reality on this machine |
+|---|---|---|
+| `os.supported` | **Bad**: "no more security updates, even with ESU" | Consumer ESU was extended to **2027-10-12** on 2026-06-25 ([Microsoft](https://www.microsoft.com/en-us/windows/extended-security-updates)). `SysOverviewModule.cs:11-13` still hard-codes 2026-10-13. |
+| `memory.used_pct` | **Good** (83%) | Commit hit 99.2–99.9% of the 32.49 GB limit three times in three days (System event 2004, Resource-Exhaustion-Detector), and dwm.exe crashed with 0xc00001ad (fatal memory exhaustion). The app reads only physical-memory use and has no commit or event-2004 check. |
+| `storage.wear_pct` for a USB NVMe in a Realtek RTL9210B-CG enclosure | **Good** (0%) | The bridge passes no SMART. `Get-StorageReliabilityCounter` returns Wear=0, Temperature=0 and every other field empty, which is a placeholder, not a measurement. **Rule 7 violation:** an unread value graded healthy. |
+| `sensors` | Completed, only `gpu.temperature_c` | There is no CPU temperature without PawnIO, by design. But the ACPI zone (`\Thermal Zone Information(*)\Temperature`, readable unelevated) showed 90–97 °C, and the module never consults it. |
+
+Also: `EventsModule.cs:35` counts disk errors from `disk/stordisk/storahci/stornvme/Ntfs` but not
+`iaStorAC`/`iaStorAVC` (Intel RST) or `volmgr`, and it does not say which disk an event names. Here
+both counted "disk errors" came from a USB backup drive, not the internal SSD.
+
+Confirmed in the follow-up gap review (full matrix in `docs/feature-gap-2026-10-21.md`):
+
+- With `--no-history`, the HTML still says "This is the first recorded scan… run the app again"
+  (`HtmlReportExporter.cs:116-123`). Nothing was recorded, so the sentence is false.
+- The Sensors card reads **Good** when the only sensor read was the GPU. The CPU temperature
+  was never read, which breaks rule 7 at the category level.
+- On a first scan with no history, a lifetime CRC (199) count of 25 is graded **Bad**, with "replace
+  the SATA data cable". Nothing shows the count is rising, and CounterGrowth already handles
+  escalation.
+- The SSD temperature row's Detail reads "Mechanical drives last longest below about 40 °C"
+  (`DiskSmartModule.cs:145`).
+
+**Not a bug, checked:** `smart.predict_failure = true` graded Good is correct. The value is
+`!predict` (`DiskSmartModule.cs:79`), so true means "no failure predicted". The id reads backwards.
+
+**How to verify.** Raw snapshot and audit report were in the 2026-10-21 session scratchpad (not in
+git). To reproduce: `Get-PhysicalDisk | Get-StorageReliabilityCounter` (admin) on any USB-bridged
+SSD; `Get-WinEvent -FilterHashtable @{LogName='System';Id=2004}` on a machine under memory
+pressure.
+
+**Fix — proposed, NOT done.** (1) Move the ESU end date to 2027-10-12 and keep it in data, not
+in an inline constant, since Microsoft has now moved it once. (2) Add a commit-charge metric
+(`\Memory\% Committed Bytes In Use`) plus an event-2004 count. (3) Treat a reliability counter
+whose Wear and Temperature are both 0 and whose other fields are all empty as **not read**. (4) Let
+`sensors` fall back to the ACPI thermal zone, labelled as a zone reading rather than "CPU
+temperature".
+
+**Date.** 2026-10-21.
+
+---
+
+## PRIV-001 — The privacy gate could never fail, and a correct text scan still misses the main leak
+
+**Symptom.** None, which is the problem. CI's "Verify no network code outside
+PcHealth.Net.Optional" step and the same check in `build-release.ps1` printed `OK` on every run.
+They would have printed `OK` on a file that said `using System.Net.Http;`.
+
+**Root cause — two holes, one under the other.**
+
+1. `Select-String -Pattern 'System\.Net' -SimpleMatch`. `-SimpleMatch` means *literal*, so the
+   regex escape is taken at its word: the gate searched for the text `System\.Net`, backslash
+   included, which no C# file contains. It has passed everything since it was written.
+2. Fixing the pattern is not enough. `ImplicitUsings` is on in `Directory.Build.props`, and the SDK
+   generates `global using System.Net.Http;` into every project's `obj\…GlobalUsings.g.cs` — a
+   folder the gate deliberately skips. So `new HttpClient()` compiles in *any* project with no
+   `using` line, and the text "System.Net" appears in no file the gate reads.
+
+The promise itself held: with both holes closed, today's tree has zero `System.Net` use outside
+the opt-in assembly. Nothing leaked. The gate simply could not have said so if something had.
+
+**How to verify.** Prove a gate can fail before trusting that it passes — feed it a leak:
+
+| Gate | File with `using System.Net.Http;` | `new HttpClient()`, no using line |
+|---|---|---|
+| As shipped (`'System\.Net'` + `-SimpleMatch`) | 0 hits — **missed** | 0 hits — **missed** |
+| Pattern fixed (`'System.Net'`) | 1 hit | 0 hits — **missed** |
+| Compiled-assembly scan | 1 hit | 1 hit |
+
+Measured 2026-10-19 with a throwaway project in the scratchpad. On the real Release build the
+compiled scan reports 0 for `PcHealth.Core`, `PcHealth.Ipc`, `PcHealth.Modules.Windows` and
+`PcHealthCheck.dll`, and 6 for `PcHealth.Net.Optional.dll`.
+
+**Fix.** The pattern is corrected in `build.yml` and `build-release.ps1` (hole 1). Hole 2 is
+closed by `daily-smoke.ps1`, which also scans the compiled assemblies: every type an assembly uses
+is named in its metadata as UTF-8, so a `System.Net` type leaves that string in the DLL however
+it got into scope, while string literals are UTF-16 and cannot cause a false hit. The scan checks
+itself on each run — `PcHealth.Net.Optional.dll` must be seen to contain `System.Net`, or the
+step fails as untrustworthy.
+
+**Not yet done.** CI and `build-release.ps1` still have only the text gate, so hole 2 is caught
+by the daily smoke but not at push or release time. Porting the compiled scan into both is the
+remaining step.
+
+**Rule this leaves behind.** A gate that has never failed has not been tested. Before relying
+on any check that guards a promise, run it once against something it must reject.
+
+**Date.** 2026-10-19.
+
+---
+
 ## PKG-002 — `sha256sum -c SHA256SUMS.txt` fails on every line: CRLF
 
 **Symptom.** The published checksum file looks correct — the hashes match when compared by

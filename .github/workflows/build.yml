@@ -16,12 +16,13 @@ jobs:
 
       # THE PRIVACY GATE: no assembly outside PcHealth.Net.Optional may mention System.Net.
       # This is the structural half of the "no network code, ever" promise in PRIVACY.md.
+      # -SimpleMatch is literal: 'System\.Net' would search for a backslash and never match (PRIV-001).
       - name: Verify no network code outside PcHealth.Net.Optional
         shell: pwsh
         run: |
           $hits = Get-ChildItem src, tests -Recurse -Include *.cs, *.csproj |
             Where-Object { $_.FullName -notmatch 'PcHealth\.Net\.Optional' -and $_.FullName -notmatch '\\(obj|bin)\\' } |
-            Select-String -Pattern 'System\.Net' -SimpleMatch
+            Select-String -Pattern 'System.Net' -SimpleMatch
           if ($hits) {
             Write-Host "::error::System.Net reference found outside PcHealth.Net.Optional:"
             $hits | ForEach-Object { Write-Host "  $($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
