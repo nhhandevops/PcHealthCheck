@@ -19,46 +19,126 @@ public sealed record ScanProgress(string ModuleId, string ModuleName, int Index,
 /// </summary>
 public sealed class ScanOrchestrator(VerdictEngine engine)
 {
-    /// <summary>Runs the given modules in this process, sequentially.</summary>
+    /// <summary>
+    /// How many modules may run side by side. Several of them start a child process
+    /// (PowerShell, powercfg, fsutil), so this also bounds how many of those exist at once on
+    /// a machine that may already be short of memory.
+    /// </summary>
+    public const int MaxConcurrentModules = 4;
+
+    /// <summary>
+    /// Runs the given modules in this process. Most only read, and the slow ones spend their
+    /// time waiting on WMI, the event log or a child process, so running them one after another
+    /// made a scan the sum of its checks: about 20 s on a ThinkPad T470p, of which one check took
+    /// 7.6 s. They now run side by side, and a scan takes roughly as long as its slowest check.
+    /// Modules marked <see cref="ModuleManifest.RunsAlone"/> run afterwards, one at a time, with
+    /// nothing beside them. Results come back in the order the modules were given, whatever
+    /// order they finished in, so reports do not reshuffle from one scan to the next.
+    /// </summary>
     public async Task<IReadOnlyList<ModuleResult>> RunModulesAsync(
         IReadOnlyList<IHealthModule> modules,
         ModuleContext context,
         IProgress<ScanProgress>? progress = null,
         CancellationToken ct = default)
     {
-        var results = new List<ModuleResult>();
+        var results = new ModuleResult[modules.Count];
+        var tracker = new ProgressTracker(modules, progress);
+
+        using (var slots = new SemaphoreSlim(MaxConcurrentModules))
+        {
+            await Task.WhenAll(Enumerable.Range(0, modules.Count)
+                .Where(i => !modules[i].Manifest.RunsAlone)
+                .Select(async i =>
+                {
+                    await slots.WaitAsync(ct).ConfigureAwait(false);
+                    try { results[i] = await RunOneAsync(modules[i], context, tracker, ct).ConfigureAwait(false); }
+                    finally { slots.Release(); }
+                })).ConfigureAwait(false);
+        }
+
         for (var i = 0; i < modules.Count; i++)
         {
+            if (!modules[i].Manifest.RunsAlone) continue;
             ct.ThrowIfCancellationRequested();
-            var module = modules[i];
-            var manifest = module.Manifest;
-            progress?.Report(new ScanProgress(manifest.Id, manifest.Name, i + 1, modules.Count, "running"));
-
-            var stopwatch = Stopwatch.StartNew();
-            try
-            {
-                var moduleProgress = progress is null
-                    ? null
-                    : new Progress<ModuleProgress>(p =>
-                        progress.Report(new ScanProgress(manifest.Id, manifest.Name, i + 1, modules.Count, p.Message)));
-                results.Add(await module.RunAsync(context, moduleProgress, ct).ConfigureAwait(false));
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception e)
-            {
-                results.Add(new ModuleResult
-                {
-                    ModuleId = manifest.Id,
-                    Status = ModuleStatus.Failed,
-                    Error = $"{e.GetType().Name}: {e.Message}",
-                    Elapsed = stopwatch.Elapsed,
-                });
-            }
+            results[i] = await RunOneAsync(modules[i], context, tracker, ct).ConfigureAwait(false);
         }
         return results;
+    }
+
+    private static async Task<ModuleResult> RunOneAsync(
+        IHealthModule module, ModuleContext context, ProgressTracker tracker, CancellationToken ct)
+    {
+        var manifest = module.Manifest;
+        tracker.Started(module);
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            // Task.Run, because many modules do all their work synchronously before their first
+            // await. Called directly, that work would run on the caller's thread and quietly turn
+            // the concurrent scan back into a sequential one.
+            return await Task.Run(() => module.RunAsync(context, tracker.ForModule(module), ct), ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            return new ModuleResult
+            {
+                ModuleId = manifest.Id,
+                Status = ModuleStatus.Failed,
+                Error = $"{e.GetType().Name}: {e.Message}",
+                Elapsed = stopwatch.Elapsed,
+            };
+        }
+        finally
+        {
+            tracker.Finished(module);
+        }
+    }
+
+    /// <summary>
+    /// With several checks in flight, "[3/17] Startup programs" can no longer mean "the third
+    /// check is the one running". Index is now the step being worked on (checks finished + 1),
+    /// and the name is the earliest-listed check still running, which on a slow scan is the
+    /// one holding everything up and so the one worth naming.
+    /// </summary>
+    private sealed class ProgressTracker(IReadOnlyList<IHealthModule> modules, IProgress<ScanProgress>? progress)
+    {
+        private readonly Lock _lock = new();
+        private readonly HashSet<IHealthModule> _running = [];
+        private int _finished;
+
+        public void Started(IHealthModule module)
+        {
+            lock (_lock) { _running.Add(module); }
+            Report(module, "running");
+        }
+
+        public void Finished(IHealthModule module)
+        {
+            IHealthModule? stillRunning;
+            lock (_lock)
+            {
+                _running.Remove(module);
+                _finished++;
+                stillRunning = modules.FirstOrDefault(_running.Contains);
+            }
+            if (stillRunning is not null) Report(stillRunning, "running");
+        }
+
+        public Progress<ModuleProgress>? ForModule(IHealthModule module) =>
+            progress is null ? null : new Progress<ModuleProgress>(p => Report(module, p.Message));
+
+        private void Report(IHealthModule module, string message)
+        {
+            if (progress is null) return;
+            int step;
+            lock (_lock) { step = Math.Min(_finished + 1, modules.Count); }
+            progress.Report(new ScanProgress(module.Manifest.Id, module.Manifest.Name, step, modules.Count, message));
+        }
     }
 
     /// <summary>Grades every gathered metric and assembles the final report.</summary>

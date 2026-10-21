@@ -43,6 +43,7 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             DiskSpdRunner.DefaultFileBytes,
             "deleted as soon as the check finishes, including on cancel or failure"),
         EstimatedDuration = TimeSpan.FromMinutes(3),
+        RunsAlone = true, // another check reading the disk at the same time would be measured too
     };
 
     protected override async Task<ModuleStatus> ExecuteAsync(

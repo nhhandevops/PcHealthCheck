@@ -28,6 +28,7 @@ internal sealed class SensorsModule : WindowsModuleBase
         NeedsAdmin = true,
         LoadsDriver = true,
         EstimatedDuration = TimeSpan.FromSeconds(8),
+        RunsAlone = true, // temperatures and memory use must describe the PC, not the scan's own load
     };
 
     private sealed class UpdateVisitor : IVisitor

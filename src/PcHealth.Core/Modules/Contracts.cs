@@ -57,6 +57,14 @@ public sealed record ModuleManifest
 
     public TimeSpan EstimatedDuration { get; init; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// True when the module must have the machine to itself, because it measures speed or
+    /// temperature and other checks running beside it would become part of what it reports.
+    /// The orchestrator runs these one at a time, after everything else. It describes how the
+    /// module is scheduled, not what it is allowed to do, so it is not part of the capability hash.
+    /// </summary>
+    public bool RunsAlone { get; init; }
+
     private string? _capabilityHash;
 
     /// <summary>SHA-256 over the capability descriptor (not the display strings).</summary>

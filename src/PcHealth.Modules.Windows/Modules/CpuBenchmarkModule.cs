@@ -31,6 +31,7 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
         Reads = ["Processor name and core count (WMI)", "Nothing on disk — the benchmark runs in memory"],
         NeedsAdmin = false,
         EstimatedDuration = TimeSpan.FromSeconds(35),
+        RunsAlone = true, // the score is single-core speed; other checks would take cycles from it
     };
 
     protected override async Task<ModuleStatus> ExecuteAsync(
