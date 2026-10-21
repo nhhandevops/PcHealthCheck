@@ -48,7 +48,10 @@ jobs:
       # 7 days, not GitHub's default 90: each copy is ~47 MB, and on 2026-10-21 twenty-three of
       # them (1,070 MB) filled the account's artifact quota and failed this step. Any build can be
       # recreated from its commit; releases are kept separately (RELEASING.md).
+      # continue-on-error: the gates above decide whether a commit is good. A full storage quota
+      # says nothing about the code, so it shows as a warning on the run instead of turning it red.
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: PcHealthCheck-win-x64
           path: artifacts/

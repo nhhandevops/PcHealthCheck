@@ -26,7 +26,10 @@ sum of `size_in_bytes`. Check which step failed before assuming the code is brok
 
 **Fix.** All 23 old artifacts were deleted (each is rebuildable from its commit), and `build.yml` now
 sets `retention-days: 7`. GitHub recalculates usage every 6–12 hours, so the first run after the
-cleanup can still fail at the upload step. If so, re-run it later rather than changing anything.
+cleanup can still fail at the upload step. Two re-runs two hours after the cleanup still hit the
+quota, so the upload step was also given `continue-on-error: true`. The privacy gate, build and
+tests still fail the run as before. A failed upload now shows as an annotation on a green run, so
+look at the run's warnings when a downloadable build is actually needed.
 
 **Date.** 2026-10-21.
 
