@@ -10,6 +10,28 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## CI-001 — CI red on a good commit: artifact storage quota full
+
+**Symptom.** The push of `cb6a819` failed CI, but the privacy gate, build, tests, publish and
+checksums all passed. Only `actions/upload-artifact` failed:
+`Failed to CreateArtifact: Artifact storage quota has been hit.`
+
+**Root cause.** Every push uploads the self-contained app (~47 MB) and keeps it for GitHub's
+default 90 days. After 23 pushes, 1,070 MB were stored, the oldest not expiring until
+2026-11-20.
+
+**How to verify.** `gh api repos/nhhandevops/PcHealthCheck/actions/artifacts --jq '.total_count'`, plus the
+sum of `size_in_bytes`. Check which step failed before assuming the code is broken:
+`gh run view <id> --json jobs --jq '.jobs[].steps[] | "\(.name): \(.conclusion)"'`.
+
+**Fix.** All 23 old artifacts were deleted (each is rebuildable from its commit), and `build.yml` now
+sets `retention-days: 7`. GitHub recalculates usage every 6–12 hours, so the first run after the
+cleanup can still fail at the upload step. If so, re-run it later rather than changing anything.
+
+**Date.** 2026-10-21.
+
+---
+
 ## HW-001 — First full audit of a real laptop: four things the app misgraded
 
 **Symptom.** On 2026-10-21 an elevated `--headless-scan --include-admin` of a ThinkPad T470p

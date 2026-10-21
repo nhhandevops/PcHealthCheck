@@ -45,7 +45,11 @@ jobs:
         shell: pwsh
         run: Get-ChildItem artifacts -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } | Tee-Object artifacts/SHA256SUMS.txt
 
+      # 7 days, not GitHub's default 90: each copy is ~47 MB, and on 2026-10-21 twenty-three of
+      # them (1,070 MB) filled the account's artifact quota and failed this step. Any build can be
+      # recreated from its commit; releases are kept separately (RELEASING.md).
       - uses: actions/upload-artifact@v4
         with:
           name: PcHealthCheck-win-x64
           path: artifacts/
+          retention-days: 7
