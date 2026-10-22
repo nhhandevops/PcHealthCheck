@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-21** (341 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
+Snapshot for continuing work on another machine. Last updated: **2026-10-22** (348 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
 
 ## What this is
 
@@ -18,7 +18,7 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 341 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 348 tests; WorkerProtocolTests launch the real exe
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
@@ -312,7 +312,15 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 - **Disk-error events name the drive** (`DiskEventAttribution`), separating the Windows disk from others.
 - **Windows 10 end of support is 2027-10-12** (consumer ESU, extended by Microsoft on 2026-06-25). It is hard-coded
   in `SysOverviewModule`, so re-check it if Microsoft moves it again.
-- Details and verification for all of the above: `docs/warning_bug_and_solutions.md` (PRIV-001, HW-001, CI-001).
+- **CPU slowdown under load (2026-10-22):** the CPU benchmark now samples `% Processor Performance` (WMI, highest
+  logical processor each second) while it keeps one core busy, and reports the median as
+  `bench.cpu.clock_pct_of_base`: Good ≥ 100%, Normal ≥ 85%, Bad below. It is not graded on battery. On the T470p it
+  read **87%** where a healthy i7-7820HQ turbos to ~130%, which agrees with the audit's throttling finding. Verified
+  with portable 7-Zip 26.05 (its output still parses). Firmware speed-limit events (Kernel-Processor-Power 37) are
+  counted but shown only, because laptops log a few at start-up while healthy and there is no baseline yet.
+- `build-release.ps1` wrote to the drive root under Windows PowerShell 5.1 (PKG-003). It is fixed; never use
+  `$PSScriptRoot` in a `param()` default.
+- Details and verification for all of the above: `docs/warning_bug_and_solutions.md` (PRIV-001, HW-001, CI-001, PKG-003).
 
 ## Suggested next session
 
@@ -321,7 +329,7 @@ J1 and the other person-only rows in `NEXT-STEPS.md`; and the decisions YOU-1 to
 version bump, fix-then-accept).
 
 **Engineering, in order:** the P2 list in `docs/feature-gap-2026-10-21.md`:
-1. CPU throttling under load (`% Processor Performance`) and Kernel-Power 86 / thermal sleeps.
+1. ~~CPU throttling under load~~ done 2026-10-22. Still open: thermal sleeps, once the event id is verified on a real machine.
 2. A lifetime CRC (199) count on a scan with no history graded Normal plus "watch for growth", not Bad.
 3. Battery: pack identity and age, charge state, AC/DC time, and urgency that depends on how the laptop is used.
 4. SMART spare blocks, program/erase fails, SATA downshift, host writes vs rated TBW.

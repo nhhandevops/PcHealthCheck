@@ -28,7 +28,7 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
                       "records it so a future slowdown from overheating or power settings becomes visible. " +
                       "About 30 seconds, writes nothing, and leaves the rest of the PC usable. " +
                       "Needs 7-Zip installed — the app offers to install it.",
-        Reads = ["Processor name and core count (WMI)", "Nothing on disk — the benchmark runs in memory"],
+        Reads = ["Processor name and core count (WMI)", "Processor clock speed while the benchmark runs, and whether the PC is on battery (WMI)", "Nothing on disk — the benchmark runs in memory"],
         NeedsAdmin = false,
         EstimatedDuration = TimeSpan.FromSeconds(35),
         RunsAlone = true, // the score is single-core speed; other checks would take cycles from it
@@ -55,7 +55,11 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
 
         progress?.Report(new ModuleProgress("Measuring one processor core — this takes about 30 seconds."));
 
+        using var stopSampling = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var sampling = SampleClockAsync(stopSampling.Token);
         var (reading, error) = await new SevenZipBenchmark(context.Processes).MeasureAsync(exe, ct).ConfigureAwait(false);
+        await stopSampling.CancelAsync().ConfigureAwait(false);
+        var clockSamples = await sampling.ConfigureAwait(false);
         if (reading is null)
         {
             failures.Record("The processor benchmark did not complete", error ?? "7-Zip gave no reason.");
@@ -74,6 +78,26 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
                     "changed. One core rather than all of them on purpose — loading every core for a minute " +
                     "heats the chip enough that the test starts measuring its own effect, which was measured at " +
                     "a 45% swing between back-to-back runs."));
+
+        if (ClockUnderLoad.Typical(clockSamples) is { } clockPct)
+        {
+            // BatteryStatus 2 is "on AC". No battery at all (a desktop) counts as mains power.
+            var batteryStates = Wmi.TryQuery(@"root\cimv2", "SELECT BatteryStatus FROM Win32_Battery", out _)
+                .Select(b => Wmi.Get<ushort>(b, "BatteryStatus")).ToList();
+            var onAc = batteryStates.Count == 0 || batteryStates.Contains((ushort)2);
+            metrics.Add(new Metric("bench.cpu.clock_pct_of_base", "Processor speed while busy", clockPct,
+                HealthCategory.Performance, Unit: "%", Subject: subject, InfoOnly: !onAc,
+                Detail: "Typical clock speed while the benchmark kept one core busy, as a percentage of the processor's " +
+                        "base clock. A healthy processor goes above 100% here (turbo); staying below 100% under load " +
+                        "means it is holding itself back, usually because of heat (dust, old thermal paste) or a " +
+                        "charger too weak for it." +
+                        (onAc ? "" : " Measured on battery, where Windows may lower the speed on purpose, so it is not graded.")));
+        }
+        else
+        {
+            failures.Record("Processor speed while busy",
+                $"only {clockSamples.Count} clock sample(s) could be read while the benchmark ran, so slowdown under load was NOT checked.");
+        }
 
         if (reading.CompressRating > 0 && reading.DecompressRating > 0)
         {
@@ -96,6 +120,30 @@ internal sealed class CpuBenchmarkModule : WindowsModuleBase
         }
 
         return failures.Resolve(gotAnything: metrics.Count > 0);
+    }
+
+    /// <summary>
+    /// Samples % Processor Performance once a second until stopped, keeping the highest value
+    /// across logical processors each time (see <see cref="ClockUnderLoad"/>). WMI's formatted
+    /// counter class: typed values, no localized counter names.
+    /// </summary>
+    private static async Task<List<double>> SampleClockAsync(CancellationToken stop)
+    {
+        var samples = new List<double>();
+        while (!stop.IsCancellationRequested)
+        {
+            var rows = Wmi.TryQuery(@"root\cimv2",
+                "SELECT Name, PercentProcessorPerformance FROM Win32_PerfFormattedData_Counters_ProcessorInformation", out _);
+            var perCore = rows
+                .Where(r => Wmi.GetString(r, "Name") is { } n && !n.Contains("_Total", StringComparison.Ordinal))
+                .Select(r => Wmi.Get<double>(r, "PercentProcessorPerformance"))
+                .OfType<double>()
+                .ToList();
+            if (perCore.Count > 0) samples.Add(perCore.Max());
+            try { await Task.Delay(1000, stop).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
+        }
+        return samples;
     }
 
     private static string DescribeProcessor(ModuleFailures failures)

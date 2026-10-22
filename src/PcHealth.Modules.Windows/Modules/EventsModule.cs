@@ -20,7 +20,7 @@ internal sealed class EventsModule : WindowsModuleBase
     {
         Id = "events.errors",
         Name = "Error history (event logs)",
-        Description = "Disk errors (and which drive), hardware (WHEA) errors, unexpected power loss, blue screens, GPU driver resets, low-memory warnings, and app-crash frequency from the Windows event logs.",
+        Description = "Disk errors (and which drive), hardware (WHEA) errors, unexpected power loss, blue screens, GPU driver resets, low-memory warnings, firmware speed limits on the processor, and app-crash frequency from the Windows event logs.",
         Reads = ["System event log", "Application event log"],
         NeedsAdmin = false,
         EstimatedDuration = TimeSpan.FromSeconds(8),
@@ -43,6 +43,17 @@ internal sealed class EventsModule : WindowsModuleBase
             "memory.low_memory_events_30d", "Low-memory warnings (30 days)", HealthCategory.Memory,
             "Times Windows logged that it was close to running out of memory (RAM plus page file, event 2004). " +
             "Each one usually means programs slowed down, refused to open, or crashed.");
+        ct.ThrowIfCancellationRequested();
+
+        // Event 37: firmware capped the processor's speed. Shown, not graded: laptops commonly log
+        // a few at start-up while nothing is wrong, and no healthy-machine baseline exists yet to
+        // set a threshold against. "Processor speed while busy" (CPU benchmark) is the graded measure.
+        AddCount(metrics, failures, "System",
+            Filter(ThirtyDaysMs, "Provider[@Name='Microsoft-Windows-Kernel-Processor-Power']", "EventID=37"),
+            "events.cpu_speed_limited_30d", "Processor speed limited by firmware (30 days)", HealthCategory.Performance,
+            "Windows event 37: the firmware held the processor below its normal speed, usually for heat or power. " +
+            "A few at start-up are common on laptops; many, spread through the day, suggest the cooling or the charger.",
+            infoOnly: true);
         ct.ThrowIfCancellationRequested();
 
         AddCount(metrics, failures, "System",
@@ -92,11 +103,11 @@ internal sealed class EventsModule : WindowsModuleBase
 
     private static void AddCount(
         List<Metric> metrics, ModuleFailures failures, string log, string xpath,
-        string metricId, string label, HealthCategory category, string explanation)
+        string metricId, string label, HealthCategory category, string explanation, bool infoOnly = false)
     {
         int? count = CountEvents(log, xpath, failures, label);
         if (count is null) return; // query failed — failure recorded, metric omitted (Unknown, not zero)
-        metrics.Add(new Metric(metricId, label, (double)count.Value, category, Detail: explanation));
+        metrics.Add(new Metric(metricId, label, (double)count.Value, category, Detail: explanation, InfoOnly: infoOnly));
     }
 
     private static void AddDiskErrors(List<Metric> metrics, ModuleFailures failures)

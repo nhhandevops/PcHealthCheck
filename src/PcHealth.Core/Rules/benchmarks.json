@@ -1,6 +1,28 @@
 {
   "rules": [
     {
+      "id": "rule.bench.cpu-clock-under-load",
+      "metricId": "bench.cpu.clock_pct_of_base",
+      "bands": [
+        { "grade": "Good", "gte": 100 },
+        { "grade": "Normal", "gte": 85 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "With one core busy the processor stayed at or just under its base clock instead of speeding up. It is holding back a little, usually for heat.",
+          "If the PC is a few years old, cleaning the fan and heatsink is the first thing to try."
+        ],
+        "Bad": [
+          "With one core busy the processor ran well below its base clock, so it is slowing itself down and the PC feels slower than it should.",
+          "The usual cause is heat: clean the fan and heatsink, and on a laptop several years old replace the thermal paste.",
+          "Also check the charger is the wattage the laptop needs. A weaker one can hold the processor back on purpose.",
+          "Check the Windows power mode is not set to battery saver or best power efficiency."
+        ]
+      },
+      "forecast": "A processor that throttles under light load will throttle harder in summer and under real work."
+    },
+    {
       "id": "rule.bench.disk-seq-class",
       "metricId": "bench.disk.seq_read_pct_of_class",
       "bands": [
