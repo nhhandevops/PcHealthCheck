@@ -18,7 +18,7 @@ internal sealed class BatteryModule : WindowsModuleBase
         Id = "battery",
         Name = "Battery health",
         Description = "Battery wear (full-charge vs design capacity) and cycle count. Skipped automatically on desktops.",
-        Reads = ["Battery presence (WMI)", "powercfg battery report"],
+        Reads = ["Battery presence (WMI)", "powercfg battery report", "Battery manufacture date (SMBIOS, via WMI)"],
         NeedsAdmin = false,
         Writes = new WriteSpec("battery-report.xml inside the app's own temp folder", 512 * 1024, "deleted right after parsing"),
         EstimatedDuration = TimeSpan.FromSeconds(6),
@@ -82,6 +82,24 @@ internal sealed class BatteryModule : WindowsModuleBase
             // A laptop that is almost never unplugged loses mobility to a worn battery, not data.
             var deskBound = usage is { OnBatteryPct: < 5, HoursInUse: >= 8 };
 
+            // The manufacture date, only when it can be tied to the one battery in the report:
+            // with two packs there is no reliable way to say which date belongs to which.
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            DateOnly? made = null;
+            if (doc.Descendants(ns + "Battery").Count() == 1)
+            {
+                var smbios = Wmi.TryQuery(@"root\wmi", "SELECT SMBiosData FROM MSSmBios_RawSMBiosTables", out _)
+                    .FirstOrDefault()?.GetValueOrDefault("SMBiosData") as byte[];
+                if (BatteryAge.ManufactureDates(smbios) is [var only] && only <= today && only.Year >= 1995)
+                {
+                    made = only;
+                    metrics.Add(new Metric("battery.age_years", "Battery age",
+                        Math.Round((today.DayNumber - only.DayNumber) / 365.25, 1), HealthCategory.Battery,
+                        Unit: "years", InfoOnly: true,
+                        Detail: $"Made {only:yyyy-MM-dd}, according to the battery's own record (SMBIOS)."));
+                }
+            }
+
             var index = 0;
             foreach (var battery in doc.Descendants(ns + "Battery"))
             {
@@ -107,9 +125,19 @@ internal sealed class BatteryModule : WindowsModuleBase
                 if (design is > 0 && fullCharge is > 0)
                 {
                     var pct = Math.Round(fullCharge.Value * 100.0 / design.Value, 1);
+                    // 60% is where the rule calls it replacement territory; past that, 40% is where
+                    // an unplugged laptop stops being practical.
+                    var target = pct > 60 ? 60 : 40;
+                    var timeline = made is { } m && BatteryAge.LossPerYear(pct, m, today) is { } perYear
+                        ? $" It has lost about {perYear:0.#}% of its design capacity per year since it was made ({m:yyyy-MM-dd})" +
+                          (BatteryAge.ReachesPercent(pct, m, today, target) is { } when
+                              ? $"; if that continues it reaches {target}% around {when:yyyy-MM}."
+                              : ".")
+                        : "";
                     metrics.Add(new Metric("battery.capacity_pct", "Battery capacity vs design", pct,
                         HealthCategory.Battery, Unit: "%", Subject: subject,
                         Detail: $"Full-charge {fullCharge:N0} mWh of {design:N0} mWh design. If the battery is swollen, stop using the device immediately." +
+                                timeline +
                                 (deskBound && pct < 60
                                     ? $" This PC ran on battery {usage!.OnBatteryPct:0.#}% of the time recently, so the worn battery limits how " +
                                       "long it can work unplugged rather than putting anything at risk: replace it when you need to work away " +

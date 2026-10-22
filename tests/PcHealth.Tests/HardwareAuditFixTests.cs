@@ -113,6 +113,55 @@ public sealed class HardwareAuditFixTests
         Assert.Null(BatteryUsage.Summarize([("not a duration", null), ("PT0S", "PT0S")]));
     }
 
+    // --- Battery age and a dated projection from one scan ------------------------------------
+
+    private static readonly DateOnly MadeT470p = new(2023, 1, 7);
+    private static readonly DateOnly AuditDay = new(2026, 10, 22);
+
+    private static byte[] Smbios(byte dateStringIndex, ushort sbdsDate)
+    {
+        var bios = new byte[] { 0, 4, 0, 0, 0, 0 };                          // type 0, no strings
+        var battery = new byte[0x1A];
+        battery[0] = 22; battery[1] = 0x1A; battery[6] = dateStringIndex;
+        battery[0x12] = (byte)(sbdsDate & 0xFF); battery[0x13] = (byte)(sbdsDate >> 8);
+        var strings = "Front\0SANYO\0\0"u8.ToArray();
+        var end = new byte[] { 127, 4, 0, 0, 0, 0 };
+        return [.. bios, .. battery, .. strings, .. end];
+    }
+
+    [Fact]
+    public void The_sbds_date_word_is_decoded() =>
+        // The T470p's pack: 0x5627, confirmed against its serial 36865.
+        Assert.Equal(MadeT470p, BatteryAge.FromSbdsWord(0x5627));
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(0x5600)]             // month 0, day 0
+    public void An_empty_or_impossible_date_word_is_not_a_date(int word) =>
+        Assert.Null(BatteryAge.FromSbdsWord(word));
+
+    [Fact]
+    public void The_battery_structure_is_found_in_the_smbios_table() =>
+        Assert.Equal([MadeT470p], BatteryAge.ManufactureDates(Smbios(dateStringIndex: 0, sbdsDate: 0x5627)));
+
+    [Fact]
+    public void A_date_given_as_free_text_is_not_guessed() =>
+        Assert.Empty(BatteryAge.ManufactureDates(Smbios(dateStringIndex: 3, sbdsDate: 0x5627)));
+
+    [Fact]
+    public void Fade_rate_and_the_date_it_reaches_forty_percent()
+    {
+        // 50% after 3.8 years: about 13% a year, 40% in mid-2027 (the audit's figure).
+        Assert.InRange(BatteryAge.LossPerYear(50, MadeT470p, AuditDay)!.Value, 13.0, 13.4);
+        var when = BatteryAge.ReachesPercent(50, MadeT470p, AuditDay, 40);
+        Assert.NotNull(when);
+        Assert.Equal((2027, 7), (when.Value.Year, when.Value.Month));
+    }
+
+    [Fact]
+    public void A_battery_too_young_to_show_a_rate_gets_no_projection() =>
+        Assert.Null(BatteryAge.ReachesPercent(97, AuditDay.AddDays(-100), AuditDay, 60));
+
     // --- Lifetime interface (CRC) errors on a scan with no history --------------------------
 
     [Theory]
