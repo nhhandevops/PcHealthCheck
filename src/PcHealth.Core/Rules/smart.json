@@ -105,13 +105,14 @@
       "metricId": "smart.crc_errors",
       "bands": [
         { "grade": "Good", "lte": 0 },
-        { "grade": "Normal", "lte": 10 },
+        { "grade": "Normal", "lte": 100 },
         { "grade": "Bad", "always": true }
       ],
       "tips": {
         "Normal": [
           "Interface errors are usually the CABLE, not the drive. Reseat the SATA data cable at both ends (or try a different USB port/cable for external drives).",
-          "This counter never resets, so an old, frozen count from a past problem is harmless — what matters is whether it grows."
+          "This counter never resets and counts the drive's whole life, so a few dozen from a past problem (a loose cable, a hot-plug, an older PC) is harmless — what matters is whether it grows.",
+          "Scan again in a week or two with history on: if the number has risen, the app flags it as getting worse. That is the signal to act on."
         ],
         "Bad": [
           "Replace the drive's SATA data cable — this is the classic cause and a cheap fix. For USB drives, change the cable and port, and avoid unpowered hubs.",

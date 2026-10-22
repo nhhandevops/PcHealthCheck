@@ -69,6 +69,19 @@ internal sealed class BatteryModule : WindowsModuleBase
 
             var doc = XDocument.Load(reportPath);
             XNamespace ns = "http://schemas.microsoft.com/battery/2012";
+
+            var usage = BatteryUsage.Summarize(doc.Descendants(ns + "History").Elements()
+                .Select(e => ((string?)e.Attribute("ActiveAcTime"), (string?)e.Attribute("ActiveDcTime"))));
+            if (usage is not null)
+            {
+                metrics.Add(new Metric("battery.time_on_battery_pct", "Time on battery (recent use)", usage.OnBatteryPct,
+                    HealthCategory.Battery, Unit: "%", InfoOnly: true,
+                    Detail: $"Of {usage.HoursInUse:0.#} hours in use covered by Windows' battery report, this share ran on battery. " +
+                            "It covers only as far back as Windows has records, which after a reinstall is a few days."));
+            }
+            // A laptop that is almost never unplugged loses mobility to a worn battery, not data.
+            var deskBound = usage is { OnBatteryPct: < 5, HoursInUse: >= 8 };
+
             var index = 0;
             foreach (var battery in doc.Descendants(ns + "Battery"))
             {
@@ -78,12 +91,30 @@ internal sealed class BatteryModule : WindowsModuleBase
                 var cycles = ParseCapacity(battery.Element(ns + "CycleCount")?.Value);
                 var subject = doc.Descendants(ns + "Battery").Count() > 1 ? $"Battery {index}" : "Battery";
 
+                var identity = string.Join(" ", new[] { battery.Element(ns + "Manufacturer")?.Value, battery.Element(ns + "Id")?.Value }
+                    .Select(v => v?.Trim()).Where(v => !string.IsNullOrEmpty(v)));
+                if (identity.Length > 0)
+                {
+                    var chemistry = battery.Element(ns + "Chemistry")?.Value?.Trim();
+                    metrics.Add(new Metric("battery.identity", "Battery reports itself as",
+                        string.IsNullOrEmpty(chemistry) ? identity : $"{identity} ({chemistry})",
+                        HealthCategory.Battery, Subject: subject, InfoOnly: true,
+                        Detail: "The name and part number the battery's own chip reports. Compare them with the label on the " +
+                                "battery and your laptop's official battery list: a part number from a different model " +
+                                "usually means a third-party pack."));
+                }
+
                 if (design is > 0 && fullCharge is > 0)
                 {
                     var pct = Math.Round(fullCharge.Value * 100.0 / design.Value, 1);
                     metrics.Add(new Metric("battery.capacity_pct", "Battery capacity vs design", pct,
                         HealthCategory.Battery, Unit: "%", Subject: subject,
-                        Detail: $"Full-charge {fullCharge:N0} mWh of {design:N0} mWh design. If the battery is swollen, stop using the device immediately."));
+                        Detail: $"Full-charge {fullCharge:N0} mWh of {design:N0} mWh design. If the battery is swollen, stop using the device immediately." +
+                                (deskBound && pct < 60
+                                    ? $" This PC ran on battery {usage!.OnBatteryPct:0.#}% of the time recently, so the worn battery limits how " +
+                                      "long it can work unplugged rather than putting anything at risk: replace it when you need to work away " +
+                                      "from a socket, or at once if it swells."
+                                    : "")));
                 }
                 if (cycles is > 0)
                 {
@@ -92,9 +123,11 @@ internal sealed class BatteryModule : WindowsModuleBase
                         Detail: "Most consumer batteries are rated for 300–1000 cycles."));
                 }
             }
-            if (metrics.Count == 0)
+            // Capacity is what this module is for. Counting metrics let the cycle count, identity or
+            // usage rows stand in for it, so a report without capacity read back as Completed.
+            if (!metrics.Any(m => m.Id == "battery.capacity_pct"))
             {
-                notes.Add("Battery report contained no capacity data (some batteries do not expose it).");
+                notes.Add("Battery report contained no capacity data (some batteries do not expose it), so battery wear was NOT checked.");
                 return ModuleStatus.PartiallyCompleted;
             }
             return ModuleStatus.Completed;

@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-22** (348 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
+Snapshot for continuing work on another machine. Last updated: **2026-10-22** (354 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
 
 ## What this is
 
@@ -18,7 +18,7 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 348 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 354 tests; WorkerProtocolTests launch the real exe
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
@@ -330,8 +330,8 @@ version bump, fix-then-accept).
 
 **Engineering, in order:** the P2 list in `docs/feature-gap-2026-10-21.md`:
 1. ~~CPU throttling under load~~ done 2026-10-22. Still open: thermal sleeps, once the event id is verified on a real machine.
-2. A lifetime CRC (199) count on a scan with no history graded Normal plus "watch for growth", not Bad.
-3. Battery: pack identity and age, charge state, AC/DC time, and urgency that depends on how the laptop is used.
+2. ~~A lifetime CRC count on a first scan graded Bad~~ done 2026-10-22: 1-100 is Normal ("watch for growth"), and growth between scans is still Bad through TrendAnalyzer.
+3. ~~Battery identity, AC/DC time, usage-aware wording~~ done 2026-10-22 (`battery.identity`, `battery.time_on_battery_pct`, capacity Detail). Still open: pack age (SMBIOS type 22) and charge state.
 4. SMART spare blocks, program/erase fails, SATA downshift, host writes vs rated TBW.
 5. Top memory and CPU consumers in the report.
 

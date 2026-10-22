@@ -88,6 +88,40 @@ public sealed class HardwareAuditFixTests
     public void Zero_wear_over_usb_is_not_graded(int wear, bool onUsb, bool trusted) =>
         Assert.Equal(trusted, ReliabilityCounterCheck.WearIsTrustworthy((ushort)wear, onUsb));
 
+    // --- Battery: how the laptop is actually used --------------------------------------------
+
+    [Fact]
+    public void A_laptop_that_never_left_the_charger_shows_zero_time_on_battery()
+    {
+        // The T470p's report: three days, all on AC.
+        var share = BatteryUsage.Summarize([("PT58M42S", "PT0S"), ("PT7H12M21S", "PT0S"), ("PT4H31M53S", "PT0S")]);
+
+        Assert.NotNull(share);
+        Assert.Equal(0, share.OnBatteryPct);
+        Assert.Equal(12.7, share.HoursInUse);
+    }
+
+    [Fact]
+    public void Mixed_use_is_reported_as_the_share_on_battery() =>
+        Assert.Equal(75, BatteryUsage.Summarize([("PT1H", "PT3H")])!.OnBatteryPct);
+
+    [Fact]
+    public void No_usable_history_reports_nothing_rather_than_zero()
+    {
+        Assert.Null(BatteryUsage.Summarize([]));
+        Assert.Null(BatteryUsage.Summarize([("not a duration", null), ("PT0S", "PT0S")]));
+    }
+
+    // --- Lifetime interface (CRC) errors on a scan with no history --------------------------
+
+    [Theory]
+    [InlineData(0, Grade.Good)]
+    [InlineData(25, Grade.Normal)]   // the T470p's SSD: a lifetime total, nothing showing it is rising
+    [InlineData(5000, Grade.Bad)]    // this many points at a problem still happening
+    public void A_lifetime_crc_count_alone_is_not_an_emergency(double count, Grade expected) =>
+        Assert.Equal(expected, Engine.EvaluateOne(new Metric("smart.crc_errors", "crc", count, HealthCategory.Storage)).Grade);
+    // Growth between scans is still graded Bad by TrendAnalyzer (TrendHistoryTests).
+
     // --- 4. Which drive the disk errors came from -------------------------------------------
 
     [Theory]

@@ -59,12 +59,13 @@ P2: important missing signals. Unreviewed outside battery and RAM.
 
 6. CPU: fall back to the ACPI thermal zone (readable unelevated), add effective clock under load (`% Processor Performance`), and add Kernel-Power 86 and thermal sleeps.
    **Done:** the thermal-zone fallback on 2026-10-21, and clock under load on 2026-10-22 (`bench.cpu.clock_pct_of_base`, 87% on the T470p). Thermal sleeps are still open.
-7. Lifetime CRC (199) on a scan with no history: grade Normal plus "watch for growth" instead of Bad. CounterGrowth already escalates it.
+7. Lifetime CRC (199) on a scan with no history: grade Normal plus "watch for growth" instead of Bad. CounterGrowth already escalates it. **Done 2026-10-22.**
 8. Battery:
    - Show the pack identity: `Win32_Battery.Name` (already fetched) and the XML Id, Manufacturer, Chemistry.
    - Show the pack age (SMBIOS type 22).
    - Show charge state and AC/DC time.
    - Make urgency depend on usage: a desk-bound laptop is not "Action needed".
+   **Done 2026-10-22:** identity, time on battery, and usage-aware wording. Pack age and charge state are still open.
 9. SMART: spare blocks (170/232), program/erase fails (171/172), SATA downshift (183), host writes vs rated TBW.
 10. Top memory and CPU consumers in the report.
 11. A battery projection once below 60% (for example, toward 40%).
