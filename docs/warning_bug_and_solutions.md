@@ -10,6 +10,33 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## PKG-003 — `build-release.ps1` wrote the release to the root of the drive
+
+**Symptom.** On 2026-10-22, `powershell -File .\build-release.ps1` printed `\release\PcHealthCheck-…zip`,
+and the files appeared at `D:\release`, outside the project. The tests and checksum all passed,
+so nothing looked wrong except the path.
+
+**Root cause.** The parameter default was `"$PSScriptRoot\release"`. Windows PowerShell 5.1 leaves
+`$PSScriptRoot` empty while parameter defaults are evaluated, so the default became `\release`,
+which is the root of the current drive. In the script body `$PSScriptRoot` is set, which is why the
+build itself found the project. CI uses PowerShell 7 and never showed it. The 2026-10-17 backup
+build was run another way.
+
+**How to verify.** Run it from Windows PowerShell 5.1 (`powershell`, not `pwsh`) and read the last
+two output lines: they must start with the project folder.
+
+**Fix.** The default is set in the script body (`if (-not $OutputDir) { … Join-Path $PSScriptRoot 'release' }`).
+Confirmed with a 5.1 rebuild: output in `<repo>\release`, no `D:\release` created. The stray
+`D:\release` was moved into the project.
+
+**Rule this leaves behind.** In a script meant for Windows PowerShell 5.1, never use
+`$PSScriptRoot` in a `param()` default. `daily-smoke.ps1` and `collect-results.ps1` use it only in
+the body and are unaffected.
+
+**Date.** 2026-10-22.
+
+---
+
 ## CI-001 — CI red on a good commit: artifact storage quota full
 
 **Symptom.** The push of `cb6a819` failed CI, but the privacy gate, build, tests, publish and

@@ -24,11 +24,15 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$OutputDir = "$PSScriptRoot\release",
+    [string]$OutputDir,
     [switch]$SkipTests
 )
 
 $ErrorActionPreference = 'Stop'
+# Set here, not as the parameter's default: Windows PowerShell 5.1 leaves $PSScriptRoot empty while
+# parameter defaults are evaluated, so "$PSScriptRoot\release" became "\release" and the build
+# landed at the root of the current drive (PKG-003).
+if (-not $OutputDir) { $OutputDir = Join-Path $PSScriptRoot 'release' }
 $solution = Join-Path $PSScriptRoot 'PcHealthCheck.slnx'
 $appProject = Join-Path $PSScriptRoot 'src\PcHealth.App\PcHealth.App.csproj'
 
