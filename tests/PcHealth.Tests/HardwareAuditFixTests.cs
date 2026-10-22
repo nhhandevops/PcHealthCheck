@@ -1,6 +1,7 @@
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Verdicts;
 using PcHealth.Modules.Windows.Sensors;
+using PcHealth.Modules.Windows.Storage;
 using PcHealth.Modules.Windows.Support;
 using Xunit;
 
@@ -121,6 +122,66 @@ public sealed class HardwareAuditFixTests
     public void A_lifetime_crc_count_alone_is_not_an_emergency(double count, Grade expected) =>
         Assert.Equal(expected, Engine.EvaluateOne(new Metric("smart.crc_errors", "crc", count, HealthCategory.Storage)).Grade);
     // Growth between scans is still graded Bad by TrendAnalyzer (TrendHistoryTests).
+
+    // --- SMART: the drive's own failure thresholds (vendor-neutral) --------------------------
+
+    private static byte[] ThresholdTable(params (byte Id, byte Threshold)[] entries)
+    {
+        var table = new byte[512];
+        for (var i = 0; i < entries.Length; i++)
+        {
+            table[2 + (i * 12)] = entries[i].Id;
+            table[2 + (i * 12) + 1] = entries[i].Threshold;
+        }
+        return table;
+    }
+
+    [Fact]
+    public void Threshold_table_is_parsed()
+    {
+        // The T470p's Intel SSD: 170 and 232 at 10, 184 at 97, the rest 0.
+        var thresholds = SmartAttributeParser.ParseThresholds(ThresholdTable((5, 0), (170, 10), (184, 97), (232, 10)));
+
+        Assert.Equal(10, thresholds[170]);
+        Assert.Equal(97, thresholds[184]);
+        Assert.Equal(0, thresholds[5]);
+    }
+
+    private static readonly Dictionary<int, int> IntelThresholds = new() { [5] = 0, [170] = 10, [184] = 97, [232] = 10 };
+
+    [Fact]
+    public void A_healthy_drive_has_nothing_at_its_limit()
+    {
+        // The T470p's real values: 170 = 100, 184 = 100, 232 = 100, and 5 at 100 with threshold 0.
+        var (now, past) = SmartAttributeParser.AtThreshold(
+            [new(5, "r", 100, 100, 0), new(170, "s", 100, 100, 0), new(184, "e", 100, 100, 0), new(232, "a", 100, 100, 0)],
+            IntelThresholds);
+
+        Assert.Empty(now);
+        Assert.Empty(past);
+    }
+
+    [Fact]
+    public void Spare_blocks_at_the_limit_are_failed_now_and_a_recovered_one_is_history()
+    {
+        var (now, past) = SmartAttributeParser.AtThreshold(
+            [new(170, "spare", 9, 9, 0), new(184, "e2e", 100, 90, 0)],
+            IntelThresholds);
+
+        Assert.Equal(170, Assert.Single(now).Id);
+        Assert.Equal(184, Assert.Single(past).Id);  // worst 90 <= 97, current 100 above it
+    }
+
+    [Fact]
+    public void A_zero_threshold_never_fails() =>
+        Assert.Empty(SmartAttributeParser.AtThreshold([new(5, "r", 0, 0, 0)], IntelThresholds).Now);
+
+    [Theory]
+    [InlineData(0, Grade.Good)]
+    [InlineData(1, Grade.Bad)]
+    public void Any_attribute_at_its_limit_is_bad(double count, Grade expected) =>
+        Assert.Equal(expected, Engine.EvaluateOne(
+            new Metric("smart.attributes_at_threshold", "limit", count, HealthCategory.Storage)).Grade);
 
     // --- 4. Which drive the disk errors came from -------------------------------------------
 

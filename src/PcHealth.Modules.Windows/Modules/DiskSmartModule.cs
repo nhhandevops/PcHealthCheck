@@ -1,3 +1,4 @@
+using System.Globalization;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
 using PcHealth.Modules.Windows.Storage;
@@ -21,7 +22,7 @@ internal sealed class DiskSmartModule : WindowsModuleBase
         Id = "disk.smart",
         Name = "Drive SMART health",
         Description = "The drive's own failure indicators: reallocated and pending sectors, uncorrectable errors, cable (CRC) errors, temperature and power-on hours.",
-        Reads = ["SMART attribute tables (WMI root\\wmi)", "Disk model/serial inventory (WMI)"],
+        Reads = ["SMART attribute tables, and the failure limits the drive's maker set (WMI root\\wmi)", "Disk model/serial inventory (WMI)"],
         NeedsAdmin = true,
         EstimatedDuration = TimeSpan.FromSeconds(6),
     };
@@ -51,6 +52,14 @@ internal sealed class DiskSmartModule : WindowsModuleBase
             "SELECT InstanceName, PredictFailure, Reason FROM MSStorageDriver_FailurePredictStatus", out var statusError);
         var data = Wmi.TryQuery(@"root\wmi",
             "SELECT InstanceName, VendorSpecific FROM MSStorageDriver_FailurePredictData", out var dataError);
+        var thresholdRows = Wmi.TryQuery(@"root\wmi",
+            "SELECT InstanceName, VendorSpecific FROM MSStorageDriver_FailurePredictThresholds", out var thresholdError);
+        var thresholdsByInstance = new Dictionary<string, IReadOnlyDictionary<int, int>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in thresholdRows)
+        {
+            if (Wmi.GetString(row, "InstanceName") is { } instance)
+                thresholdsByInstance[instance] = SmartAttributeParser.ParseThresholds(row.GetValueOrDefault("VendorSpecific") as byte[]);
+        }
 
         if (statusError is not null && dataError is not null)
         {
@@ -70,6 +79,12 @@ internal sealed class DiskSmartModule : WindowsModuleBase
         failures.RecordIf(
             "The SMART attribute tables could not be read, so reallocated and pending sectors — the strongest warning signs there are — were NOT checked",
             dataError);
+        if (dataError is null)
+        {
+            failures.RecordIf(
+                "The drives' own failure thresholds could not be read, so whether any SMART attribute has reached its limit was NOT checked",
+                thresholdError);
+        }
 
         foreach (var row in status)
         {
@@ -93,6 +108,11 @@ internal sealed class DiskSmartModule : WindowsModuleBase
             if (attributes.Count == 0) continue;
             drivesWithAttributes++;
             AddAttributeMetrics(metrics, subject, attributes);
+            if (Wmi.GetString(row, "InstanceName") is { } instance &&
+                thresholdsByInstance.TryGetValue(instance, out var thresholds) && thresholds.Count > 0)
+            {
+                AddThresholdMetric(metrics, subject, attributes, thresholds);
+            }
         }
 
         var withoutSmart = Math.Max(0, drives.Count - Math.Max(status.Count, data.Count));
@@ -163,6 +183,23 @@ internal sealed class DiskSmartModule : WindowsModuleBase
                         "Vendors vary in how they report this, so treat it as approximate."));
             break;
         }
+    }
+
+    private static void AddThresholdMetric(
+        List<Metric> metrics, string subject, IReadOnlyList<SmartAttribute> attributes, IReadOnlyDictionary<int, int> thresholds)
+    {
+        var (now, past) = SmartAttributeParser.AtThreshold(attributes, thresholds);
+        string Describe(IEnumerable<SmartAttribute> list, Func<SmartAttribute, int> value) => string.Join(", ",
+            list.Select(a => string.Create(CultureInfo.InvariantCulture, $"{a.Name} ({value(a)}, limit {thresholds[a.Id]})")));
+
+        var detail = now.Count > 0
+            ? $"The drive's own firmware rates these as failed, at or below the limit its maker set: {Describe(now, a => a.Current)}."
+            : "No attribute is at the failure limit the drive's maker set for it.";
+        if (past.Count > 0)
+            detail += $" These reached their limit at some point and have since recovered: {Describe(past, a => a.Worst)}.";
+
+        metrics.Add(new Metric("smart.attributes_at_threshold", "Attributes at the drive's own failure limit", (double)now.Count,
+            HealthCategory.Storage, Subject: subject, Detail: detail));
     }
 
     /// <summary>WMI SMART instance names are the device's PNPDeviceID with a "_0" suffix.</summary>

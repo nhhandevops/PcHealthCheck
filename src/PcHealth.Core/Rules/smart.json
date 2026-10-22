@@ -1,6 +1,22 @@
 {
   "rules": [
     {
+      "id": "rule.smart.at-threshold",
+      "metricId": "smart.attributes_at_threshold",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Bad": [
+          "BACK UP THIS DRIVE NOW. Its own firmware says at least one of its health measures has reached the failure limit its maker set.",
+          "The details name which one. Spare blocks running out, or reallocation reaching its limit, means the drive is near the end of its life.",
+          "Plan to replace the drive, and do not keep the only copy of anything on it."
+        ]
+      },
+      "forecast": "A drive that has reached its own failure limit can stop working without further warning."
+    },
+    {
       "id": "rule.smart.predict-failure",
       "metricId": "smart.predict_failure",
       "bands": [

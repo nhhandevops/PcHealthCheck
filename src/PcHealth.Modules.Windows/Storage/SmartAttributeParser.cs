@@ -52,8 +52,45 @@ public static class SmartAttributeParser
         return attributes;
     }
 
+    /// <summary>
+    /// Parses MSStorageDriver_FailurePredictThresholds.VendorSpecific: the same 2-byte revision and
+    /// twelve-byte entries as the attribute table, each holding [id, threshold, ...]. A threshold of
+    /// 0 means the attribute can never fail.
+    /// </summary>
+    public static IReadOnlyDictionary<int, int> ParseThresholds(byte[]? vendorSpecific)
+    {
+        var thresholds = new Dictionary<int, int>();
+        if (vendorSpecific is null) return thresholds;
+        for (var i = 0; i < MaxEntries; i++)
+        {
+            var offset = AttributeTableOffset + (i * EntrySize);
+            if (offset + EntrySize > vendorSpecific.Length) break;
+            var id = vendorSpecific[offset];
+            if (id != 0) thresholds[id] = vendorSpecific[offset + 1];
+        }
+        return thresholds;
+    }
+
+    /// <summary>
+    /// Attributes the drive's own firmware rates as failed: normalized value at or below the
+    /// threshold the vendor set for it, now or at its worst. This is SMART's one judgement that
+    /// means the same on every brand, which is why the app grades it and does NOT interpret
+    /// attributes such as 171/172 (program/erase failures on Intel and SandForce), 183 (link
+    /// downshifts on Intel, runtime bad blocks on Samsung) or 241 (data written, in units that
+    /// differ by vendor): read by number on the wrong brand, those would raise false alarms.
+    /// </summary>
+    public static (IReadOnlyList<SmartAttribute> Now, IReadOnlyList<SmartAttribute> InThePast) AtThreshold(
+        IReadOnlyList<SmartAttribute> attributes, IReadOnlyDictionary<int, int> thresholds)
+    {
+        bool Has(SmartAttribute a, out int t) => thresholds.TryGetValue(a.Id, out t) && t > 0;
+        var now = attributes.Where(a => Has(a, out var t) && a.Current <= t).ToList();
+        var past = attributes.Where(a => Has(a, out var t) && a.Current > t && a.Worst <= t).ToList();
+        return (now, past);
+    }
+
     public static string NameFor(int id) => id switch
     {
+        170 => "Available reserved space",
         1 => "Raw read error rate",
         3 => "Spin-up time",
         4 => "Start/stop count",

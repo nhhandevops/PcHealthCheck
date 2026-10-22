@@ -67,6 +67,7 @@ P2: important missing signals. Unreviewed outside battery and RAM.
    - Make urgency depend on usage: a desk-bound laptop is not "Action needed".
    **Done 2026-10-22:** identity, time on battery, and usage-aware wording. Pack age and charge state are still open.
 9. SMART: spare blocks (170/232), program/erase fails (171/172), SATA downshift (183), host writes vs rated TBW.
+   **Done 2026-10-22, vendor-neutral:** each attribute is compared with its maker's own failure limit (`smart.attributes_at_threshold`). That covers spare blocks without hard-coding Intel. 171/172/183/241 are left uninterpreted on purpose, because their meaning differs by brand.
 10. Top memory and CPU consumers in the report.
 11. A battery projection once below 60% (for example, toward 40%).
 
