@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Win32;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
@@ -20,7 +21,7 @@ internal sealed class SysOverviewModule : WindowsModuleBase
         Id = "sys.overview",
         Name = "System overview",
         Description = "Windows edition, build and support status, hardware model, uptime, and whether a reboot is pending.",
-        Reads = ["Windows version info (WMI)", "Memory in use and the limit Windows can hand out (WMI)", "Computer model (WMI)", "Pending-reboot registry flags"],
+        Reads = ["Windows version info (WMI)", "Memory in use and the limit Windows can hand out (WMI)", "Names, memory use and processor time of running programs (the top five are shown, by name only)", "Computer model (WMI)", "Pending-reboot registry flags"],
         NeedsAdmin = false,
         EstimatedDuration = TimeSpan.FromSeconds(3),
     };
@@ -111,10 +112,62 @@ internal sealed class SysOverviewModule : WindowsModuleBase
                 HealthCategory.SoftwareOs, InfoOnly: true));
         }
 
+        AddTopUsers(metrics);
+
         metrics.Add(new Metric("os.pending_reboot", "Reboot pending", IsRebootPending(), HealthCategory.SoftwareOs,
             Detail: "Checked Component Based Servicing and Windows Update reboot flags."));
 
         return Task.FromResult(failures.Resolve(gotAnything: metrics.Count > 0));
+    }
+
+    /// <summary>
+    /// Who holds the memory and who has used the processor, so a Memory or Performance finding
+    /// names something to act on. Processor time is the total since each program started, not a
+    /// sample taken now: a sample during the scan would mostly measure the scan itself.
+    /// </summary>
+    private static void AddTopUsers(List<Metric> metrics)
+    {
+        var memory = new List<(string, long)>();
+        var cpu = new List<(string, TimeSpan)>();
+        var cpuUnreadable = 0;
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                if (process.Id == 0) continue; // the Idle pseudo-process
+                string name;
+                try { name = process.ProcessName; } catch (InvalidOperationException) { continue; } // exited meanwhile
+
+                try { memory.Add((name, process.PrivateMemorySize64)); }
+                catch (InvalidOperationException) { }
+
+                // Protected system processes, and other accounts' processes without admin, refuse this.
+                try { cpu.Add((name, process.TotalProcessorTime)); }
+                catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException) { cpuUnreadable++; }
+            }
+        }
+
+        var byMemory = ProcessSummary.TopByMemory(memory);
+        if (byMemory.Length > 0)
+        {
+            metrics.Add(new Metric("memory.top_users", "Programs holding the most memory", byMemory,
+                HealthCategory.Memory, InfoOnly: true,
+                Detail: "Private memory, the memory each program has asked Windows to hold for it, summed per program " +
+                        "(×N is how many processes it runs). Names only: no paths, window titles or command lines."));
+        }
+
+        var byCpu = ProcessSummary.TopByCpu(cpu);
+        if (byCpu.Length > 0)
+        {
+            metrics.Add(new Metric("cpu.top_users", "Programs that used the most processor time", byCpu,
+                HealthCategory.Performance, InfoOnly: true,
+                Detail: "Processor time since each program started, summed per program; one hour means one core kept busy " +
+                        "for an hour. Names only." +
+                        (cpuUnreadable > 0
+                            ? string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                                $" {cpuUnreadable} protected or other-account processes could not be read and are not included.")
+                            : "")));
+        }
     }
 
     private static bool IsRebootPending()

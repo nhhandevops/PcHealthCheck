@@ -270,8 +270,8 @@ email, or send to whoever helps you with your PC. **Export JSON** is the same da
 scripting.
 
 Before you send one, know what is in it: drive models and serial-style identifiers, volume
-names, the names of your startup programs and browser extensions, installed account names,
-and your PC name. There are no file contents, no passwords, no BitLocker keys and no product
+names, the names of your startup programs and browser extensions, the names of the programs
+using the most memory and processor time, installed account names, and your PC name. There are no file contents, no passwords, no BitLocker keys and no product
 keys. It is a hardware and configuration report — but it does describe your machine.
 
 The report ends with a receipt: every external program the scan ran with its full command

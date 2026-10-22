@@ -13,7 +13,8 @@
     WHAT ENDS UP IN THE ZIP, so nothing is a surprise when you send it:
       - the HTML and JSON reports the app writes, which include this PC's name, its Windows
         version and build, drive models and free space, the names of programs that start with
-        Windows, and the names of your browser extensions
+        Windows, the names of the programs using the most memory and processor time, and the
+        names of your browser extensions
       - the app's console output and its exit code
       - a summary of this machine: CPU, memory, disks, display language, whether it is a laptop
       - which of the three optional tools are installed

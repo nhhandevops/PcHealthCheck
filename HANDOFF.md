@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-22** (360 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
+Snapshot for continuing work on another machine. Last updated: **2026-10-22** (365 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
 
 ## What this is
 
@@ -18,7 +18,7 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 360 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 365 tests; WorkerProtocolTests launch the real exe
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
@@ -333,7 +333,7 @@ version bump, fix-then-accept).
 2. ~~A lifetime CRC count on a first scan graded Bad~~ done 2026-10-22: 1-100 is Normal ("watch for growth"), and growth between scans is still Bad through TrendAnalyzer.
 3. ~~Battery identity, AC/DC time, usage-aware wording~~ done 2026-10-22 (`battery.identity`, `battery.time_on_battery_pct`, capacity Detail). Still open: pack age (SMBIOS type 22) and charge state.
 4. ~~SMART spare blocks~~ done 2026-10-22 in the vendor-neutral form: `smart.attributes_at_threshold` compares every attribute with the failure limit its maker set (MSStorageDriver_FailurePredictThresholds), now and at its worst. **Deliberately not done:** reading 171/172/183/241 by number, because their meaning differs by vendor (183 is link downshifts on Intel, runtime bad blocks on Samsung), so it would raise false alarms on other brands. Live check pending: the elevated scan timed out waiting for UAC.
-5. Top memory and CPU consumers in the report.
+5. ~~Top memory and CPU users~~ done 2026-10-22: `memory.top_users` and `cpu.top_users` in System overview, top five by name only, summed per program. CPU is time since each program started, not a sample, so it doesn't measure the scan itself. Unelevated, protected and other-account processes can't be read (the Detail says how many). PRIVACY.md, USER-GUIDE.md and collect-results.ps1 list them as report contents (rule 9).
 
 After those:
 - start the elevated helper alongside the local modules
