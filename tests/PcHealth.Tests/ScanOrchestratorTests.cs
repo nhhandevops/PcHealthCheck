@@ -210,6 +210,19 @@ public sealed class ScanOrchestratorTests
         Assert.All(reports, r => Assert.InRange(r.Index, 1, 2));
     }
 
+    [Theory]
+    [InlineData("1.0.0-rc.1+25a2cd562d932ac9cba4223d129d611f5053fae6", "1.0.0-rc.1+25a2cd562d932ac9cba4223d129d611f5053fae6")]
+    [InlineData("1.0.0-rc.1", "1.0.0-rc.1")]
+    [InlineData(null, "1.2.3")]
+    [InlineData("  ", "1.2.3")]
+    public void Reports_name_the_exact_build(string? informational, string expected) =>
+        // Acceptance row A5: the report's version must match the exe exactly, commit included.
+        Assert.Equal(expected, ScanOrchestrator.DescribeVersion(informational, new Version(1, 2, 3, 0)));
+
+    [Fact]
+    public void A_build_without_any_version_says_dev() =>
+        Assert.Equal("dev", ScanOrchestrator.DescribeVersion(null, null));
+
     /// <summary>Progress&lt;T&gt; posts to the thread pool, so a test reading it could miss reports.</summary>
     private sealed class SyncProgress(Action<ScanProgress> report) : IProgress<ScanProgress>
     {

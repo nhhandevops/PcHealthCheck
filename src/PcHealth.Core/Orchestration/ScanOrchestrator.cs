@@ -71,6 +71,18 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
         return results;
     }
 
+    /// <summary>
+    /// The version a report names: the full informational version, pre-release suffix and build
+    /// commit included ("1.0.0-rc.1+25a2cd5…"). Reports are collected from other machines, and the
+    /// commit is the only thing that says which code produced one; the suffix alone names every
+    /// rc.1 build ever made. Until 2026-10-23 the "+commit" part was cut off here, which failed
+    /// acceptance row A5 ("matches the build exactly"). The assembly version is the fallback,
+    /// because it cannot carry a suffix at all.
+    /// </summary>
+    public static string DescribeVersion(string? informationalVersion, Version? assemblyVersion) =>
+        !string.IsNullOrWhiteSpace(informationalVersion) ? informationalVersion
+        : assemblyVersion?.ToString(3) ?? "dev";
+
     private static async Task<ModuleResult> RunOneAsync(
         IHealthModule module, ModuleContext context, ProgressTracker tracker, CancellationToken ct)
     {
@@ -188,14 +200,9 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
             GeneratedAt = DateTimeOffset.Now,
             MachineName = Environment.MachineName,
             OsDescription = RuntimeInformation.OSDescription,
-            // The informational version keeps the pre-release suffix ("1.0.0-rc.1"); the
-            // assembly version cannot carry one, and a report that claims to come from
-            // "1.0.0" when it came from a release candidate is a traceability hole.
-            AppVersion = Assembly.GetEntryAssembly()
-                ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-                ?.Split('+')[0]
-                ?? Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)
-                ?? "dev",
+            AppVersion = DescribeVersion(
+                Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+                Assembly.GetEntryAssembly()?.GetName().Version),
             RanElevated = ranElevated,
             Modules = summaries,
             Verdicts = verdicts,
