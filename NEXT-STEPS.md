@@ -38,6 +38,7 @@ inside the release zip, because a collector left behind in the repo is one that 
 | ENG-9 single-file wording | ✅ 2026-10-23: managed code is bundled, natives deliberately are not. After repeated runs of the release exe no `%TEMP%\.net\PcHealthCheck` exists (HrSync.App, built the other way, has one), and `build-release.ps1` now fails if the natives ever end up bundled |
 | ENG-12 / C1 🔴 | ✅ 2026-10-23, release build `+ddad8bd`: 0 TCP/UDP sockets owned by the app or any descendant (7z.exe, conhost.exe seen) across 93 samples of a 91 s scan; the report states 0. Limit: about 1 s per sample, so a child living under a second could be missed. Strictly closing that needs Filtering Platform auditing, an admin system-setting change |
 | ENG-15 J3 culture half 🔴 | ✅ 2026-10-23: vi-VN regional format, elevated, readings identical to en-US (see J3) |
+| ENG-16 artifact rows | ✅ 2026-10-23 on `+16d1fcf`: A1, A2, A5, A6, C2, C4, C6, C7 and F1 pass; A4, F3 and J2 pass their scriptable half. A5 failed first (the report dropped the commit) and was fixed. See `ACCEPTANCE-RUN-2026-10-23.md` |
 | Tests | 291 → **305**, all passing |
 
 **The review pass earned its keep, and this is the part worth remembering.** The first round of
