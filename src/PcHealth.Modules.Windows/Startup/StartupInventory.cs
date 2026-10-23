@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Microsoft.Win32;
 using PcHealth.Modules.Windows.Support;
@@ -24,12 +25,24 @@ public sealed record StartupItem(
 ///
 /// Shared by the startup check and the opt-in reputation lookup, so both look at exactly
 /// the same list rather than two implementations that can drift apart.
+///
+/// Speed (2026-10-23): this was the slowest unelevated check, 8-17 s on a ThinkPad T470p,
+/// because large programs such as a 99 MB Google Drive client cost 3 s each to verify and hash,
+/// one after another. Files are now examined up to <see cref="ParallelFiles"/> at a time, each
+/// distinct file once, and disabled items are listed without being examined: nothing reads
+/// their signature or hash, since the startup check and the reputation lookup both skip them.
 /// </summary>
 public static class StartupInventory
 {
+    public const int ParallelFiles = 4;
+
+    private sealed record Entry(string Name, string Source, string Command, bool Disabled);
+
     public static IReadOnlyList<StartupItem> Collect(List<string> notes, CancellationToken ct = default)
     {
-        var items = new List<StartupItem>();
+        // Gathering the list is fast (registry and folder reads) and stays sequential; shortcut
+        // resolution goes through COM. Examining the files is the slow part and runs in parallel.
+        var entries = new List<Entry>();
         var disabledMap = ReadStartupApprovedStates();
 
         foreach (var (hive, path, source) in RunKeyLocations())
@@ -42,7 +55,7 @@ public static class StartupInventory
                 var command = key.GetValue(valueName)?.ToString();
                 if (string.IsNullOrWhiteSpace(command)) continue;
                 var disabled = disabledMap.TryGetValue(valueName, out var d) && d;
-                items.Add(Inspect(valueName, source, command, disabled));
+                entries.Add(new Entry(valueName, source, command, disabled));
                 ct.ThrowIfCancellationRequested();
             }
         }
@@ -59,12 +72,18 @@ public static class StartupInventory
                 var name = Path.GetFileNameWithoutExtension(file);
                 if (name.Equals("desktop", StringComparison.OrdinalIgnoreCase)) continue;
                 var target = file.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) ? ResolveShortcut(file, notes) : file;
-                items.Add(Inspect(name, source, target ?? file, disabled: false));
+                entries.Add(new Entry(name, source, target ?? file, Disabled: false));
                 ct.ThrowIfCancellationRequested();
             }
         }
 
-        return items;
+        var examined = new ConcurrentDictionary<string, Lazy<(AuthenticodeVerifier.SignatureState, string?)>>(StringComparer.OrdinalIgnoreCase);
+        return entries
+            .AsParallel().AsOrdered()
+            .WithDegreeOfParallelism(ParallelFiles)
+            .WithCancellation(ct)
+            .Select(e => Inspect(e, examined))
+            .ToList();
     }
 
     private static IEnumerable<(RegistryKey Hive, string Path, string Source)> RunKeyLocations()
@@ -101,22 +120,30 @@ public static class StartupInventory
         return map;
     }
 
-    private static StartupItem Inspect(string name, string source, string command, bool disabled)
+    private static StartupItem Inspect(
+        Entry entry, ConcurrentDictionary<string, Lazy<(AuthenticodeVerifier.SignatureState, string?)>> examined)
     {
-        var resolved = TryResolveExecutable(command);
-        var signature = AuthenticodeVerifier.SignatureState.Unknown;
+        var resolved = TryResolveExecutable(entry.Command);
+        if (resolved is null || entry.Disabled)
+            return new StartupItem(entry.Name, entry.Source, entry.Command, resolved, AuthenticodeVerifier.SignatureState.Unknown, null, entry.Disabled);
+
+        // Lazy so two entries pointing at one file (two "Uninstall" entries both running cmd.exe)
+        // examine it once even when they are handled at the same moment.
+        var (signature, hash) = examined.GetOrAdd(resolved, path => new(() => Examine(path))).Value;
+        return new StartupItem(entry.Name, entry.Source, entry.Command, resolved, signature, hash, entry.Disabled);
+    }
+
+    private static (AuthenticodeVerifier.SignatureState, string?) Examine(string path)
+    {
+        var signature = AuthenticodeVerifier.Verify(path);
         string? hash = null;
-        if (resolved is not null)
+        try
         {
-            signature = AuthenticodeVerifier.Verify(resolved);
-            try
-            {
-                using var stream = File.OpenRead(resolved);
-                hash = Convert.ToHexString(SHA256.HashData(stream));
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            using var stream = File.OpenRead(path);
+            hash = Convert.ToHexString(SHA256.HashData(stream));
         }
-        return new StartupItem(name, source, command, resolved, signature, hash, disabled);
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return (signature, hash);
     }
 
     private static string? TryResolveExecutable(string command)

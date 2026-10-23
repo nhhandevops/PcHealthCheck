@@ -337,7 +337,7 @@ version bump, fix-then-accept).
 
 After those:
 - ~~start the elevated helper alongside the local modules~~ done 2026-10-23 (rule 11)
-- speed up `startup`, which at 8–10 s now sets the scan time
+- ~~speed up `startup`~~ done 2026-10-23: 11 s → ~5 s on the T470p. Files are examined 4 at a time, each distinct file once, and disabled items are listed but not examined (nothing reads their signature or hash).
 - ~~move the CI actions off Node 20~~ done 2026-10-23: checkout@v7, setup-dotnet@v6, upload-artifact@v7, all on Node 24, with the inputs checked against each `action.yml`
 - the Linux provider, still blocked on the privilege-model decision (M5-LNX)
 
