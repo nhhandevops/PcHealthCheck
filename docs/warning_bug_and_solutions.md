@@ -10,6 +10,28 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## TOOL-001 — Scripted edits from bash turned escape sequences into real control bytes
+
+**Symptom.** On 2026-10-23 a scripted edit meant to write the text `"\0"` (backslash, zero) wrote
+a real NUL byte instead, twice: once into `BrowserExtensionsModule.cs` during its own fix, and
+once into `NEXT-STEPS.md`. Git then showed the file as `Bin` in `git show --stat` and stopped
+diffing it. A `printf`-built commit message hit the same problem, and git refused it with
+`a NUL byte in commit log message not allowed`.
+
+**Root cause.** Python or `printf` code passed through a bash heredoc goes through one more layer
+of escape processing than expected: `\\0` arrives as `\0`, which Python and `printf` read as NUL.
+
+**How to verify.** `git show --stat HEAD` shows `Bin` for a text file; for a scan, run
+`python -c "import subprocess; print([f for f in subprocess.run(['git','ls-files'],capture_output=True,text=True).stdout.split() if bytes([0]) in open(f,'rb').read()])"`.
+
+**Fix.** Both bytes were replaced, and no tracked text file contains a NUL. For scripted edits, build
+backslashes and control bytes from their character codes (`bytes([92])`), or use an editor
+tool rather than a shell, in file content and commit messages alike.
+
+**Date.** 2026-10-23.
+
+---
+
 ## PKG-003 — `build-release.ps1` wrote the release to the root of the drive
 
 **Symptom.** On 2026-10-22, `powershell -File .\build-release.ps1` printed `\release\PcHealthCheck-…zip`,
