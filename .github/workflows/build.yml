@@ -56,3 +56,22 @@ jobs:
           name: PcHealthCheck-win-x64
           path: artifacts/
           retention-days: 7
+
+  # The Linux modules on a real kernel. The fixture tests also run in the Windows job above;
+  # here LiveLinuxTests run too, reading this runner's own /proc and /sys and printing every
+  # reading, so a wrong assumption about a real machine shows up in this log. Unelevated, like
+  # the modules: nothing in this job uses sudo.
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the Linux modules and their tests
+        run: dotnet build tests/PcHealth.Tests.Linux/PcHealth.Tests.Linux.csproj -c Release -warnaserror
+
+      - name: Test, fixtures and this runner's real kernel
+        run: dotnet test tests/PcHealth.Tests.Linux/PcHealth.Tests.Linux.csproj -c Release --no-build --logger "console;verbosity=detailed"

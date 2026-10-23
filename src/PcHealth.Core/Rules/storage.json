@@ -3,6 +3,7 @@
     {
       "id": "rule.storage.free-space",
       "metricId": "storage.volume.free_pct",
+      "os": "windows",
       "bands": [
         { "grade": "Good", "gt": 20 },
         { "grade": "Normal", "gte": 10 },

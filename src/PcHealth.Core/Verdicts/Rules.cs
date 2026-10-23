@@ -23,6 +23,15 @@ public sealed class Rule
     [JsonPropertyName("metricId")]
     public string MetricId { get; set; } = "";
 
+    /// <summary>
+    /// The one OS this rule applies on ("windows", "linux"), or null for every OS. A metric such
+    /// as free space means the same everywhere, but its tips do not: "Storage Sense" on a Linux
+    /// report is advice the reader cannot follow. Such metrics get one rule per OS, and
+    /// <see cref="RulesLoader.LoadEmbedded(string)"/> keeps only the current OS's.
+    /// </summary>
+    [JsonPropertyName("os")]
+    public string? Os { get; set; }
+
     [JsonPropertyName("bands")]
     public List<Band> Bands { get; set; } = [];
 
@@ -63,8 +72,28 @@ public static class RulesLoader
         AllowTrailingCommas = true,
     };
 
-    /// <summary>Loads every rules/*.json embedded in PcHealth.Core.</summary>
-    public static IReadOnlyList<Rule> LoadEmbedded()
+    /// <summary>The OS names rules use in <see cref="Rule.Os"/>.</summary>
+    public static readonly IReadOnlyList<string> KnownOs = ["windows", "linux"];
+
+    /// <summary>The <see cref="Rule.Os"/> name of the OS this process runs on.</summary>
+    public static string CurrentOs =>
+        OperatingSystem.IsWindows() ? "windows"
+        : OperatingSystem.IsLinux() ? "linux"
+        : OperatingSystem.IsMacOS() ? "macos"
+        : "other";
+
+    /// <summary>Loads the embedded rules that apply on the OS this process runs on.</summary>
+    public static IReadOnlyList<Rule> LoadEmbedded() => LoadEmbedded(CurrentOs);
+
+    /// <summary>
+    /// Loads every rules/*.json embedded in PcHealth.Core, keeping the rules for
+    /// <paramref name="os"/> and those for every OS.
+    /// </summary>
+    public static IReadOnlyList<Rule> LoadEmbedded(string os) =>
+        [.. LoadAllEmbedded().Where(r => r.Os is null || string.Equals(r.Os, os, StringComparison.OrdinalIgnoreCase))];
+
+    /// <summary>Every embedded rule, for every OS. Only for tests that check the files themselves.</summary>
+    public static IReadOnlyList<Rule> LoadAllEmbedded()
     {
         var assembly = typeof(RulesLoader).Assembly;
         var rules = new List<Rule>();

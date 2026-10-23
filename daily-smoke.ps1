@@ -144,6 +144,11 @@ if (-not $built) {
     $assemblies = @(Get-ChildItem $appOut -File | Where-Object {
         ($_.Name -like 'PcHealth*.dll') -and ($_.Name -ne 'PcHealth.Net.Optional.dll')
     })
+    # The Linux modules are not part of the Windows app, so their assembly is not in $appOut.
+    # It is named here rather than globbed, so that losing it fails the gate instead of shrinking it.
+    $linuxDll = Join-Path $root 'src\PcHealth.Modules.Linux\bin\Release\net10.0\PcHealth.Modules.Linux.dll'
+    $linuxSeen = Test-Path $linuxDll
+    if ($linuxSeen) { $assemblies += Get-Item $linuxDll }
     $optional = Join-Path $appOut 'PcHealth.Net.Optional.dll'
     $dirtyDlls = @($assemblies | Where-Object {
         $latin1.GetString([IO.File]::ReadAllBytes($_.FullName)).IndexOf('System.Net', [StringComparison]::Ordinal) -ge 0
@@ -154,8 +159,8 @@ if (-not $built) {
         ($latin1.GetString([IO.File]::ReadAllBytes($optional)).IndexOf('System.Net', [StringComparison]::Ordinal) -ge 0)
     if ($dirtyDlls) {
         Result 'Gate (compiled)' 'FAIL' "System.Net used in: $(($dirtyDlls | ForEach-Object Name) -join ', ')"
-    } elseif ($assemblies.Count -lt 4 -or -not $controlSeen) {
-        Result 'Gate (compiled)' 'FAIL' "scan cannot be trusted: $($assemblies.Count) assemblies found, control assembly seen = $controlSeen"
+    } elseif ($assemblies.Count -lt 5 -or -not $controlSeen -or -not $linuxSeen) {
+        Result 'Gate (compiled)' 'FAIL' "scan cannot be trusted: $($assemblies.Count) assemblies found, control assembly seen = $controlSeen, Linux modules seen = $linuxSeen"
     } else {
         Result 'Gate (compiled)' 'PASS' "$($assemblies.Count) assemblies clean; control (Net.Optional) detected"
     }
@@ -170,25 +175,38 @@ if (-not $built) {
     $testLog = Join-Path $run 'tests.log'
     $t = Get-Date
     $testExit = Invoke-Logged $testLog 'dotnet' @('test', $solution, '-c', 'Release', '--no-build', '--nologo',
-        '--results-directory', $run, '--logger', 'trx;LogFileName=tests.trx')
+        '--results-directory', $run, '--logger', 'trx;LogFilePrefix=tests')
     $testSecs = [int]((Get-Date) - $t).TotalSeconds
-    $trxPath = Get-ChildItem $run -Filter *.trx -Recurse | Select-Object -First 1
-    if (-not $trxPath) {
+    # One results file per test project, all of them read. Until 2026-10-23 every project wrote
+    # tests.trx and only the first file found was read: with a second test project, its failures
+    # could have gone unseen while the row said PASS.
+    $trxFiles = @(Get-ChildItem $run -Filter *.trx -Recurse)
+    $testProjects = @(Get-ChildItem (Join-Path $root 'tests') -Filter *.csproj -Recurse).Count
+    if ($trxFiles.Count -eq 0) {
         Result 'Tests' 'FAIL' "dotnet test exit $testExit and no results file - see $testLog"
+    } elseif ($trxFiles.Count -lt $testProjects) {
+        Result 'Tests' 'FAIL' "results for $($trxFiles.Count) of $testProjects test projects - see $testLog"
     } else {
-        [xml]$trx = [IO.File]::ReadAllText($trxPath.FullName)
-        $c = $trx.TestRun.ResultSummary.Counters
-        $failedNames = @($trx.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'Failed' } | ForEach-Object { $_.testName })
-        $testSummary = "$($c.passed)/$($c.total)"
+        $passed = 0; $total = 0; $failed = 0; $skipped = 0; $failedNames = @()
+        foreach ($file in $trxFiles) {
+            [xml]$trx = [IO.File]::ReadAllText($file.FullName)
+            $c = $trx.TestRun.ResultSummary.Counters
+            $passed += [int]$c.passed; $total += [int]$c.total; $failed += [int]$c.failed
+            # Skipped tests are counted in total but never executed: the Linux-only live tests on Windows.
+            $skipped += [int]$c.total - [int]$c.executed
+            $failedNames += @($trx.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'Failed' } | ForEach-Object { $_.testName })
+        }
+        $skipNote = if ($skipped -gt 0) { ", $skipped skipped" } else { '' }
+        $testSummary = "$passed/$total$skipNote"
         $unknown = @($failedNames | Where-Object { $n = $_; -not ($knownFlakes.Keys | Where-Object { $n -like "*$_" }) })
         if ($failedNames.Count -eq 0 -and $testExit -eq 0) {
-            Result 'Tests' 'PASS' "$($c.passed)/$($c.total) passed (${testSecs}s)"
+            Result 'Tests' 'PASS' "$passed/$total passed$skipNote (${testSecs}s)"
         } elseif ($failedNames.Count -eq 0) {
             # A host crash or an aborted run can leave a results file with no failures in it.
             Result 'Tests' 'FAIL' "dotnet test exit $testExit with no failed test recorded - see $testLog"
         } elseif ($unknown.Count -gt 0) {
             $unknown | ForEach-Object { Write-Host "    failed: $_" -ForegroundColor Red }
-            Result 'Tests' 'FAIL' "$($c.failed) of $($c.total) failed - see $testLog"
+            Result 'Tests' 'FAIL' "$failed of $total failed - see $testLog"
         } else {
             # Only known flakes failed. Each must pass on its own, or it is not flaky, it is broken.
             $notes = @(); $stillFailing = @()
@@ -201,7 +219,7 @@ if (-not $built) {
             }
             $testSummary += ' (flake)'
             if ($stillFailing) { Result 'Tests' 'FAIL' "known flake failed alone too, so it is a real failure: $($stillFailing -join ', ')" }
-            else { Result 'Tests' 'WARN' "$($c.passed)/$($c.total) passed; $($notes -join '; ')" }
+            else { Result 'Tests' 'WARN' "$passed/$total passed; $($notes -join '; ')" }
         }
     }
 }

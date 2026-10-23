@@ -1,0 +1,108 @@
+{
+  "rules": [
+    {
+      "id": "rule.linux.free-space",
+      "metricId": "storage.volume.free_pct",
+      "os": "linux",
+      "bands": [
+        { "grade": "Good", "gt": 20 },
+        { "grade": "Normal", "gte": 10 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Free up space soon. The Disk Usage Analyzer (baobab), or 'sudo du -xh --max-depth=1 / | sort -h' in a terminal, shows what is using it.",
+          "Common space users on Linux: the package cache ('sudo apt clean' or 'sudo dnf clean all'), old system logs ('sudo journalctl --vacuum-size=500M'), the Trash, and old Snap or Flatpak versions."
+        ],
+        "Bad": [
+          "Under 10% free: package updates can fail half-way, and SSDs slow down and wear faster. Free space now, starting with the package cache and the Trash.",
+          "If this is /boot, old kernels are the usual cause: 'sudo apt autoremove' (or your distribution's equivalent) removes the ones no longer used.",
+          "Consider moving large media folders to another drive or an external disk."
+        ]
+      },
+      "forecast": "An SSD kept nearly full has less room for wear leveling — sustained <10% free measurably accelerates wear."
+    },
+    {
+      "id": "rule.linux.memory-used",
+      "metricId": "memory.used_pct",
+      "os": "linux",
+      "bands": [
+        { "grade": "Good", "lt": 85 },
+        { "grade": "Normal", "lt": 95 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Memory was fairly full while scanning. If the PC often feels slow, closing browser tabs or adding RAM would help."
+        ],
+        "Bad": [
+          "Memory was nearly exhausted, which forces Linux to swap and to drop its file cache, and makes everything feel slow.",
+          "Close what you are not using and re-check; the System Monitor, or 'top' sorted by memory (press M), shows what holds the most. If it is always this full, more RAM is the real fix."
+        ]
+      }
+    },
+    {
+      "id": "rule.linux.memory-commit",
+      "metricId": "memory.commit_pct",
+      "os": "linux",
+      "bands": [
+        { "grade": "Good", "lt": 80 },
+        { "grade": "Normal", "lt": 90 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "This system uses strict overcommit (vm.overcommit_memory = 2) and has promised most of what it can hand out. 'ps -eo comm,vsz --sort=-vsz | head' lists the programs reserving the most."
+        ],
+        "Bad": [
+          "This system uses strict overcommit (vm.overcommit_memory = 2) and is close to its limit: at 100% programs are refused memory and can crash, even with RAM free.",
+          "Close what you are not using. More swap raises the limit at once (the limit is swap plus vm.overcommit_ratio percent of RAM); more RAM is the lasting fix."
+        ]
+      },
+      "forecast": "When the limit is reached, programs that ask for more memory are refused and may close without saving."
+    },
+    {
+      "id": "rule.linux.oom-kills",
+      "metricId": "memory.oom_kills_since_boot",
+      "os": "linux",
+      "bands": [
+        { "grade": "Good", "lte": 0 },
+        { "grade": "Normal", "lte": 1 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Linux ran out of memory once since the last restart and closed a program to recover. Worth noting what was open; if it happens again, see the tips for repeated kills."
+        ],
+        "Bad": [
+          "Linux ran out of memory more than once since the last restart, and closed a program each time to recover.",
+          "'sudo journalctl -k | grep -i \"killed process\"' names the program each time.",
+          "Common causes: a virtual machine or local AI model sized for more RAM than this PC has, many browser tabs, or a program that keeps growing. More swap (or zram) is a quick fix; more RAM is the lasting one."
+        ]
+      },
+      "forecast": "Each out-of-memory kill closes a program at once, without a chance to save."
+    },
+    {
+      "id": "rule.linux.cpu-zone-temp",
+      "metricId": "cpu.zone_temperature_c",
+      "os": "linux",
+      "bands": [
+        { "grade": "Good", "lt": 80 },
+        { "grade": "Normal", "lt": 95 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Warm near the processor. Normal under heavy load; if it stays this high while the PC is doing little, dust or old thermal paste is the usual cause.",
+          "This is the firmware's (ACPI) sensor, not the processor's own. The processor's sensor driver (coretemp for Intel, k10temp for AMD) was not found; most distributions load it automatically, so a missing one is worth a look."
+        ],
+        "Bad": [
+          "Very hot near the processor. At this level the processor slows itself down to protect itself, so the PC feels slower than it should.",
+          "Clean the fan and heatsink. On a laptop several years old, fresh thermal paste often lowers temperatures a lot.",
+          "Check the charger is the wattage the laptop needs: an underpowered charger can also hold the processor back."
+        ]
+      },
+      "forecast": "Sustained heat shortens the life of every component near it, and thermal shutdowns risk file-system damage."
+    }
+  ]
+}

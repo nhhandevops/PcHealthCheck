@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Management;
+using PcHealth.Core.Modules;
 
 namespace PcHealth.Modules.Windows.Support;
 

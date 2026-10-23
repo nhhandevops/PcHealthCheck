@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PcHealth.Modules.Linux</RootNamespace>
+    <Description>Linux implementations of the health modules. Unelevated only (decided 2026-10-23): every check reads files under /proc, /sys and /etc, runs no program and needs no root. A check that would need root is reported as not checked, never as healthy.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PcHealth.Core\PcHealth.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The fixture tests point the modules at a fake /proc and /sys, which needs the internal constructor. -->
+    <InternalsVisibleTo Include="PcHealth.Tests.Linux" />
+  </ItemGroup>
+
+</Project>

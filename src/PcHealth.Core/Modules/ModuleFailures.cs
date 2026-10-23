@@ -1,6 +1,5 @@
-using PcHealth.Core.Modules;
 
-namespace PcHealth.Modules.Windows.Support;
+namespace PcHealth.Core.Modules;
 
 /// <summary>
 /// Ties "a check could not finish" to "the module says so", because keeping those two facts in

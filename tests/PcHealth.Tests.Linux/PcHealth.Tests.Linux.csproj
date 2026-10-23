@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plain net10.0, unlike PcHealth.Tests (net10.0-windows), so it also runs on Linux. On Windows
+    it runs the fixture tests against a fake /proc and /sys; in CI's ubuntu-latest job it runs
+    them again and adds LiveLinuxTests, which read that machine's real kernel.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PcHealth.Core\PcHealth.Core.csproj" />
+    <ProjectReference Include="..\..\src\PcHealth.Modules.Linux\PcHealth.Modules.Linux.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

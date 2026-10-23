@@ -3,6 +3,7 @@
     {
       "id": "rule.memory.commit",
       "metricId": "memory.commit_pct",
+      "os": "windows",
       "bands": [
         { "grade": "Good", "lt": 80 },
         { "grade": "Normal", "lt": 90 },
