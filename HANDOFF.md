@@ -338,7 +338,7 @@ version bump, fix-then-accept).
 After those:
 - start the elevated helper alongside the local modules
 - speed up `startup`, which at 8–10 s now sets the scan time
-- move the CI actions to `@v5` (Node 20 is deprecated)
+- ~~move the CI actions off Node 20~~ done 2026-10-23: checkout@v7, setup-dotnet@v6, upload-artifact@v7, all on Node 24, with the inputs checked against each `action.yml`
 - the Linux provider, still blocked on the privilege-model decision (M5-LNX)
 
 **Every day:** run `daily-smoke.ps1` ("do the daily smokes").

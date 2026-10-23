@@ -8,9 +8,9 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -50,7 +50,7 @@ jobs:
       # recreated from its commit; releases are kept separately (RELEASING.md).
       # continue-on-error: the gates above decide whether a commit is good. A full storage quota
       # says nothing about the code, so it shows as a warning on the run instead of turning it red.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: PcHealthCheck-win-x64
