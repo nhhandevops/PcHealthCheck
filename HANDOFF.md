@@ -10,13 +10,13 @@ Build and tooling faults that no unit test covers are logged in
 
 ## Repository
 
-`https://github.com/nhhandevops/PcHealthCheck` — **private**, default branch `main`. CI (`build`) runs on every push: build with `-warnaserror`, tests, the no-`System.Net` privacy gate, then a single-file self-contained publish with SHA-256 checksums uploaded as an artifact, kept 7 days. The upload step is `continue-on-error`: a full storage quota warns instead of failing a good commit (CI-001).
+`https://github.com/nhhandevops/PcHealthCheck`: **public since 2026-10-23** (YOU-1; README opens with a "not fully tested" note), default branch `main`. GitHub Actions minutes are free for public repositories, so the October CI-minutes limit no longer applies. CI (`build`) runs on every push: build with `-warnaserror`, tests, the no-`System.Net` privacy gate, then a single-file self-contained publish with SHA-256 checksums uploaded as an artifact, kept 7 days. The upload step is `continue-on-error`: a full storage quota warns instead of failing a good commit (CI-001).
 
 ## Getting started on a fresh machine
 
 ```text
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
-gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
+git clone https://github.com/nhhandevops/PcHealthCheck   # public, no login needed
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
 dotnet test  PcHealthCheck.slnx               # 376 tests; WorkerProtocolTests launch the real exe
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
@@ -49,7 +49,8 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | Full hardware audit of a ThinkPad T470p against the app's own report: 6 misgrades fixed (HW-001), gaps listed in `docs/feature-gap-2026-10-21.md` | ✅ P1s 2026-10-21 · P2/P3 open |
 | Parallel scan, rule 11 below: 19.8 s → ~9 s | ✅ 2026-10-21 |
 | **Acceptance — J3 (Vietnamese Windows), J1 (a PC with no SDK), the D rows, and the 14 rows that need a person** | ⬜ next |
-| **Then signing per `RELEASING.md`** | ⬜ after that |
+| Repository public, with a "not fully tested" disclaimer (YOU-1) | ✅ 2026-10-23 |
+| **Then signing per `RELEASING.md`** | ⬜ after that; the public-repo prerequisite for SignPath is now met |
 
 ## Architecture in five lines
 
