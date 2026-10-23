@@ -41,3 +41,18 @@ public static class BatteryUsage
         }
     }
 }
+
+/// <summary>
+/// The battery's charge right now, in words. Not graded: a laptop on mains power that is not
+/// charging is usually holding at a limit on purpose (most stop at 95-100%, many offer an 80%
+/// limit, Lenovo's conservation mode holds 55-60%), so "not charging" is only a fault when no
+/// such limit is set, which Windows cannot tell us.
+/// </summary>
+public static class BatteryChargeState
+{
+    public static string Describe(double percent, bool onMains, bool charging, bool discharging) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{Math.Round(percent):0}% charged, ") +
+        (onMains
+            ? charging ? "on mains power, charging" : "on mains power, not charging"
+            : discharging ? "running on battery" : "on battery power");
+}

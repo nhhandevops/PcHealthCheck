@@ -18,7 +18,7 @@ internal sealed class BatteryModule : WindowsModuleBase
         Id = "battery",
         Name = "Battery health",
         Description = "Battery wear (full-charge vs design capacity) and cycle count. Skipped automatically on desktops.",
-        Reads = ["Battery presence (WMI)", "powercfg battery report", "Battery manufacture date (SMBIOS, via WMI)"],
+        Reads = ["Battery presence and charge state (WMI)", "powercfg battery report", "Battery manufacture date (SMBIOS, via WMI)"],
         NeedsAdmin = false,
         Writes = new WriteSpec("battery-report.xml inside the app's own temp folder", 512 * 1024, "deleted right after parsing"),
         EstimatedDuration = TimeSpan.FromSeconds(6),
@@ -144,6 +144,22 @@ internal sealed class BatteryModule : WindowsModuleBase
                                       "from a socket, or at once if it swells."
                                     : "")));
                 }
+                if (fullCharge is > 0 && doc.Descendants(ns + "Battery").Count() == 1 &&
+                    Wmi.TryQuery(@"root\wmi", "SELECT PowerOnline, Charging, Discharging, RemainingCapacity FROM BatteryStatus", out _)
+                        .FirstOrDefault() is { } status &&
+                    Wmi.Get<uint>(status, "RemainingCapacity") is { } remaining)
+                {
+                    var onMains = Wmi.Get<bool>(status, "PowerOnline") ?? false;
+                    var charging = Wmi.Get<bool>(status, "Charging") ?? false;
+                    metrics.Add(new Metric("battery.charge_state", "Charge right now",
+                        BatteryChargeState.Describe(Math.Min(100, remaining * 100.0 / fullCharge.Value), onMains, charging,
+                            Wmi.Get<bool>(status, "Discharging") ?? false),
+                        HealthCategory.Battery, Subject: subject, InfoOnly: true,
+                        Detail: "Not charging on mains power is usually deliberate: most laptops stop at 95-100%, and many hold " +
+                                "a lower limit to slow wear (often 80%; Lenovo's conservation mode holds 55-60%). It only " +
+                                "points at the battery or charger when no such limit is set."));
+                }
+
                 if (cycles is > 0)
                 {
                     metrics.Add(new Metric("battery.cycles", "Charge cycles", (double)cycles.Value,

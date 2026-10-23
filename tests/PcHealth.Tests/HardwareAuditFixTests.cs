@@ -162,6 +162,13 @@ public sealed class HardwareAuditFixTests
     public void A_battery_too_young_to_show_a_rate_gets_no_projection() =>
         Assert.Null(BatteryAge.ReachesPercent(97, AuditDay.AddDays(-100), AuditDay, 60));
 
+    [Theory]
+    [InlineData(94.6, true, false, false, "95% charged, on mains power, not charging")]   // the T470p, holding near full
+    [InlineData(40, true, true, false, "40% charged, on mains power, charging")]
+    [InlineData(71, false, false, true, "71% charged, running on battery")]
+    public void Charge_state_is_described_plainly(double pct, bool mains, bool charging, bool discharging, string expected) =>
+        Assert.Equal(expected, BatteryChargeState.Describe(pct, mains, charging, discharging));
+
     // --- Lifetime interface (CRC) errors on a scan with no history --------------------------
 
     [Theory]
