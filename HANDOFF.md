@@ -41,7 +41,7 @@ The release zip also carries the **laptop audit kit** (`audit-kit/` in the repo)
 | M3 part 2 — benchmarks (DiskSpd disk profile, 7-Zip CPU bench, personal baselines) | ✅ both verified on real hardware |
 | M5 — browser extension audit | ✅ done |
 | M5 — multi-user startup coverage | ✅ shipped and verified elevated |
-| M5 — Linux provider phase 1: five unelevated modules, per-OS rules, fixture tests, `ubuntu-latest` CI job | ✅ 2026-10-23 · first CI log not yet read |
+| M5 — Linux provider phase 1: five unelevated modules, per-OS rules, fixture tests, `ubuntu-latest` CI job | ✅ 2026-10-23 · verified on a real kernel in CI (Ubuntu 24.04, 6.17); one cosmetic fix |
 | Windows 11 readiness (`os.win11_ready`, from Windows' own appraiser verdict) and the laptop audit kit with `AUDIT-GUIDE.md` | ✅ 2026-10-23 · kit tested unelevated on the T470p; its admin path awaits the owner's pilot |
 | **Company laptop audit: pilot on 2–3 laptops, then review the zips** (NEXT-STEPS, top) | ⬜ now, owner first |
 | **M5 remainder — Linux phase 2 (`PcHealth.Cli`), Vietnamese localization** | ⬜ next |
@@ -347,6 +347,6 @@ After those:
 - ~~start the elevated helper alongside the local modules~~ done 2026-10-23 (rule 11)
 - ~~speed up `startup`~~ done 2026-10-23: 11 s → ~5 s on the T470p. Files are examined 4 at a time, each distinct file once, and disabled items are listed but not examined (nothing reads their signature or hash).
 - ~~move the CI actions off Node 20~~ done 2026-10-23: checkout@v7, setup-dotnet@v6, upload-artifact@v7, all on Node 24, with the inputs checked against each `action.yml`
-- the Linux provider: **phase 1 done 2026-10-23**, unelevated only. First, read the `linux` job's log from the first CI run after the push: the live tests print every reading from a real kernel, and the fixtures were written from the kernel's documentation, not copied from a machine. Then phase 2 (`PcHealth.Cli`) per NEXT-STEPS (M5-LNX). It needs the Ubuntu 26.04 VM, since this laptop has no WSL distribution and no Docker.
+- the Linux provider: **phase 1 done 2026-10-23**, unelevated only, and verified on a real kernel the same day (CI's `linux` job; details in NEXT-STEPS M5-LNX). Next is phase 2 (`PcHealth.Cli`) per NEXT-STEPS (M5-LNX). It needs the Ubuntu 26.04 VM, since this laptop has no WSL distribution and no Docker.
 
 **Every day:** run `daily-smoke.ps1` ("do the daily smokes").

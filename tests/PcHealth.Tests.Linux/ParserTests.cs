@@ -136,6 +136,16 @@ public sealed class ParserTests
         Assert.Null(MountTable.FreePct(new VolumeSpace(0, 0, 0)));
     }
 
+    [Fact]
+    public void Small_partitions_are_not_shown_as_zero_gigabytes()
+    {
+        // The first real kernel (CI, 2026-10-23) printed "0.1 GB free of 0 GB" for /boot/efi.
+        Assert.Equal("106 MB", MountTable.FormatSize(111_149_056));
+        Assert.Equal("144 GB", MountTable.FormatSize(144L << 30));
+        Assert.Equal(2.5.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture) + " GB",
+            MountTable.FormatSize((5L << 30) / 2));
+    }
+
     private static PowerSupplyEntry Supply(params (string Name, string Value)[] attributes) =>
         new("BAT0", attributes.ToDictionary(a => a.Name, a => a.Value, StringComparer.Ordinal));
 

@@ -102,6 +102,18 @@ internal static class MountTable
     }
 
     /// <summary>
+    /// A size for a Detail line, in the regional format like every Detail. Whole GB hid small
+    /// partitions: the first real run (CI, 2026-10-23) said "0.1 GB free of 0 GB" for a 106 MB /boot/efi.
+    /// </summary>
+    public static string FormatSize(long bytes)
+    {
+        const double mb = 1048576.0, gb = 1073741824.0;
+        return bytes < gb ? $"{bytes / mb:0} MB"
+            : bytes < 10 * gb ? $"{bytes / gb:0.#} GB"
+            : $"{bytes / gb:0} GB";
+    }
+
+    /// <summary>
     /// Free space as a percentage, counted the way df counts it: blocks only root may use are
     /// neither free to the reader nor part of the size they can fill. On ext4 that reserve is 5%
     /// by default, so a disk df calls full is not reported as 5% free.

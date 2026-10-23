@@ -22,8 +22,6 @@ internal sealed class LinuxVolumesModule(SystemFiles files, Func<string, VolumeS
         EstimatedDuration = TimeSpan.FromSeconds(1),
     };
 
-    private const double BytesPerGb = 1073741824.0;
-
     protected override Task<ModuleStatus> ExecuteAsync(
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
@@ -64,7 +62,7 @@ internal sealed class LinuxVolumesModule(SystemFiles files, Func<string, VolumeS
             var also = volume.AlsoMountedAt.Length == 0 ? "" : $" Also mounted at {string.Join(", ", volume.AlsoMountedAt)}.";
             metrics.Add(new Metric("storage.volume.free_pct", "Free space", freePct, HealthCategory.Storage,
                 Unit: "%", Subject: volume.MountPoint,
-                Detail: $"{space.AvailableBytes / BytesPerGb:0.0} GB free of {space.TotalBytes / BytesPerGb:0} GB " +
+                Detail: $"{MountTable.FormatSize(space.AvailableBytes)} free of {MountTable.FormatSize(space.TotalBytes)} " +
                         $"({volume.FsType} on {volume.Device}), counted like df: space only root may use is not free to you.{also} " +
                         "SSDs slow down and wear faster when nearly full."));
         }

@@ -277,11 +277,18 @@ installed, because headless mode runs every non-admin module and cannot deselect
 - **Rules are per OS where tips differ.** There is a new `"os"` field, and `RulesLoader.LoadEmbedded()` keeps the current OS's rules. `linux.json` gives Linux advice for free space, memory used, commit, out-of-memory kills and the ACPI zone. The four matching Windows rules are now `"os": "windows"`. `RuleTests` fail if a Linux-graded metric has no rule, or if its advice names a Windows tool.
 - `HealthModuleBase` and `ModuleFailures` moved to Core, so both OSes share one rule-7 contract.
 - **Tests:** `tests/PcHealth.Tests.Linux` (net10.0), 63 fixture tests that run on Windows too, plus 2 live tests that run only on Linux. CI has a new **`linux` job on `ubuntu-latest`**, where the live tests read the runner's real `/proc` and `/sys` and print every reading.
-- **Not verified yet:** the fixtures are written from the kernel's documented formats, not copied from a real machine. Until the `linux` CI job has run once and its log has been read, treat the readings as unconfirmed on real hardware.
+- **Verified on a real kernel on 2026-10-23,** in CI run 39927169208: Ubuntu 24.04.5, kernel 6.17.0-1022-azure, a Hyper-V VM.
+  - Every module was Completed, or Skipped for the battery ("desktop").
+  - The links in `/sys/class` were followed: each partition was traced to its disk, `nvme0n1p1 -> nvme0n1`, removable 0.
+  - `/dev/root` as the root device was handled.
+  - The NVMe Composite temperature was read without root, from `nvme0` and `nvme1`.
+  - The processor temperature was correctly "not read" in a VM.
+  - The one fault: `/boot/efi` (106 MB) read "0.1 GB free of 0 GB". Fixed with `MountTable.FormatSize` and a test.
+  - Still unseen on real hardware: a laptop battery, coretemp/k10temp, and the acpitz fallback.
 
 #### M5-LNX phase 2 and candidates
 
-1. Read the first `linux` CI log; fix any wrong assumption it shows, especially `/dev/root` and the symlink handling in `/sys/class`.
+1. ~~Read the first `linux` CI log~~ done 2026-10-23 (see above).
 2. Build `PcHealth.Cli` (net10.0: orchestrator plus exporters), so `--headless-scan` runs on Linux. Verify it in the Ubuntu 26.04 VM. Then update PRIVACY.md from "in development" to shipped wording.
 3. Candidates, each needing a decision or data first:
    - `os.supported` for Linux needs a per-distribution end-of-life table.
