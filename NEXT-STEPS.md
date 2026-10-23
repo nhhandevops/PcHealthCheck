@@ -32,6 +32,10 @@ app is the tool, and the results are its first field test.
 
   Verdict here: REPLACE (CpuFms), plus a battery at 50%.
 - **Not yet run:** the kit's **administrator path** (`--include-admin` through the kit) and a real person answering the questions. The owner's pilot on 2–3 laptops is that test.
+- **The zip the owner carries** was built on 2026-10-23 from `af47a36`, so its exe says `1.0.0-rc.1+af47a36…`.
+  - SHA-256 of `PcHealthCheck-1.0.0-rc.1-win-x64.zip`: `D8A124D34D892AED6EB117DA0FF9B581C3270BE1832E641D2178812F69C0CC79`.
+  - Commits after it (`158bd2b` onward) change only Linux code and docs, which are not in that zip.
+  - Every result zip's `kit.json` names its `AppVersion`, so a finding can always be traced to this build.
 
 **When result zips come back, read in this order:**
 

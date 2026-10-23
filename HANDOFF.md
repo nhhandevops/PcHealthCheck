@@ -332,6 +332,11 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 
 ## Suggested next session
 
+**First (state saved 2026-10-23):** the owner is running the laptop audit pilot. When their result
+zips arrive, review them in the order at the top of NEXT-STEPS, fix what they show (with tests and
+fault-log entries), rebuild the kit, and only then let the rest of the fleet be checked. Nothing
+else is in progress: the tree is clean and pushed, and CI is green on both jobs.
+
 **Needs a person:** row J3, the app on a Windows set to Tiếng Việt (highest-value acceptance row left); then
 J1 and the other person-only rows in `NEXT-STEPS.md`; and the decisions YOU-1 to YOU-3 (public repo for signing,
 version bump, fix-then-accept).
