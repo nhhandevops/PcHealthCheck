@@ -2,7 +2,7 @@
 
 One place to audit a Windows PC's hardware and software health — **offline by default, read-only by default, and nothing runs without your consent.**
 
-Built with C# / .NET 10 + Avalonia. Windows 10/11 first; Linux/macOS planned via the per-OS module provider.
+Built with C# / .NET 10 + Avalonia. Windows 10/11 first. Linux checks are in development: the modules and their tests exist, but there is no Linux build to run yet. macOS is planned via the same per-OS module provider.
 
 > **⚠ Status: release candidate, not yet fully tested or widely used.** It has been run on only a few machines: one
 > Windows 10 desktop and one Windows 10 laptop, mostly in English. Several acceptance checks are still open
@@ -105,7 +105,7 @@ Requires the .NET 10 SDK.
 - **Next** — optionally bundle `smartctl` (GPL-2.0-or-later, separate process) for deeper per-vendor and NVMe attributes.
 - **M3** — sensors (LibreHardwareMonitorLib + signed PawnIO driver, consent-gated install) and benchmarks (Microsoft DiskSpd read-only profile, 7-Zip CPU bench) with personal baselines.
 - **M4 (part 1 done)** — malware history & defences, network/hosts/proxy integrity. Remaining: on-demand Defender scan orchestration, ClamAV second opinion (offered via the dependency manager), opt-in VirusTotal hash lookups, packaging & code signing.
-- **M5** — browser-extension audit, multi-user startup coverage, localization, Linux module provider.
+- **M5** — browser-extension audit, multi-user startup coverage, localization, Linux module provider (phase 1, unelevated readings and tests, done 2026-10-23; a Linux command-line build is next).
 
 ## License
 

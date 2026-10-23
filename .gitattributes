@@ -9,6 +9,8 @@
 *.md      text
 *.yml     text
 *.manifest text
+# cmd.exe misparses some batch files with Unix line endings; keep them CRLF everywhere.
+*.cmd     text eol=crlf
 
 # Bundled third-party tools (M2+) must never be line-ending mangled.
 *.exe binary

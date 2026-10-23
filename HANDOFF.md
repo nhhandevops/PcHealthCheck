@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-22** (376 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
+Snapshot for continuing work on another machine. Last updated: **2026-10-23** (456 tests passing: 393 Windows + 63 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit; see the top of NEXT-STEPS.
 
 ## What this is
 
@@ -18,11 +18,13 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 git clone https://github.com/nhhandevops/PcHealthCheck   # public, no login needed
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 376 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 458 tests (2 Linux-only, skipped on Windows); WorkerProtocolTests launch the real exe
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
-PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
+PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] [--skip-benchmarks] --out <dir>   # automation mode
 ```
+
+The release zip also carries the **laptop audit kit** (`audit-kit/` in the repo): `1 - Check this laptop.cmd` per laptop, then `2 - Summarize all laptops.cmd` for one table. See `AUDIT-GUIDE.md`.
 
 ## Status by milestone
 
@@ -39,7 +41,10 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | M3 part 2 — benchmarks (DiskSpd disk profile, 7-Zip CPU bench, personal baselines) | ✅ both verified on real hardware |
 | M5 — browser extension audit | ✅ done |
 | M5 — multi-user startup coverage | ✅ shipped and verified elevated |
-| **M5 remainder — Vietnamese localization, Linux provider** | ⬜ next |
+| M5 — Linux provider phase 1: five unelevated modules, per-OS rules, fixture tests, `ubuntu-latest` CI job | ✅ 2026-10-23 · first CI log not yet read |
+| Windows 11 readiness (`os.win11_ready`, from Windows' own appraiser verdict) and the laptop audit kit with `AUDIT-GUIDE.md` | ✅ 2026-10-23 · kit tested unelevated on the T470p; its admin path awaits the owner's pilot |
+| **Company laptop audit: pilot on 2–3 laptops, then review the zips** (NEXT-STEPS, top) | ⬜ now, owner first |
+| **M5 remainder — Linux phase 2 (`PcHealth.Cli`), Vietnamese localization** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — `build-release.ps1`, icon, version 1.0.0-rc.1, docs | ✅ done |
 | Acceptance — first pass run 2026-08-22, 5 defects found and fixed | ✅ see `ACCEPTANCE-RUN-2026-08-22.md` |
@@ -52,11 +57,12 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 | Repository public, with a "not fully tested" disclaimer (YOU-1) | ✅ 2026-10-23 |
 | **Then signing per `RELEASING.md`** | ⬜ after that; the public-repo prerequisite for SignPath is now met |
 
-## Architecture in five lines
+## Architecture in brief
 
 - `PcHealth.Core` — module contracts (+capability hash for re-consent), verdict engine driven by `src/PcHealth.Core/Rules/*.json`, trend history (`History/`), dependency ledger (`Dependencies/`), report exporters. **No OS or network code.**
 - `PcHealth.Modules.Windows` — all Windows modules (WMI/CIM, EventLogReader, registry, P/Invoke). Locale-proof parsing only: provider+event-id, exit codes, typed objects — never localized strings.
 - `PcHealth.App` — Avalonia UI (`asInvoker`, never self-elevates) + `--worker` elevated helper. Trust boundary: the worker only runs `NeedsAdmin` modules from its own compiled-in registry; write/driver actions get the worker's own confirmation dialog.
+- `PcHealth.Modules.Linux` (net10.0, since 2026-10-23): five modules reading only `/proc`, `/sys` and `/etc/os-release`, behind `LinuxModuleProvider`. No root, no programs, no writes. Not referenced by the Windows app; phase 2 gives it a host. Its base class `HealthModuleBase` and `ModuleFailures` now live in Core, shared with the Windows modules.
 - `PcHealth.Ipc` — length-prefixed JSON pipe protocol between UI and worker.
 - `PcHealth.Net.Optional` — the ONLY assembly allowed to reference `System.Net` (CI gate enforces; even comments count). Holds the VirusTotal client and `NetworkActivityLog`, which counts every request the app makes so the receipt can report a checked number instead of a promise.
 
@@ -73,6 +79,7 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 9. **Privacy claims are code, not copy.** When a feature changes what the app can do, the claims move with it in the same commit: PRIVACY.md, the HTML report line, and the receipt. Prefer a counted number (`NetworkActivityLog.Count`) over an absolute a later feature could quietly falsify. "Network connections during this scan: 0" stays true by construction — no check contains network code — and the CI gate is what keeps it that way.
 10. **A cap must say what it dropped.** The VirusTotal lookup is capped at 20 files for the free tier, and the consent dialog states how many were left unchecked. Silent truncation reads as "everything was checked".
 11. **Checks run side by side; anything that measures runs alone.** Since 2026-10-21, `ScanOrchestrator.RunModulesAsync` runs up to 4 modules at once, wrapping each in `Task.Run`, because most modules do synchronous WMI work before their first await. Results come back in list order. A module that measures speed or temperature sets `RunsAlone = true` in its manifest (today: `bench.disk`, `bench.cpu`, `sensors`) and runs afterwards with nothing beside it. **A new benchmark or sensor check that forgets this flag will measure the scan instead of the PC.** On the T470p the unelevated scan went from 19.8 s to 8.4–10.4 s, with peak memory 63 → 76 MB and identical results. Locked by `ScanOrchestratorTests`, which were checked against a forced one-at-a-time cap: 4 of 7 fail. The elevated helper (`WorkerHost`) still runs its own modules one at a time, but since 2026-10-23 both scan entry points **start it first, beside the normal checks**. `RunModulesAsync(..., beforeRunsAlone:)` awaits it before the RunsAlone phase, so the benchmarks never overlap the admin checks, and sensors no longer reads a processor the CPU benchmark has just heated. The UAC prompt now appears at the start of the scan. On the T470p an elevated scan dropped from ~125 s to 103 s. Starting the helper blocks on the UAC prompt, so it is wrapped in `Task.Run`.
+12. **One metric id, one rule per OS where the advice differs.** Since 2026-10-23 a rule can carry `"os": "windows"` or `"os": "linux"`, and `RulesLoader.LoadEmbedded()` keeps only the current OS's rules plus the OS-neutral ones. Free space, memory used, commit and the ACPI zone have one rule each per OS; their bands match, and only the tips differ. **A new Linux reading that reuses a Windows id inherits Windows advice unless it gets a Linux rule.** `RuleTests.Every_graded_linux_reading_has_a_rule_with_linux_advice` fails on any Windows tool name in a Linux tip; it was checked by planting "Task Manager" in one. Linux commit is graded only under `vm.overcommit_memory = 2`: under the default, going past `CommitLimit` is normal.
 
 ## The sixth time, and the structural fix (2026-08-26)
 
@@ -340,6 +347,6 @@ After those:
 - ~~start the elevated helper alongside the local modules~~ done 2026-10-23 (rule 11)
 - ~~speed up `startup`~~ done 2026-10-23: 11 s → ~5 s on the T470p. Files are examined 4 at a time, each distinct file once, and disabled items are listed but not examined (nothing reads their signature or hash).
 - ~~move the CI actions off Node 20~~ done 2026-10-23: checkout@v7, setup-dotnet@v6, upload-artifact@v7, all on Node 24, with the inputs checked against each `action.yml`
-- the Linux provider: **unblocked 2026-10-23**, unelevated-only first. Phased plan in NEXT-STEPS (M5-LNX). Phase 2 needs the Ubuntu 26.04 VM, since this laptop has no WSL distribution.
+- the Linux provider: **phase 1 done 2026-10-23**, unelevated only. First, read the `linux` job's log from the first CI run after the push: the live tests print every reading from a real kernel, and the fixtures were written from the kernel's documentation, not copied from a machine. Then phase 2 (`PcHealth.Cli`) per NEXT-STEPS (M5-LNX). It needs the Ubuntu 26.04 VM, since this laptop has no WSL distribution and no Docker.
 
 **Every day:** run `daily-smoke.ps1` ("do the daily smokes").

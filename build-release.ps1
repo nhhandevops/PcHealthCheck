@@ -87,10 +87,22 @@ if (-not (Get-ChildItem $staging -Filter *.dll)) {
 # the script that collects a run for comparison - the point of carrying it to another machine is
 # bringing the result back, and a collector left behind in the repo is one that never gets used.
 foreach ($doc in 'README.md', 'PRIVACY.md', 'THIRD-PARTY-NOTICES.md', 'USER-GUIDE.md',
-                 'TRYING-IT-OUT.md', 'collect-results.ps1') {
+                 'TRYING-IT-OUT.md', 'AUDIT-GUIDE.md', 'collect-results.ps1') {
     $path = Join-Path $PSScriptRoot $doc
     if (Test-Path $path) { Copy-Item $path $staging }
 }
+
+# The laptop audit kit sits beside the exe, so the extracted folder copied to a USB stick is the
+# whole kit: double-click "1 - Check this laptop.cmd" on each laptop. Every file is required, so a
+# missing one fails the build instead of shipping a kit that breaks on the first laptop.
+$kitFiles = @('1 - Check this laptop.cmd', '2 - Summarize all laptops.cmd', 'audit-laptop.ps1',
+              'audit-common.ps1', 'summarize-fleet.ps1', 'audit-rules.json')
+foreach ($file in $kitFiles) {
+    $path = Join-Path (Join-Path $PSScriptRoot 'audit-kit') $file
+    if (-not (Test-Path -LiteralPath $path)) { throw "Audit kit file missing: $path" }
+    Copy-Item -LiteralPath $path $staging
+}
+if (-not (Test-Path (Join-Path $staging 'AUDIT-GUIDE.md'))) { throw 'AUDIT-GUIDE.md is missing: the kit would ship without its instructions.' }
 
 Step 'Contents'
 Get-ChildItem $staging | Sort-Object Length -Descending |

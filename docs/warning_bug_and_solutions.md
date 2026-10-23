@@ -10,6 +10,114 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## W11-001 — Windows 11 readiness said "System.String[]" and gave TPM advice to a processor block
+
+**Symptom.** The first live scan with the new Windows 11 check (2026-10-23, ThinkPad T470p)
+reported `os.win11_blockers = "System.String[]"`. It then explained the block as an unknown code
+and advised switching on TPM and Secure Boot, which no setting can do for a processor block.
+All unit tests had passed.
+
+**Root cause.** `RedReason` in the appraiser's registry key is a REG_MULTI_SZ, which .NET returns
+as `string[]`, and `Convert.ToString` of an array is its type name. The unit tests were built from
+values copied out of PowerShell, and PowerShell prints an array's items, so a plain string looked
+right.
+
+**How to verify.** `(Get-Item 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TargetVersionUpgradeExperienceIndicators\GE25H2').GetValueKind('RedReason')`
+prints `MultiString`.
+
+**Fix.** `Win11Readiness.RegistryText` joins string arrays with spaces and formats numbers
+invariantly; a test covers the multi-string case. A live re-run shows `CpuFms`, "the processor is
+not on Microsoft's supported list", and "a processor block cannot be fixed by any setting".
+Lesson: test data copied through PowerShell's display is not the data .NET receives; a live run
+on a real machine is part of the test.
+
+**Date.** 2026-10-23.
+
+---
+
+## KIT-001 — `collect-results.ps1` passed the report path unquoted
+
+**Symptom.** None reported; found while writing the audit kit on 2026-10-23.
+
+**Root cause.** `Start-Process -ArgumentList` joins the array with spaces and adds no quotes. The
+report folder is under `%TEMP%`, so on a laptop whose Windows user name contains a space
+(`C:\Users\Nguyen An\...`) the app would receive `--out C:\Users\Nguyen` and write the reports
+somewhere else. The zip would then arrive without them. `daily-smoke.ps1` already quoted the path,
+because it was written later.
+
+**How to verify.** Run the old script under an account with a space in its name: the zip holds no
+`report` folder.
+
+**Fix.** The path is passed as `"`"$reportDir`""`, in `collect-results.ps1` and in the new
+`audit-laptop.ps1`.
+
+**Date.** 2026-10-23.
+
+---
+
+## TEST-001 — The daily smoke would have read only one of two test projects' results
+
+**Symptom.** None yet; found by reading the script on 2026-10-23 while adding the second test
+project (`PcHealth.Tests.Linux`). The Tests step ran `dotnet test` on the solution with
+`--logger trx;LogFileName=tests.trx` and read `Get-ChildItem *.trx | Select-Object -First 1`.
+
+**Root cause.** With a fixed `LogFileName`, every test project writes the same file name, and the
+step read only the first results file it found. With two projects, the row would have shown one
+project's count, and a failure in the other could have passed as PASS: the rule-7 fault, in the
+script that checks for it.
+
+**How to verify.** A smoke run's Tests line must count every project: on 2026-10-23,
+`444/446 passed, 2 skipped` (381 Windows + 65 Linux, the 2 skipped being the Linux-only live
+tests). Fewer results files than `tests\**\*.csproj` now fails the step outright.
+
+**Fix.** `LogFilePrefix=tests` (one file per project), every file read and the counters summed,
+skipped tests shown separately. The compiled privacy gate also names
+`PcHealth.Modules.Linux.dll` explicitly, since that assembly is not in the Windows app's folder.
+
+**Date.** 2026-10-23.
+
+---
+
+## LNX-001 — A metric value followed the regional format: "4,0 GB" of swap
+
+**Symptom.** The first run of the Linux fixture tests on this laptop failed:
+`Expected: "4.0 GB, 25% in use"`, `Actual: "4,0 GB, 25% in use"`. The laptop's regional format
+was still Vietnamese from the J3 acceptance test.
+
+**Root cause.** A text value built with string interpolation (`$"{kb / 1048576.0:0.0} GB"`)
+formats with the current culture. The analyzers that are errors here (CA1305) do not flag
+interpolation, so nothing stopped it. Values are invariant everywhere else in the report; only
+Details follow the regional format.
+
+**How to verify.** Run the tests under a non-English regional format: the swap test fails without the fix.
+
+**Fix.** `string.Create(CultureInfo.InvariantCulture, $"...")` for that value. The other
+interpolated values in the Linux modules hold only whole numbers or text, which cannot change
+with the culture. Caught before it was ever committed.
+
+**Date.** 2026-10-23.
+
+---
+
+## TOOL-002 — Git Bash's `grep -c $'\r'` reported no CRLF in files that had it
+
+**Symptom.** Before scripted edits on 2026-10-23, `grep -c $'\r'` returned 0 for the rule files,
+so the edit script matched lines ending in `\n`. It found nothing to change: the files were CRLF.
+
+**Root cause.** This repository is checked out with `core.autocrlf=true`, so the working tree is
+CRLF while the repository is LF. Git Bash's `grep` handles the CR as part of the line ending, not
+as a character it can count.
+
+**How to verify.** `python -c "print(b'\r\n' in open('src/PcHealth.Core/Rules/storage.json','rb').read())"`
+prints True.
+
+**Fix.** Edit scripts detect the file's own line ending (`"\r\n" in text`) and write it back
+unchanged. Check line endings with Python's byte read, not `grep`.
+
+**Date.** 2026-10-23.
+
+---
+
 ## TOOL-001 — Scripted edits from bash turned escape sequences into real control bytes
 
 **Symptom.** On 2026-10-23 a scripted edit meant to write the text `"\0"` (backslash, zero) wrote
@@ -27,6 +135,12 @@ of escape processing than expected: `\\0` arrives as `\0`, which Python and `pri
 **Fix.** Both bytes were replaced, and no tracked text file contains a NUL. For scripted edits, build
 backslashes and control bytes from their character codes (`bytes([92])`), or use an editor
 tool rather than a shell, in file content and commit messages alike.
+
+**Recurred the same day**, in a Python edit of `daily-smoke.ps1` passed through a quoted heredoc:
+the Windows path `src\\PcHealth.Modules.Linux\\bin\\Release\\net10.0\\…` arrived with `\b` and `\n`,
+which became a backspace byte and a line break. The control-byte scan of every changed file
+(any byte below 32 other than tab, LF and CR) caught it before anything ran. The line was rebuilt
+from `bytes([92])`. The rule stands: **no backslash in any script text that passes through a heredoc**.
 
 **Date.** 2026-10-23.
 

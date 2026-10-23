@@ -118,7 +118,9 @@ Step 'Running the scan'
 $reportDir = Join-Path $work 'report'
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 
-$scanArgs = @('--headless-scan', '--out', $reportDir)
+# Quoted: Start-Process joins arguments with spaces, so a temp path under a user name with a space
+# in it ("C:\Users\Nguyen An\...") would reach the app as two arguments (KIT-001).
+$scanArgs = @('--headless-scan', '--out', "`"$reportDir`"")
 if ($IncludeAdmin) {
     $scanArgs += '--include-admin'
     Write-Host '  Administrator checks requested - Windows will ask for permission once.' -ForegroundColor Yellow

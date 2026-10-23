@@ -10,6 +10,39 @@ the owner can make, hardware to unplug — not by difficulty.
 
 ---
 
+## The company laptop audit (since 2026-10-23): the app's first real job
+
+The owner's manager asked for every old laptop to be checked: can it go to a new employee? The
+app is the tool, and the results are its first field test.
+
+- **Built 2026-10-23:**
+  - the audit kit, `audit-kit/`, which ships in the release zip;
+  - `AUDIT-GUIDE.md`;
+  - `--skip-benchmarks` in the headless scan;
+  - the Windows 11 readiness check (`os.win11_ready`, from Windows' own appraiser verdict).
+- **The kit itself:**
+  - The owner double-clicks `1 - Check this laptop.cmd` on each laptop. It writes one zip to the USB stick: `Results\<serial>_<computer>_<date>_<time>.zip`.
+  - `2 - Summarize all laptops.cmd` builds `fleet-summary.html`/`.csv`, one verdict per laptop: READY, FIX FIRST, REPLACE or CHECK AGAIN.
+  - The rules live in `audit-rules.json`. They are proposals for the manager to agree.
+- **Tested here on the T470p:**
+  - a fresh extract to a path with a space;
+  - unelevated, with and without the questions;
+  - the summary, including two runs of one laptop;
+  - "nothing left on the laptop", with `history.db` restored byte-identical.
+
+  Verdict here: REPLACE (CpuFms), plus a battery at 50%.
+- **Not yet run:** the kit's **administrator path** (`--include-admin` through the kit) and a real person answering the questions. The owner's pilot on 2–3 laptops is that test.
+
+**When result zips come back, read in this order:**
+
+1. `kit.json` `ScriptErrors`, and `console-errors.txt`: kit or app crashes.
+2. Modules not `Completed` in the JSON report, and why.
+3. Verdict sanity: compare `fleet-summary` with each report. Look especially for drive type `Unknown`, Windows 11 `Not assessed`, `NO-SERIAL`, and `RanElevated` false despite `AdminRequested`.
+4. Models the app has never seen: unknown appraiser codes ("not explained by this app"), placeholder serials, missing battery figures.
+5. Every error found gets an entry in `docs/warning_bug_and_solutions.md` and a fix with a test.
+
+---
+
 ## Where this actually stands — 2026-08-26, later the same day
 
 **The goal changed: nothing is being published.** The app is being carried to different machines
@@ -227,8 +260,35 @@ installed, because headless mode runs every non-admin module and cannot deselect
 | # | Task |
 |---|---|
 | M5-VI | Vietnamese localization. Strings are hard-coded across XAML, module notes, `src/PcHealth.Core/Rules/*.json` tips and the report exporters — this is a large, structural job, not a translation pass. |
-| M5-LNX | Linux provider. **Decided 2026-10-23 by the owner: unelevated-only first.** Checks that need root (SMART, full system logs) are reported as "not checked, needs root", never as healthy (rule 7); a `pkexec` helper may follow later. **Phase 1** (buildable and testable on Windows CI): `PcHealth.Modules.Linux` (net10.0) with `LinuxModuleProvider`, and modules reading only `/proc` and `/sys` (battery from `/sys/class/power_supply`, memory and commit from `/proc/meminfo`, temperatures from `/sys/class/thermal` and `hwmon`, uptime, OS from `/etc/os-release`, disk space). Pure parsers with fixture-text tests (rule 8). **Phase 2:** a cross-platform headless host (`PcHealth.Cli`, net10.0: orchestrator plus exporters), so `--headless-scan` runs on Linux without the Windows-only App; verified in the Ubuntu 26.04 VM (`vm/bootstrap-pchealthcheck-ubuntu-26.04.sh` in the backup). **Phase 3:** the Avalonia GUI on Linux, then optionally pkexec. Locale: `/proc` and `/sys` are not localized; any command runs with `LC_ALL=C`. |
+| M5-LNX | Linux provider. **Phase 1 done 2026-10-23; phase 2 next** (status just below this table). **Decided 2026-10-23 by the owner: unelevated-only first.** Checks that need root (SMART, full system logs) are reported as "not checked, needs root", never as healthy (rule 7); a `pkexec` helper may follow later. **Phase 1** (buildable and testable on Windows CI): `PcHealth.Modules.Linux` (net10.0) with `LinuxModuleProvider`, and modules reading only `/proc` and `/sys` (battery from `/sys/class/power_supply`, memory and commit from `/proc/meminfo`, temperatures from `/sys/class/thermal` and `hwmon`, uptime, OS from `/etc/os-release`, disk space). Pure parsers with fixture-text tests (rule 8). **Phase 2:** a cross-platform headless host (`PcHealth.Cli`, net10.0: orchestrator plus exporters), so `--headless-scan` runs on Linux without the Windows-only App; verified in the Ubuntu 26.04 VM (`vm/bootstrap-pchealthcheck-ubuntu-26.04.sh` in the backup). **Phase 3:** the Avalonia GUI on Linux, then optionally pkexec. Locale: `/proc` and `/sys` are not localized; any command runs with `LC_ALL=C`. |
 | ENG-REG | `RegLoadAppKey` to read a signed-out account's `NTUSER.DAT`. Deliberately deferred — it is the first time the app would touch another user's registry file. |
+
+#### M5-LNX phase 1: what exists (2026-10-23)
+
+- **`src/PcHealth.Modules.Linux`** (net10.0), five modules behind `LinuxModuleProvider`:
+  - `linux.overview`: os-release, kernel, DMI model, uptime.
+  - `linux.memory`: used %, commit, swap, out-of-memory kills from `/proc/vmstat`.
+  - `linux.volumes`: free space like `df`. Local disk filesystems only. Network filesystems are never asked, because statvfs on one is a connection.
+  - `linux.battery`: wear, cycles, identity and charge limit from `/sys/class/power_supply`. Peripherals are left out, and `serial_number` is never read.
+  - `linux.sensors` (`RunsAlone`): processor temperature from coretemp, k10temp/zenpower, x86_pkg_temp, then a plausible acpitz zone; NVMe Composite temperature; amdgpu and nouveau graphics temperatures.
+
+  None needs root, runs a program or writes a file. `ModuleTests` lock that, including an empty receipt after a full scan.
+- **Linux commit is graded only under `vm.overcommit_memory = 2`.** Under the default (0), going past `CommitLimit` is normal, and the fixture machine is at 121%. Otherwise it is shown, not graded.
+- **Rules are per OS where tips differ.** There is a new `"os"` field, and `RulesLoader.LoadEmbedded()` keeps the current OS's rules. `linux.json` gives Linux advice for free space, memory used, commit, out-of-memory kills and the ACPI zone. The four matching Windows rules are now `"os": "windows"`. `RuleTests` fail if a Linux-graded metric has no rule, or if its advice names a Windows tool.
+- `HealthModuleBase` and `ModuleFailures` moved to Core, so both OSes share one rule-7 contract.
+- **Tests:** `tests/PcHealth.Tests.Linux` (net10.0), 63 fixture tests that run on Windows too, plus 2 live tests that run only on Linux. CI has a new **`linux` job on `ubuntu-latest`**, where the live tests read the runner's real `/proc` and `/sys` and print every reading.
+- **Not verified yet:** the fixtures are written from the kernel's documented formats, not copied from a real machine. Until the `linux` CI job has run once and its log has been read, treat the readings as unconfirmed on real hardware.
+
+#### M5-LNX phase 2 and candidates
+
+1. Read the first `linux` CI log; fix any wrong assumption it shows, especially `/dev/root` and the symlink handling in `/sys/class`.
+2. Build `PcHealth.Cli` (net10.0: orchestrator plus exporters), so `--headless-scan` runs on Linux. Verify it in the Ubuntu 26.04 VM. Then update PRIVACY.md from "in development" to shipped wording.
+3. Candidates, each needing a decision or data first:
+   - `os.supported` for Linux needs a per-distribution end-of-life table.
+   - `/var/run/reboot-required` exists only on Debian and Ubuntu; its absence elsewhere proves nothing.
+   - TRIM via `fstrim.timer` needs `systemctl`.
+   - SATA temperatures via `drivetemp` (rarely loaded).
+   - Peak memory pressure from `/proc/pressure/memory`.
 
 **Not tasks — decided already.** ClamAV was dropped on 2026-08-20 for two recorded reasons; do
 not re-schedule it. The marker sweep found **zero** TODO/FIXME/HACK/`NotImplementedException` in

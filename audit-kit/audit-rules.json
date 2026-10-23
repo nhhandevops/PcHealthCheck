@@ -1,0 +1,9 @@
+{
+  "_about": "Pass rules for handing a laptop to a new employee. These are proposals: agree them with your manager, edit the numbers, then run '2 - Summarize all laptops.cmd' again. AUDIT-GUIDE.md explains each one.",
+  "minRamGb": 8,
+  "requireSsd": true,
+  "minBatteryPct": 60,
+  "minSystemDriveFreePct": 15,
+  "requireWindows11Ready": true,
+  "driveWarningsNeedFix": false
+}

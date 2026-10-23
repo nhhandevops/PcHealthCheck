@@ -14,4 +14,15 @@
 - **On-demand malware scans** (the "Quick scan" and "Scan a folder" buttons) ask Windows Defender to do the work; the app makes no connection of its own. Defender's own cloud protection may contact Microsoft during a scan, exactly as it would for a scan you started from Windows Security — the consent dialog says so before you agree. A folder scan runs with remediation switched off, so Defender reports what it finds and moves nothing; a quick scan lets Defender act on what it finds using your normal settings.
 - Consent choices are stored locally in `%APPDATA%\PcHealthCheck\consent.json`. Delete it anytime to reset every choice to OFF.
 - Trend history is stored locally in `%LOCALAPPDATA%\PcHealthCheck\history.db`. It holds only measurement names, the drive or volume they belong to, and numbers — enough to notice that a failure counter is growing, and nothing else. It never leaves the machine. Switch it off with the checkbox on the main screen (or `--no-history`), erase it with the **Delete history** button, or simply delete the file. Every scan tells you in the receipt exactly how many measurements it recorded.
+- **The laptop audit kit** (`1 - Check this laptop.cmd`, for checking company laptops before handover) reads more than the app itself:
+  - the laptop's **serial number**, to name its result file, plus its BIOS version, memory slots and disk types;
+  - your answers to its questions about the laptop's physical condition.
+
+  Everything stays in one zip on your USB stick, and the kit lists the zip's contents before you send it anywhere. The app itself still never reads a serial number. The kit removes the app's own folder from the laptop again if the run created it.
+- **Windows 11 readiness** is read from the verdict Windows keeps in its registry (the same compatibility check Windows Update uses). Nothing is sent anywhere to get it.
+- **Linux checks (in development, not in any release yet).**
+  - They read only files under `/proc`, `/sys` and `/etc/os-release`. They run no program, write no file and need no root.
+  - The battery's serial number is never read.
+  - Network filesystems (NFS, SMB, SSHFS) are never asked for their free space, because asking would make a connection.
+  - The report lists your disks by mount point, which can include your user name (for example `/media/<you>/<drive>`), and the computer's maker and model, never its serial number.
 - Verify us: run a scan with Wireshark or GlassWire open — you will see zero connections from this app. (Start a VirusTotal lookup and you will see exactly the connections that dialog told you about, and no others.) The receipt panel after each scan lists every process spawned, every file written, and every lookup made.

@@ -20,8 +20,8 @@ internal sealed class SysOverviewModule : WindowsModuleBase
     {
         Id = "sys.overview",
         Name = "System overview",
-        Description = "Windows edition, build and support status, hardware model, uptime, and whether a reboot is pending.",
-        Reads = ["Windows version info (WMI)", "Memory in use and the limit Windows can hand out (WMI)", "Names, memory use and processor time of running programs (the top five are shown, by name only)", "Computer model (WMI)", "Pending-reboot registry flags"],
+        Description = "Windows edition, build and support status, whether Windows 10 can move to Windows 11, hardware model, uptime, and whether a reboot is pending.",
+        Reads = ["Windows version info (WMI)", "Memory in use and the limit Windows can hand out (WMI)", "Names, memory use and processor time of running programs (the top five are shown, by name only)", "Computer model (WMI)", "Pending-reboot registry flags", "Windows' own Windows 11 compatibility verdict (registry, AppCompatFlags)"],
         NeedsAdmin = false,
         EstimatedDuration = TimeSpan.FromSeconds(3),
     };
@@ -85,6 +85,7 @@ internal sealed class SysOverviewModule : WindowsModuleBase
                         HealthCategory.SoftwareOs,
                         Detail: $"All Windows 10 updates stop on {Windows10EndOfSupport:yyyy-MM-dd}."));
                 }
+                AddWindows11Readiness(metrics, failures);
             }
             else
             {
@@ -118,6 +119,67 @@ internal sealed class SysOverviewModule : WindowsModuleBase
             Detail: "Checked Component Based Servicing and Windows Update reboot flags."));
 
         return Task.FromResult(failures.Resolve(gotAnything: metrics.Count > 0));
+    }
+
+    private const string AppraiserKey =
+        @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TargetVersionUpgradeExperienceIndicators";
+
+    /// <summary>
+    /// Whether this Windows 10 PC can move to Windows 11, by Windows' own verdict (see
+    /// <see cref="Win11Readiness"/>). With Windows 10 near its end, this decides whether a PC has
+    /// a future more often than any health reading does. Not assessed means NOT checked, and says so.
+    /// </summary>
+    private static void AddWindows11Readiness(List<Metric> metrics, ModuleFailures failures)
+    {
+        var assessments = new List<UpgradeAssessment>();
+        try
+        {
+            using var root = Registry.LocalMachine.OpenSubKey(AppraiserKey);
+            foreach (var name in root?.GetSubKeyNames() ?? [])
+            {
+                using var key = root!.OpenSubKey(name);
+                if (key is null) continue;
+                var values = key.GetValueNames().ToDictionary(
+                    v => v, v => Win11Readiness.RegistryText(key.GetValue(v)), StringComparer.OrdinalIgnoreCase);
+                if (Win11Readiness.FromValues(name, values) is { } assessment) assessments.Add(assessment);
+            }
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            failures.Record("Windows 11 readiness", $"{e.Message} — whether this PC can move to Windows 11 was NOT checked.");
+            return;
+        }
+
+        if (Win11Readiness.Assess(assessments) is not { } verdict)
+        {
+            failures.Note("Windows has not assessed this PC for Windows 11 (its compatibility check has not run here, or " +
+                          "company policy turns it off), so whether it can move to Windows 11 was NOT checked.");
+            return;
+        }
+
+        var target = verdict.Assessment;
+        var asOf = target.AssessedAt is { } at ? $", assessed {at.ToLocalTime():yyyy-MM-dd}" : "";
+        var source = $"Windows' own compatibility check (the one Windows Update uses), for Windows 11 build {target.DestinationBuild}{asOf},";
+        metrics.Add(new Metric("os.win11_blockers", "Windows 11 blockers (Windows' own codes)",
+            verdict.BlockerCodes.Count == 0 ? "none" : string.Join(' ', verdict.BlockerCodes),
+            HealthCategory.SoftwareOs, InfoOnly: true, Detail: $"{source} verdict {target.UpgradeExperience}."));
+
+        if (verdict.Ready is not { } ready)
+        {
+            failures.Note($"Windows' Windows 11 verdict here is '{target.UpgradeExperience}', which this app does not " +
+                          "interpret, so whether this PC can move to Windows 11 was NOT graded.");
+            return;
+        }
+        var hold = target.GatedBlockReason is { } reason
+            ? $" Windows Update is holding the upgrade back for now (safeguard hold: {reason}); that lifts on its own once fixed."
+            : "";
+        metrics.Add(new Metric("os.win11_ready", "Can move to Windows 11", ready, HealthCategory.SoftwareOs,
+            Detail: ready
+                ? $"{source} found no blocker.{hold}"
+                : $"{source} says no: {string.Join("; ", verdict.Blockers)}. " +
+                  (verdict.ProcessorBlocked
+                      ? "A processor block cannot be fixed by any setting."
+                      : "TPM and Secure Boot can often be switched on in the firmware (BIOS/UEFI) settings; Windows re-checks on its own later.")));
     }
 
     /// <summary>

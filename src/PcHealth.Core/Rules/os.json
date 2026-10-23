@@ -23,9 +23,25 @@
       ],
       "tips": {
         "Normal": [
-          "Windows 10 support (including consumer ESU) ends 2027-10-12. Check Windows 11 eligibility now (PC Health Check app) and plan the upgrade or replacement before then."
+          "Windows 10 support (including consumer ESU) ends 2027-10-12. The 'Can move to Windows 11' row in this report says whether this PC can upgrade; plan the upgrade or replacement before then."
         ]
       }
+    },
+    {
+      "id": "rule.os.win11-ready",
+      "metricId": "os.win11_ready",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": [
+          "Windows' own check says this PC cannot move to Windows 11; the detail line names the reason.",
+          "If the reason is the TPM or Secure Boot, it can often be switched on in the firmware (BIOS/UEFI) settings, and Windows re-checks on its own later. An unsupported processor cannot be fixed.",
+          "Windows 10 security updates for home PCs end 2027-10-12 (with ESU); company PCs need Microsoft's paid Extended Security Updates. Plan to replace PCs that cannot upgrade."
+        ]
+      },
+      "forecast": "Once Windows 10 updates stop, every month adds security holes that will never be fixed on this PC."
     },
     {
       "id": "rule.os.patch-age",

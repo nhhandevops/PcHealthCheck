@@ -12,7 +12,7 @@ namespace PcHealth.App;
 
 /// <summary>
 /// Developer/automation mode:
-///   PcHealthCheck --headless-scan [--out DIR] [--include-admin]
+///   PcHealthCheck --headless-scan [--out DIR] [--include-admin] [--no-history] [--skip-benchmarks]
 /// Runs the modules without the UI and writes HTML+JSON reports to DIR.
 /// Without --include-admin only the unelevated modules run (no UAC prompt); with it,
 /// admin modules run in-process when already elevated, otherwise through the same
@@ -47,7 +47,14 @@ internal static class HeadlessScan
         var includeAdmin = args.Contains("--include-admin");
         var alreadyElevated = Elevation.IsElevated();
 
-        var allModules = new WindowsModuleProvider().CreateModules();
+        // --skip-benchmarks is the laptop audit kit's switch. A benchmark runs only where its tool
+        // happens to be installed (7-Zip, DiskSpd), so across a fleet it makes laptops incomparable,
+        // and the disk one writes test files to the drives of a machine that is about to be handed on.
+        var skipBenchmarks = args.Contains("--skip-benchmarks");
+        var allModules = new WindowsModuleProvider().CreateModules()
+            .Where(m => !skipBenchmarks || !m.Manifest.Id.StartsWith("bench.", StringComparison.Ordinal))
+            .ToList();
+        if (skipBenchmarks) Console.WriteLine("Benchmarks skipped (--skip-benchmarks): no speed test runs and no test file is written.");
         var localModules = (alreadyElevated && includeAdmin
                 ? allModules
                 : allModules.Where(m => !m.Manifest.NeedsAdmin))
