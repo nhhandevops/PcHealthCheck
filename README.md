@@ -4,6 +4,13 @@ One place to audit a Windows PC's hardware and software health — **offline by 
 
 Built with C# / .NET 10 + Avalonia. Windows 10/11 first; Linux/macOS planned via the per-OS module provider.
 
+> **⚠ Status: release candidate, not yet fully tested or widely used.** It has been run on only a few machines: one
+> Windows 10 desktop and one Windows 10 laptop, mostly in English. Several acceptance checks are still open
+> (see `ACCEPTANCE.md`), and it has not been tried on Windows 11, ARM PCs or a Vietnamese-language Windows. **Bugs and
+> wrong readings may occur.** The app is read-only by default and tells you before it changes anything, but treat its
+> grades as a second opinion, not a diagnosis, and keep your own backups. The binaries are not code-signed yet, so
+> Windows SmartScreen will warn on first run. Issues and results from other machines are welcome.
+
 ## What it checks today
 
 ### Standard checks — no admin rights, no bundled tools, no network

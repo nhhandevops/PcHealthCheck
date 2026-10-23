@@ -17,15 +17,30 @@ and the four documents, that is the eleven files the archive extracts to.
 | `libHarfBuzzSharp.dll` | HarfBuzzSharp.NativeAssets.Win32 8.3.1.3 | MIT |
 | `av_libglesv2.dll` | Avalonia.Angle.Windows.Natives 2.1.27548.20260419 | BSD-3-Clause (ANGLE Project Authors) |
 | `e_sqlite3.dll` | SQLitePCLRaw.lib.e_sqlite3 2.1.12 | Apache-2.0 |
-| `MonoPosixHelper.dll`, `libMonoPosixHelper.dll` | Mono.Posix.NETStandard 1.0.0 | ⚠ see note below |
+| `MonoPosixHelper.dll`, `libMonoPosixHelper.dll` | Mono.Posix.NETStandard 1.0.0 | MIT (Mono project), see note below |
 | `PcHealthCheck.exe` | this project, plus the managed dependencies below bundled into it | MIT |
 
-**⚠ Mono.Posix.NETStandard needs confirming before this repository is made public.** Its package
-declares no SPDX licence expression and ships no licence file — only a `licenseUrl` pointing at a
-Microsoft redirect. It reaches us through LibreHardwareMonitorLib and is redistributed in the zip,
-so the licence must be established rather than assumed. Verify with
-`dotnet nuget why src/PcHealth.App/PcHealth.App.csproj Mono.Posix.NetStandard` and the package's
-own repository before publishing.
+**Mono.Posix.NETStandard: MIT, confirmed 2026-10-23 before the repository was made public.** The
+package declares no SPDX expression and ships no licence file. It reaches us through
+LibreHardwareMonitorLib 0.9.6 (`dotnet nuget why src/PcHealth.App/PcHealth.App.csproj Mono.Posix.NetStandard`),
+and its native helpers are redistributed in the zip, so the licence was traced rather than
+assumed:
+- The package's `licenseUrl` (`go.microsoft.com/fwlink/?linkid=869050`) redirects to
+  `github.com/mono/mono/blob/master/LICENSE`, and its `projectUrl` to `mono/mcs/class/Mono.Posix`.
+- That LICENSE states: *"In general, the runtime and its class libraries are licensed under the
+  terms of the MIT license, and some third party code is licensed under the 3-clause BSD license."*
+- Its list of exceptions does not include Mono.Posix. The only exception in the native `support/`
+  directory, which the helper library is built from, is `support/minizip` (BSD), also permissive.
+
+The MIT licence text, as Mono publishes it:
+
+> Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+> associated documentation files (the "Software"), to deal in the Software without restriction,
+> including without limitation the rights to use, copy, modify, merge, publish, distribute,
+> sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions: The above copyright notice and this
+> permission notice shall be included in all copies or substantial portions of the Software.
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
 
 ## Managed dependencies
 
