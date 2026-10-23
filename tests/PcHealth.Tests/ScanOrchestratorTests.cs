@@ -123,6 +123,29 @@ public sealed class ScanOrchestratorTests
     }
 
     [Fact]
+    public async Task The_admin_helper_is_awaited_after_the_shared_checks_and_before_the_benchmarks()
+    {
+        // The scan entry points pass the elevated helper's run as the hook: it may overlap the
+        // shared checks, but a benchmark must never start while it is still going.
+        var order = new List<string>();
+        void Note(string what) { lock (order) order.Add(what); }
+        IHealthModule[] modules =
+        [
+            new FakeModule("shared-1", async ct => { await Task.Delay(60, ct); Note("shared-1"); }),
+            new FakeModule("bench", _ => { Note("bench"); return Task.CompletedTask; }, runsAlone: true),
+            new FakeModule("shared-2", async ct => { await Task.Delay(20, ct); Note("shared-2"); }),
+        ];
+
+        await Orchestrator().RunModulesAsync(modules, Context(),
+            beforeRunsAlone: async () => { await Task.Delay(40); Note("helper finished"); });
+
+        Assert.Equal(4, order.Count);
+        Assert.True(order.IndexOf("helper finished") > order.IndexOf("shared-1"));
+        Assert.True(order.IndexOf("helper finished") > order.IndexOf("shared-2"));
+        Assert.Equal("bench", order[^1]);
+    }
+
+    [Fact]
     public async Task No_more_than_the_cap_run_at_once()
     {
         var overlap = new Overlap();

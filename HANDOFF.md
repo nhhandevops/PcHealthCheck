@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-22** (372 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
+Snapshot for continuing work on another machine. Last updated: **2026-10-22** (373 tests passing, Release builds clean with `-warnaserror`, CI green on `main`).
 
 ## What this is
 
@@ -18,7 +18,7 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 gh repo clone nhhandevops/PcHealthCheck       # private: needs `gh auth login` first
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 372 tests; WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 373 tests; WorkerProtocolTests launch the real exe
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>   # automation mode
@@ -71,7 +71,7 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] --out <dir>  
 8. **Logic that only runs on an unhealthy PC needs unit tests, because a dev machine never executes it.** Keep such logic in a pure class taking plain records (`Security/ThreatAssessment.cs` is the pattern) so the WMI layer stays a thin adapter over tested code.
 9. **Privacy claims are code, not copy.** When a feature changes what the app can do, the claims move with it in the same commit: PRIVACY.md, the HTML report line, and the receipt. Prefer a counted number (`NetworkActivityLog.Count`) over an absolute a later feature could quietly falsify. "Network connections during this scan: 0" stays true by construction — no check contains network code — and the CI gate is what keeps it that way.
 10. **A cap must say what it dropped.** The VirusTotal lookup is capped at 20 files for the free tier, and the consent dialog states how many were left unchecked. Silent truncation reads as "everything was checked".
-11. **Checks run side by side; anything that measures runs alone.** Since 2026-10-21, `ScanOrchestrator.RunModulesAsync` runs up to 4 modules at once, wrapping each in `Task.Run`, because most modules do synchronous WMI work before their first await. Results come back in list order. A module that measures speed or temperature sets `RunsAlone = true` in its manifest (today: `bench.disk`, `bench.cpu`, `sensors`) and runs afterwards with nothing beside it. **A new benchmark or sensor check that forgets this flag will measure the scan instead of the PC.** On the T470p the unelevated scan went from 19.8 s to 8.4–10.4 s, with peak memory 63 → 76 MB and identical results. Locked by `ScanOrchestratorTests`, which were checked against a forced one-at-a-time cap: 4 of 7 fail. The elevated helper (`WorkerHost`) still runs its modules one at a time.
+11. **Checks run side by side; anything that measures runs alone.** Since 2026-10-21, `ScanOrchestrator.RunModulesAsync` runs up to 4 modules at once, wrapping each in `Task.Run`, because most modules do synchronous WMI work before their first await. Results come back in list order. A module that measures speed or temperature sets `RunsAlone = true` in its manifest (today: `bench.disk`, `bench.cpu`, `sensors`) and runs afterwards with nothing beside it. **A new benchmark or sensor check that forgets this flag will measure the scan instead of the PC.** On the T470p the unelevated scan went from 19.8 s to 8.4–10.4 s, with peak memory 63 → 76 MB and identical results. Locked by `ScanOrchestratorTests`, which were checked against a forced one-at-a-time cap: 4 of 7 fail. The elevated helper (`WorkerHost`) still runs its own modules one at a time, but since 2026-10-23 both scan entry points **start it first, beside the normal checks**. `RunModulesAsync(..., beforeRunsAlone:)` awaits it before the RunsAlone phase, so the benchmarks never overlap the admin checks, and sensors no longer reads a processor the CPU benchmark has just heated. The UAC prompt now appears at the start of the scan. On the T470p an elevated scan dropped from ~125 s to 103 s. Starting the helper blocks on the UAC prompt, so it is wrapped in `Task.Run`.
 
 ## The sixth time, and the structural fix (2026-08-26)
 
@@ -336,7 +336,7 @@ version bump, fix-then-accept).
 5. ~~Top memory and CPU users~~ done 2026-10-22: `memory.top_users` and `cpu.top_users` in System overview, top five by name only, summed per program. CPU is time since each program started, not a sample, so it doesn't measure the scan itself. Unelevated, protected and other-account processes can't be read (the Detail says how many). PRIVACY.md, USER-GUIDE.md and collect-results.ps1 list them as report contents (rule 9).
 
 After those:
-- start the elevated helper alongside the local modules
+- ~~start the elevated helper alongside the local modules~~ done 2026-10-23 (rule 11)
 - speed up `startup`, which at 8–10 s now sets the scan time
 - ~~move the CI actions off Node 20~~ done 2026-10-23: checkout@v7, setup-dotnet@v6, upload-artifact@v7, all on Node 24, with the inputs checked against each `action.yml`
 - the Linux provider, still blocked on the privilege-model decision (M5-LNX)

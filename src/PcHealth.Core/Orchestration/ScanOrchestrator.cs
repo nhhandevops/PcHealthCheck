@@ -34,11 +34,15 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
     /// Modules marked <see cref="ModuleManifest.RunsAlone"/> run afterwards, one at a time, with
     /// nothing beside them. Results come back in the order the modules were given, whatever
     /// order they finished in, so reports do not reshuffle from one scan to the next.
+    /// <paramref name="beforeRunsAlone"/> is awaited between the two phases: the scan entry
+    /// points pass the elevated helper's run, so the benchmarks never share the machine with the
+    /// admin checks either.
     /// </summary>
     public async Task<IReadOnlyList<ModuleResult>> RunModulesAsync(
         IReadOnlyList<IHealthModule> modules,
         ModuleContext context,
         IProgress<ScanProgress>? progress = null,
+        Func<Task>? beforeRunsAlone = null,
         CancellationToken ct = default)
     {
         var results = new ModuleResult[modules.Count];
@@ -55,6 +59,8 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
                     finally { slots.Release(); }
                 })).ConfigureAwait(false);
         }
+
+        if (beforeRunsAlone is not null) await beforeRunsAlone().ConfigureAwait(false);
 
         for (var i = 0; i < modules.Count; i++)
         {
@@ -208,7 +214,7 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
         IProgress<ScanProgress>? progress = null,
         CancellationToken ct = default)
     {
-        var results = await RunModulesAsync(modules, context, progress, ct).ConfigureAwait(false);
+        var results = await RunModulesAsync(modules, context, progress, ct: ct).ConfigureAwait(false);
         var names = modules.ToDictionary(m => m.Manifest.Id, m => m.Manifest.Name, StringComparer.Ordinal);
         return BuildReport(results, context.Receipt.Snapshot(), context.IsElevated, names);
     }

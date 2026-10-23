@@ -184,25 +184,42 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 IsElevated = _alreadyElevated,
                 ScanStartedAt = DateTimeOffset.Now,
             };
+            // Until the helper reports its first check, the UAC prompt is open somewhere on screen;
+            // the normal checks keep the progress line busy, so say so on every update.
+            var promptPending = adminModules.Count > 0;
             var progress = new Progress<ScanProgress>(p =>
-                ProgressText = $"[{p.Index}/{p.Total}] {p.ModuleName}…");
+                ProgressText = $"[{p.Index}/{p.Total}] {p.ModuleName}…" +
+                               (promptPending ? " (the administrator prompt is waiting for you)" : ""));
 
             var orchestrator = new ScanOrchestrator(Engine.Value);
             var ct = _scanCts.Token;
 
-            var results = new List<ModuleResult>(
-                await Task.Run(() => orchestrator.RunModulesAsync(localModules, context, progress, ct), ct));
-            var receiptEntries = new List<ReceiptEntry>(receipt.Snapshot());
-            var ranElevated = _alreadyElevated;
-
+            // The elevated helper starts first and runs beside the normal checks, so the prompt
+            // appears at the start of the scan. It is awaited before the benchmarks, which must
+            // have the machine to themselves (HANDOFF rule 11). Task.Run because starting the
+            // helper blocks on the prompt until it is answered.
+            Task<ElevatedScanOutcome>? adminRun = null;
             if (adminModules.Count > 0)
             {
                 ProgressText = "Waiting for your approval of the Windows administrator prompt…";
                 var adminProgress = new Progress<ScanProgress>(p =>
-                    ProgressText = $"Administrator checks [{p.Index}/{p.Total}] {p.ModuleName}…");
+                {
+                    promptPending = false;
+                    ProgressText = $"Administrator checks [{p.Index}/{p.Total}] {p.ModuleName}…";
+                });
+                var ids = adminModules.Select(m => m.Manifest.Id).ToList();
+                adminRun = Task.Run(() => new ElevatedWorkerSession().RunAsync([.. ids], adminProgress, ct), ct);
+            }
 
-                var outcome = await new ElevatedWorkerSession()
-                    .RunAsync([.. adminModules.Select(m => m.Manifest.Id)], adminProgress, ct);
+            var results = new List<ModuleResult>(
+                await Task.Run(() => orchestrator.RunModulesAsync(localModules, context, progress,
+                    beforeRunsAlone: adminRun is null ? null : () => Task.WhenAny(adminRun), ct: ct), ct));
+            var receiptEntries = new List<ReceiptEntry>(receipt.Snapshot());
+            var ranElevated = _alreadyElevated;
+
+            if (adminRun is not null)
+            {
+                var outcome = await adminRun;
 
                 results.AddRange(outcome.Results);
                 receiptEntries.AddRange(outcome.Receipt);

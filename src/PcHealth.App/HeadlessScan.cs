@@ -69,17 +69,29 @@ internal static class HeadlessScan
         var orchestrator = new ScanOrchestrator(new VerdictEngine(RulesLoader.LoadEmbedded()));
         var progress = new Progress<ScanProgress>(p => Console.WriteLine($"[{p.Index}/{p.Total}] {p.ModuleName} — {p.Message}"));
 
+        // The elevated helper starts first and runs beside the normal checks, so the UAC prompt
+        // appears at the start of the scan instead of a minute in. It is awaited before the
+        // benchmarks, which must have the machine to themselves (HANDOFF rule 11); that also stops
+        // the sensors check reading a processor the CPU benchmark has just heated.
+        Task<ElevatedScanOutcome>? adminRun = null;
+        if (adminModules.Count > 0)
+        {
+            Console.WriteLine("Requesting administrator rights for the admin checks (one UAC prompt); the other checks run meanwhile…");
+            var adminProgress = new Progress<ScanProgress>(p => Console.WriteLine($"[admin {p.Index}/{p.Total}] {p.ModuleName} — {p.Message}"));
+            // Task.Run: starting the helper blocks on the UAC prompt until someone answers it.
+            var ids = adminModules.Select(m => m.Manifest.Id).ToList();
+            adminRun = Task.Run(() => new ElevatedWorkerSession().RunAsync([.. ids], adminProgress, CancellationToken.None));
+        }
+
         var results = new List<ModuleResult>(
-            await orchestrator.RunModulesAsync(localModules, context, progress, CancellationToken.None));
+            await orchestrator.RunModulesAsync(localModules, context, progress,
+                beforeRunsAlone: adminRun is null ? null : () => Task.WhenAny(adminRun), ct: CancellationToken.None));
         var receiptEntries = new List<ReceiptEntry>(receipt.Snapshot());
         var ranElevated = alreadyElevated;
 
-        if (adminModules.Count > 0)
+        if (adminRun is not null)
         {
-            Console.WriteLine("Requesting administrator rights for the admin checks (one UAC prompt)…");
-            var adminProgress = new Progress<ScanProgress>(p => Console.WriteLine($"[admin {p.Index}/{p.Total}] {p.ModuleName} — {p.Message}"));
-            var outcome = await new ElevatedWorkerSession()
-                .RunAsync([.. adminModules.Select(m => m.Manifest.Id)], adminProgress, CancellationToken.None);
+            var outcome = await adminRun;
 
             Console.WriteLine($"Elevated helper: {outcome.Status}{(outcome.Message is null ? "" : $" — {outcome.Message}")}");
             if (outcome.RejectedModuleIds.Count > 0)
