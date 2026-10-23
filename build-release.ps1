@@ -9,11 +9,14 @@
     makes about the machine it inspects.
 
     The build is self-contained, so the .NET runtime travels with it and the user installs
-    nothing first. It is NOT a single file: the graphics, text-shaping and SQLite native
-    libraries sit beside the exe. A true single-file build is possible, but the .NET host
-    then silently unpacks those libraries into a temporary folder on first run — an
-    undisclosed write, from an app whose entire point is disclosing every write it makes.
-    Seven visible files are the more honest answer.
+    nothing first. It uses PublishSingleFile, which bundles the managed code into
+    PcHealthCheck.exe and loads it from memory, but deliberately NOT the native libraries
+    (graphics, text shaping, SQLite): IncludeNativeLibrariesForSelfExtract stays off, so they
+    sit beside the exe. Bundling them would make the .NET host silently unpack them into
+    %TEMP%\.net on first run, an undisclosed write from an app whose entire point is
+    disclosing every write it makes. Seven visible files are the more honest answer.
+    Verified 2026-10-23: after repeated runs of the release exe, no %TEMP%\.net\PcHealthCheck
+    folder exists. The publish step below now fails if the natives ever end up bundled.
 
     Run the tests before shipping whatever this produces. `-SkipTests` exists for iterating
     on the packaging itself, not for releasing.
@@ -74,6 +77,11 @@ New-Item -ItemType Directory -Force -Path $staging | Out-Null
 dotnet publish $appProject -c Release -r win-x64 --self-contained `
     -p:PublishSingleFile=true -o $staging --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
+# The no-temp-extraction promise above holds only while the native libraries ship beside the exe.
+# If a future setting bundles them, the exe would unpack them into %TEMP% on every new machine.
+if (-not (Get-ChildItem $staging -Filter *.dll)) {
+    throw 'No native DLLs beside the exe: they were bundled into it, and the .NET host would unpack them into %TEMP% on first run.'
+}
 
 # The app is meant to travel with the documents that explain what it does and promises, and with
 # the script that collects a run for comparison - the point of carrying it to another machine is

@@ -138,7 +138,7 @@ internal sealed class BrowserExtensionsModule : WindowsModuleBase
         // Two extensions doing the same job — two ad blockers especially — fight over every
         // request, which shows up as pages that load slowly or break for no obvious reason.
         foreach (var duplicate in active
-                     .GroupBy(e => e.Browser + " " + e.Name, StringComparer.OrdinalIgnoreCase)
+                     .GroupBy(e => e.Browser + "\0" + e.Name, StringComparer.OrdinalIgnoreCase)
                      .Where(g => g.Count() > 1))
         {
             var first = duplicate.First();
