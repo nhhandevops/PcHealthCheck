@@ -7,3 +7,8 @@ artifacts/
 
 # Output of build-release.ps1 — rebuilt from source, never committed.
 release/
+
+# Laptop audit results: serial numbers, computer names and Windows user names, and this repository
+# is public. Copy the zips here to review them; only the README in this folder is ever committed.
+audit-results/*
+!audit-results/README.md

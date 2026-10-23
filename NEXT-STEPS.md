@@ -37,6 +37,10 @@ app is the tool, and the results are its first field test.
   - Commits after it (`158bd2b` onward) change only Linux code and docs, which are not in that zip.
   - Every result zip's `kit.json` names its `AppVersion`, so a finding can always be traced to this build.
 
+**How they come back:** on the owner's USB stick, reviewed on another computer. After `git pull`,
+the owner copies the zips into `audit-results/`. Git ignores everything there except its README,
+because the repository is public. `audit-results/README.md` has the exact commands.
+
 **When result zips come back, read in this order:**
 
 1. `kit.json` `ScriptErrors`, and `console-errors.txt`: kit or app crashes.

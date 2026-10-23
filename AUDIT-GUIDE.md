@@ -69,6 +69,12 @@ wrong before you check the rest. Each zip contains:
 It contains no passwords, no product keys and no file contents. Check that your company allows
 sharing this before you send it outside the company.
 
+**Reviewing them on another computer:**
+1. Pull the PcHealthCheck repository there.
+2. Copy the zips from the stick's `PcHealthCheck\Results\` into the repository's `audit-results\`
+   folder. Git never uploads anything from that folder except its README.
+3. Ask Claude to "review the audit results in audit-results/".
+
 ## 4. Make the table for your manager
 
 When the laptops are done, double-click **`2 - Summarize all laptops.cmd`** on your own PC. It
