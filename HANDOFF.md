@@ -26,6 +26,15 @@ PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] [--skip-bench
 
 The release zip also carries the **laptop audit kit** (`audit-kit/` in the repo): `1 - Check this laptop.cmd` per laptop, then `2 - Summarize all laptops.cmd` for one table. See `AUDIT-GUIDE.md`.
 
+**The zip is not in git** (`release/` is ignored), so on another machine build it:
+
+```text
+powershell -ExecutionPolicy Bypass -File .\build-release.ps1   # tests, privacy gate, publish, kit, zip, SHA-256 (~2 min)
+# -> release\PcHealthCheck-1.0.0-rc.1-win-x64.zip : extract it onto the USB stick
+```
+
+The rebuilt exe is stamped with that machine's commit (`+d98a609…` or later), not `+af47a36`. The two builds behave the same on Windows, because nothing after `af47a36` touches Windows code. Each result zip's `kit.json` names the build that produced it.
+
 ## Status by milestone
 
 | Milestone | State |
