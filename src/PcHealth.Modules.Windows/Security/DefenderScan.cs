@@ -1,4 +1,5 @@
 using System.Globalization;
+using PcHealth.Core.Metrics;
 
 namespace PcHealth.Modules.Windows.Security;
 
@@ -145,4 +146,70 @@ public static class DefenderScanAssessment
                  "does not recognise. Treat the result as unknown rather than clean, and check Windows Security.",
         };
     }
+}
+
+/// <summary>
+/// How long ago Defender last scanned - including the two answers that are not a number.
+/// </summary>
+/// <remarks>
+/// Defender reports "this has never happened" as <c>uint.MaxValue</c>, not as null. Passing that
+/// straight through as a <c>double</c> put 1.7976931348623157e+308 into the machine-readable
+/// report and 309 digits into the HTML table's Value column, under a red "Action needed" chip:
+/// a figure no reader could interpret, and one that any tool reading the JSON would take at face
+/// value. "Never scanned" is not a quantity, so it is carried as text instead. The verdict does
+/// not move: <c>rules/malware.json</c> matches the text by name, and the catch-all band behind
+/// that would catch it anyway, so a PC that has never been scanned is still graded Bad.
+///
+/// A figure Defender did not return at all is a third answer and must borrow neither of the
+/// others. It is emitted <see cref="Metric.InfoOnly"/> - shown, never graded - and the module
+/// records a failure so the scan says out loud that it could not establish this. Grading it Bad
+/// would put a red row on a PC that may well have been scanned this morning; grading it Good is
+/// the defect this project keeps shipping.
+/// </remarks>
+public static class ScanRecency
+{
+    /// <summary>Defender reports "never happened" as uint.MaxValue rather than null.</summary>
+    public const uint NeverSentinel = uint.MaxValue;
+
+    /// <summary>The id the rules file, the reports and the audit kit all key on.</summary>
+    public const string QuickScanMetricId = "malware.quick_scan_age_days";
+
+    /// <summary>The label every answer shares.</summary>
+    public const string QuickScanLabel = "Days since last quick scan";
+
+    /// <summary>
+    /// The value when no quick scan has ever run. Graded Bad by rule.malware.quick-scan-age,
+    /// which matches this exact text; keep the two in step.
+    /// </summary>
+    public const string NeverText = "never run";
+
+    /// <summary>The value when Defender returned no figure at all. Never graded.</summary>
+    public const string NotReportedText = "not reported";
+
+    /// <summary>The note that degrades the scan when the figure could not be read.</summary>
+    public const string NotReportedNote =
+        "Defender did not report when it last ran a quick scan, so scan recency was NOT established.";
+
+    /// <summary>
+    /// The quick-scan-recency metric. <paramref name="ageDays"/> is Defender's QuickScanAge:
+    /// null when the property could not be read, <see cref="NeverSentinel"/> when no scan has
+    /// ever run, and otherwise a count of days.
+    /// </summary>
+    public static Metric QuickScan(uint? ageDays, bool defenderInCharge) => ageDays switch
+    {
+        null => new Metric(QuickScanMetricId, QuickScanLabel, NotReportedText,
+            HealthCategory.Security, InfoOnly: true,
+            Detail: "Defender did not say when it last ran a quick scan, so this scan could not establish " +
+                    "how recently it looked. That is left ungraded rather than counted as either clean or " +
+                    "overdue - open Windows Security > Virus & threat protection to see the real date."),
+
+        NeverSentinel => new Metric(QuickScanMetricId, QuickScanLabel, NeverText,
+            HealthCategory.Security, InfoOnly: !defenderInCharge,
+            Detail: "No quick scan has ever been recorded on this PC."),
+
+        { } age => new Metric(QuickScanMetricId, QuickScanLabel, (double)age,
+            HealthCategory.Security, Unit: "days", InfoOnly: !defenderInCharge,
+            Detail: "Quick scans check the places malware actually starts from. Combined with real-time " +
+                    "protection they are what Microsoft recommends for everyday use."),
+    };
 }

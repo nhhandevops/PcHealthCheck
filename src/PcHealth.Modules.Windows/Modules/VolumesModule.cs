@@ -107,7 +107,26 @@ internal sealed partial class VolumesModule : WindowsModuleBase
         }
         else
         {
-            notes.Add("TRIM query unavailable without admin on this system; it is covered by the elevated scan.");
+            // Conditional now, because the sentence that stood here was the same unchecked
+            // diagnosis as SMART-001: it blamed missing administrator rights and promised the
+            // elevated scan would cover it, without checking either. This module is NOT an admin
+            // module, so it runs in whatever process the user started - and when that process is
+            // already elevated there is no separate elevated half to defer to, both halves of the
+            // old sentence were false, and a query that genuinely broke read as a deliberate
+            // deferral that left TRIM silently unchecked.
+            if (context.IsElevated)
+            {
+                notes.Add("The TRIM setting could not be read on this system" +
+                          (trim.TimedOut ? " (the query timed out)" : "") +
+                          ", although this scan has administrator rights, so whether TRIM is on or off " +
+                          "was NOT checked.");
+                failures++;
+            }
+            else
+            {
+                notes.Add("TRIM query unavailable without admin on this system; the elevated half of the " +
+                          "scan reads it when one runs.");
+            }
         }
 
         if (metrics.Count == 0) return ModuleStatus.Failed;

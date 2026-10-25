@@ -94,3 +94,98 @@ public class SmartAttributeParserTests
         Assert.Equal("Interface CRC errors", SmartAttributeParser.NameFor(199));
     }
 }
+
+/// <summary>
+/// Locks the diagnosis added after the first fleet audit, where an ELEVATED scan of an NVMe-only
+/// ThinkPad reported "SMART data is not accessible ... This usually means the scan is not running
+/// with administrator rights" and sent the operator after a UAC problem that did not exist, while
+/// the drive's health sat in the same report under the wear counters (SMART-001).
+///
+/// Both directions, and the quiet direction is the one that needs the most tests: the ONLY case
+/// that stops being a failure is a machine where no disk sits on a bus that could ever expose an
+/// ATA SMART table. A drive that should have answered, a bus this code does not recognise, a disk
+/// whose bus Windows did not report, and an inventory that could not be read all keep the module
+/// Failed, because letting an unread drive pass as "nothing to read here" is the bug this project
+/// has shipped four times.
+/// </summary>
+public class SmartAvailabilityTests
+{
+    // MSFT_PhysicalDisk.BusType
+    private const int Unknown = 0, Scsi = 1, Ata = 3, Usb = 7, Raid = 8, Sas = 10, Sata = 11, Nvme = 17;
+    private const string WmiError = "ManagementException: Not supported ";
+
+    private static IReadOnlyList<ushort?> Buses(params int?[] types) => [.. types.Select(t => (ushort?)t)];
+
+    /// <summary>The audited T470s exactly: NVMe inside, the audit's own USB stick plugged in.</summary>
+    [Fact]
+    public void An_nvme_laptop_with_the_audit_stick_attached_has_no_ata_smart_to_read()
+        => Assert.Equal(SmartUnavailableReason.NoAtaDrivePresent,
+            SmartAvailability.Diagnose(isElevated: true, busInventoryRead: true, Buses(Nvme, Usb)));
+
+    [Theory]
+    [InlineData(Sata)]
+    [InlineData(Ata)]
+    [InlineData(Raid)]    // a SATA disk behind Intel RST
+    [InlineData(Sas)]
+    [InlineData(Scsi)]
+    [InlineData(Unknown)] // Windows did not say, so assume it could have answered
+    [InlineData(250)]     // a bus number this code has never heard of
+    public void A_drive_that_could_have_answered_keeps_the_check_failed(int bus)
+        => Assert.Equal(SmartUnavailableReason.Unexplained,
+            SmartAvailability.Diagnose(isElevated: true, busInventoryRead: true, Buses(Nvme, bus)));
+
+    [Fact]
+    public void A_bus_inventory_that_could_not_be_read_proves_nothing()
+        => Assert.Equal(SmartUnavailableReason.Unexplained,
+            SmartAvailability.Diagnose(isElevated: true, busInventoryRead: false, Buses(Nvme)));
+
+    [Fact]
+    public void Windows_listing_no_disks_at_all_is_not_evidence_there_is_no_ata_drive()
+        => Assert.Equal(SmartUnavailableReason.Unexplained,
+            SmartAvailability.Diagnose(isElevated: true, busInventoryRead: true, Buses()));
+
+    [Fact]
+    public void A_disk_whose_bus_was_not_reported_counts_as_one_that_should_have_answered()
+        => Assert.Equal(SmartUnavailableReason.Unexplained,
+            SmartAvailability.Diagnose(isElevated: true, busInventoryRead: true, Buses(Nvme, null)));
+
+    [Fact]
+    public void Without_rights_on_a_machine_that_has_an_ata_drive_the_rights_are_the_answer()
+        => Assert.Equal(SmartUnavailableReason.NotElevated,
+            SmartAvailability.Diagnose(isElevated: false, busInventoryRead: true, Buses(Sata)));
+
+    /// <summary>A drive with no SMART table has none whether or not anyone is an administrator.</summary>
+    [Fact]
+    public void Hardware_outranks_rights()
+        => Assert.Equal(SmartUnavailableReason.NoAtaDrivePresent,
+            SmartAvailability.Diagnose(isElevated: false, busInventoryRead: true, Buses(Nvme)));
+
+    [Fact]
+    public void The_nvme_note_points_at_the_check_that_did_read_the_drive_and_never_blames_uac()
+    {
+        var note = SmartAvailability.Explain(SmartUnavailableReason.NoAtaDrivePresent, WmiError);
+
+        Assert.DoesNotContain("administrator", note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Drive wear & error counters", note, StringComparison.Ordinal);
+        Assert.Contains(WmiError, note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_unexplained_note_says_the_sectors_were_not_read_and_does_not_blame_uac()
+    {
+        var note = SmartAvailability.Explain(SmartUnavailableReason.Unexplained, WmiError);
+
+        Assert.DoesNotContain("not running with administrator rights", note, StringComparison.Ordinal);
+        Assert.Contains("NOT read", note, StringComparison.Ordinal);
+        Assert.Contains(WmiError, note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_unelevated_note_is_the_one_place_administrator_rights_are_blamed()
+    {
+        var note = SmartAvailability.Explain(SmartUnavailableReason.NotElevated, WmiError);
+
+        Assert.Contains("administrator rights", note, StringComparison.Ordinal);
+        Assert.Contains(WmiError, note, StringComparison.Ordinal);
+    }
+}

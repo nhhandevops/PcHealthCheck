@@ -43,7 +43,12 @@ $kitDir = $PSScriptRoot
 . (Join-Path $kitDir 'audit-common.ps1')
 if (-not $ResultsDir) { $ResultsDir = Join-Path $kitDir 'Results' }
 $exe = Join-Path $kitDir 'PcHealthCheck.exe'
+# Elapsed time is measured with a Stopwatch, never by subtracting two clock readings: Windows steps
+# the clock on a laptop that has been switched off for months as soon as it finds a network, and on
+# the first fleet audit that landed mid-scan and recorded a scan of -316 seconds (KIT-004). The wall
+# clock is still read, and the difference between the two is kept as ClockJumpSeconds.
 $started = Get-Date
+$runWatch = [Diagnostics.Stopwatch]::StartNew()
 $scriptErrors = New-Object System.Collections.Generic.List[string]
 
 function Step([string]$Text) { Write-Host ''; Write-Host "=== $Text ===" -ForegroundColor Cyan }
@@ -224,7 +229,7 @@ try {
     }
     $stdout = Join-Path $work 'console-output.txt'
     $stderr = Join-Path $work 'console-errors.txt'
-    $scanStart = Get-Date
+    $scanWatch = [Diagnostics.Stopwatch]::StartNew()
     $proc = Start-Process -FilePath $exe -ArgumentList $scanArgs -NoNewWindow -PassThru `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     $null = $proc.Handle   # without this, Windows PowerShell 5.1 can report ExitCode as empty
@@ -236,7 +241,7 @@ try {
     $proc.WaitForExit()
     $shown = Show-NewLines $stdout $shown
     $exit = $proc.ExitCode
-    $scanSeconds = [int]((Get-Date) - $scanStart).TotalSeconds
+    $scanSeconds = [int]$scanWatch.Elapsed.TotalSeconds
     switch ($exit) {
         0 { Say "Finished in $scanSeconds s; every check ran." 'Green' }
         2 { Say "Finished in $scanSeconds s, but some checks could not finish (listed above). The zip is still worth sending." 'Yellow' }
@@ -299,22 +304,37 @@ try {
 
     $appVersion = ''
     try { $appVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion } catch { }
+
+    # One wall-clock reading and one Stopwatch reading, taken together, so the two times below and
+    # the step between them all describe the same instant.
+    # InvariantCulture because ':' in a custom format string is the culture's time separator, not a
+    # literal: under fi-FI the same format writes "16.51", and these strings are sorted as text to
+    # pick a laptop's latest run.
+    $finished = Get-Date
+    $clockJump = Measure-ClockJump $started $finished $runWatch.Elapsed.TotalSeconds
     $kit = [ordered]@{
-        KitVersion     = $script:AuditKitVersion
-        AppVersion     = $appVersion
-        Serial         = if ($serial) { $serial } else { '' }
-        SerialSource   = $serialSource
-        ComputerName   = $env:COMPUTERNAME
-        ResultName     = "$resultName.zip"
-        StartedAt      = $started.ToString('yyyy-MM-dd HH:mm')
-        FinishedAt     = (Get-Date).ToString('yyyy-MM-dd HH:mm')
-        AdminRequested = -not $NoAdmin
-        ScanExitCode   = $exit
-        ScanSeconds    = $scanSeconds
-        LeftOnLaptop   = $left
-        ScriptErrors   = @($scriptErrors)
+        KitVersion       = $script:AuditKitVersion
+        AppVersion       = $appVersion
+        Serial           = if ($serial) { $serial } else { '' }
+        SerialSource     = $serialSource
+        ComputerName     = $env:COMPUTERNAME
+        ResultName       = "$resultName.zip"
+        StartedAt        = $started.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+        FinishedAt       = $finished.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+        AdminRequested   = -not $NoAdmin
+        ScanExitCode     = $exit
+        ScanSeconds      = $scanSeconds
+        RunSeconds       = [int]$runWatch.Elapsed.TotalSeconds
+        ClockJumpSeconds = $clockJump
+        LeftOnLaptop     = $left
+        ScriptErrors     = @($scriptErrors)
     }
     try { Save-Json 'kit.json' $kit } catch { }
+
+    # Said out loud here as well as in the zip: the operator is the only person who can tell whether
+    # the file name they just wrote down is the time they think it is.
+    $clockNote = Get-ClockJumpText $clockJump
+    if ($clockNote) { Say "$clockNote." 'Yellow' }
 
     # The verdict, computed by the same code the fleet summary uses.
     try {

@@ -38,6 +38,10 @@ jobs:
       - name: Test
         run: dotnet test PcHealthCheck.slnx -c Release --no-build
 
+      - name: Audit kit tests
+        shell: powershell
+        run: ./tests/audit-kit/kit-tests.ps1
+
       - name: Publish (single file, self-contained)
         run: dotnet publish src/PcHealth.App/PcHealth.App.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o artifacts
 

@@ -63,8 +63,41 @@ internal sealed class DiskSmartModule : WindowsModuleBase
 
         if (statusError is not null && dataError is not null)
         {
-            notes.Add($"SMART data is not accessible on this system ({statusError}). " +
-                      "This usually means the scan is not running with administrator rights.");
+            // What this refusal MEANS is looked up now instead of asserted. The sentence that
+            // stood here blamed missing administrator rights without checking either half of the
+            // claim, and on 2026-10-25 it told the operator of an elevated scan of an NVMe-only
+            // ThinkPad to go and fix a UAC problem that did not exist, while that drive's health
+            // was already in the same report under disk.reliability (SMART-001). Both facts it
+            // needed were to hand: context.IsElevated, and the bus each disk sits on - the same
+            // MSFT_PhysicalDisk.BusType the reliability and speed checks already read.
+            var busRows = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
+                "SELECT BusType FROM MSFT_PhysicalDisk", out var busError);
+            var busTypes = busRows.ConvertAll(row => Wmi.Get<ushort>(row, "BusType"));
+            var reason = SmartAvailability.Diagnose(context.IsElevated, busError is null, busTypes);
+
+            if (reason == SmartUnavailableReason.NoAtaDrivePresent)
+            {
+                // A deliberate non-check, not a broken one, so it must not degrade the module:
+                // nearly every laptop made this decade is NVMe, and failing here fires the
+                // report's "some checks could not finish" banner - and the fleet kit's CHECK
+                // AGAIN - on healthy machines until nobody reads either. The code twelve lines
+                // below already takes exactly this position for the mixed case ("a USB or NVMe
+                // drive that has no ATA SMART table to give is a fact about the hardware"); it
+                // was simply unreachable when EVERY drive is like that, because then the WMI
+                // classes refuse outright and the early return fired first.
+                //
+                // This does not let an unread drive pass as healthy. The module emits no metric
+                // and no verdict either way, so nothing in the report says the drive is fine;
+                // whether the drive was actually read is disk.reliability's answer to give, and
+                // when that check comes back empty too the fleet row still says "No drive inside
+                // this laptop reported its own health, so drive health was NOT checked".
+                // Resolve() still returns Failed if the disk inventory above could not be read,
+                // because then this machine's drives are not known well enough to excuse it.
+                failures.Note(SmartAvailability.Explain(reason, statusError));
+                return Task.FromResult(failures.Resolve(ModuleStatus.Skipped, gotAnything: false));
+            }
+
+            notes.Add(SmartAvailability.Explain(reason, statusError));
             return Task.FromResult(ModuleStatus.Failed);
         }
 

@@ -10,6 +10,221 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## PKG-004 — Adding the kit's tests to the build made the build fail to package
+
+**Symptom.** From 2026-10-25, `build-release.ps1` failed at the Package step with
+*"audit-common.ps1 ... is being used by another process"*, naming a file it had copied into the
+staging folder seconds earlier. Three runs in a row, each naming one of the kit's `.ps1` files.
+
+**Root cause.** Self-inflicted, by the commit that added the audit kit's PowerShell tests to the
+build. `-SkipTests` packaged cleanly every time, which isolated it. Running a PowerShell script
+suite leaves Windows' script scanning warm, and it opens the freshly copied `.ps1` files just as
+`Compress-Archive` reaches them. Nothing is wrong with the inputs; the step is racing a scanner.
+
+**How to verify.** Run `build-release.ps1` twice, once plain and once with `-SkipTests`. The lock
+only appears in the run that executed the tests, and the file is openable again moments later.
+
+**Fix.** The Package step retries up to five times with a growing wait, prints the reason each
+time it waits, and still throws if the lock never clears. Deliberately not silent: a retry nobody
+can see is how a real lock gets mistaken for a slow disk.
+
+**Lesson.** A test step added to a build can break a later step without touching its inputs. The
+first two retries of the failing build were run on the assumption it was a flake; it was
+reproducible, and the thing that proved it was comparing against `-SkipTests` rather than
+retrying harder.
+
+**Date.** 2026-10-25.
+
+---
+
+## REP-001 — Double.MaxValue stood in for "never scanned", and printed 309 digits in the report
+
+**Symptom.** Two of the four laptops in the first fleet audit carried this in
+`report/pc-health-report.json`:
+
+```json
+{ "Id": "malware.quick_scan_age_days", "Value": { "Number": 1.7976931348623157e+308 },
+  "Detail": "No quick scan has ever been recorded on this PC." }
+```
+
+**The first diagnosis was wrong, and the fault was worse than recorded.** It was written up as
+machine-readable-only, on the grounds that the HTML suppressed the number. It does not.
+`HtmlReportExporter` renders the value with `"0.##"`, which turns `double.MaxValue` into a
+**309-digit** number, and both of those laptops' HTML reports show it in the value cell. The
+first search for it looked for `1.79769...e+308` and found nothing, because the rendered form has
+no decimal point and no exponent — a search that confirmed the comfortable answer.
+
+**Root cause.** Defender reports "this never happened" as `uint.MaxValue`. The module turned that
+into `double.MaxValue` purely so the rule's catch-all `Bad` band would fire. `MetricValue` has
+carried exactly one of Number / Text / Flag all along, and the full-scan metric three lines below
+already used the text `"never run"` for the same situation, so the sentinel was never needed.
+
+**Fix.** `ScanRecency` in `Security/DefenderScan.cs` — one pure place that produces all three
+answers (a real age, "never run", and "Defender did not report it"), so the sentinel cannot come
+back and the could-not-read case stops borrowing the never-ran wording. `malware.json` grades the
+text explicitly instead of falling through to the catch-all. Tests lock both the module output and
+the serialized shape at the exporter, so a future metric smuggling a sentinel down the same path
+is caught there rather than in a customer's report.
+
+**Date.** 2026-10-25.
+
+---
+
+## SMART-001 — The SMART check blamed administrator rights on a scan that had them
+
+**Symptom.** On a ThinkPad T470s the scan ran elevated (`RanElevated: true`), and `disk.smart`
+still failed with *"This usually means the scan is not running with administrator rights."* The
+real reason was that the drive is NVMe, which has no ATA SMART attribute table at all. The health
+of that drive was already in the same report, read by `disk.reliability`, which completed.
+
+**Root cause.** The sentence was a constant. The module asserted a cause it had never checked,
+though both facts it needed were to hand: `context.IsElevated`, and `MSFT_PhysicalDisk.BusType`,
+which two other checks already read.
+
+**Fix.** `SmartAvailability` diagnoses the refusal from those two facts and returns one of three
+answers, each with its own wording. An NVMe-only machine is now `Skipped` — a fact about the
+hardware, not a check that broke — which keeps the "some checks could not finish" banner off the
+healthy modern laptops that are most of the fleet.
+
+**The direction of the bus list is the whole safety property, and the first draft had it
+backwards.** It listed the buses that *can* answer, so a bus number the code had never met fell
+outside the list and counted as "nothing to read here" — turning an unread SATA disk into a
+silent pass. That is this project's four-times-shipped bug, and it was caught by review rather
+than by a test. The list now names the buses known to have *no* ATA SMART table
+(`NoAtaSmartBusTypes`), so anything unfamiliar counts as a drive that should have answered and
+the check stays failed. `[InlineData(250)]` exists to hold that line.
+
+Skipping does not let an unread drive pass as healthy: the module emits no metric either way, and
+when `disk.reliability` comes back empty too, the fleet row says "No drive inside this laptop
+reported its own health, so drive health was NOT checked" (KIT-003).
+
+**Sibling, same class.** `VolumesModule` carried the identical unchecked diagnosis for TRIM —
+"unavailable without admin, it is covered by the elevated scan" — in a module that is not an
+admin module and may already be running elevated, in which case both halves of that sentence were
+false and a genuinely broken query read as a deliberate deferral. It now asks before it says.
+
+**Date.** 2026-10-25.
+
+---
+
+## KIT-004 — A scan that took three minutes was recorded as lasting -316 seconds
+
+**Symptom.** One result zip from the first fleet audit had `ScanSeconds: -316`, with `FinishedAt`
+a minute *before* `StartedAt`. The operator was shown "Finished in -316 s" on screen.
+
+**Root cause.** Every elapsed figure in the kit was two wall-clock readings subtracted. A laptop
+that has been switched off for months comes up with a stale clock and Windows steps it as soon as
+it finds a network — here, mid-scan, by roughly seven minutes. `Get-Date` is not monotonic. Every
+old laptop in the fleet is a candidate, so this was going to recur.
+
+**How to verify.** In `kit.json`, compare `FinishedAt - StartedAt` against `ScanSeconds`; a gap
+between them is the step the clock took.
+
+**Fix.** A `Stopwatch` measures elapsed time, so the figure cannot go backwards whatever the clock
+does. The step itself is no longer hidden: the wall-clock span less the stopwatch span is recorded
+as `ClockJumpSeconds`, and past 120 seconds both the operator and the fleet table are told in one
+sentence. It is a note and never a recheck — a laptop is not re-audited because Windows fixed its
+clock, and the health readings are unaffected.
+
+Two things found on the way. `CheckedAt` decides which run of a serial the manager sees; it now
+prefers the finish time when the clock was stepped, since the start was read before the step. And
+the timestamps were being formatted with the current culture, where `:` is the *time separator*
+placeholder, not a literal — under fi-FI the same format writes `16.51`, and these strings are
+compared as text to pick the latest run. Both now use the invariant culture.
+
+Deliberately not changed: the zip's file name. It is chosen before the scan starts, which is
+before anything can know the clock is about to move, so no care at that point helps — which is
+exactly why the sentence shown to the operator says the file name may be a few minutes out.
+
+**Tests.** The kit suite grew to 45 checks, including one that reads `audit-laptop.ps1` and fails
+if any elapsed time is ever computed from two `Get-Date` readings again.
+
+**Date.** 2026-10-25.
+
+---
+
+## KIT-003 — The fleet table told the manager to replace drives that were not in the laptops
+
+**Symptom.** The first real fleet audit (2026-10-25, reviewing four result zips from three
+ThinkPads) produced, for a T470s: *"Replace the drive: Uncorrected read errors (PHD 3.0
+Silicon-Power — 1000 GB)"*. That drive is the external USB disk the audit itself was running
+from. The laptop's own NVMe SSD had no fault at all. The same false line appeared on a second
+laptop, where it sat beside a real fault on the internal SATA drive and was indistinguishable
+from it.
+
+**Root cause.** `Get-AuditRow` took the worst grade across *every* drive the scan saw.
+`audit-common.ps1` already excluded `events.disk_errors_90d` for exactly this reason — its
+comment reads "they can come from a USB drive" — but the per-drive error counters and SMART
+metrics were not filtered at all. The bus type was sitting in `disks.json` the whole time and
+nothing read it.
+
+`AUDIT-GUIDE.md` tells the operator to unplug every other USB drive, and that instruction can
+never cover this case: the kit runs *from* a USB drive, so one is always attached. An operator
+cannot follow their way out of this, which is why the filter had to be in the code.
+
+**How to verify.** In a result zip, compare `disks.json` (`BusType`) with the `Subject` of every
+`storage.*` and `smart.*` verdict in `report/pc-health-report.json`. Any subject whose drive has
+`BusType = USB` must not appear in the row's drive-health reasons.
+
+**Fix.** `Get-ExternalDriveNames` and `Test-ExternalDrive` in `audit-common.ps1`: drive health is
+decided only by drives whose bus is not USB/1394/SD/MMC. Three details that matter more than the
+filter itself:
+
+- A drive whose bus cannot be positively identified as external is still graded. Missing a
+  failing internal drive sends a bad laptop to an employee; condemning a good drive only wastes
+  money. The cheaper mistake is the one to make.
+- A scan that read nothing but the audit drive now reports drive health as **Not read**, not
+  Good, and raises a recheck. Filtering readings away must not look like a clean bill of health —
+  this is the project's recurring defect class, and the filter is exactly the kind of change that
+  reintroduces it.
+- The excluded readings are still printed as a note, because a fault on the auditor's own drive
+  is worth knowing about — just not against the laptop.
+
+Matching is on the drive name plus the em-dash separator, never the name alone, so "Samsung SSD"
+over USB cannot excuse "Samsung SSD Pro" inside the machine.
+
+**Tests.** The audit kit had **no tests at all** before this. `tests/audit-kit/kit-tests.ps1`
+(plain PowerShell, no Pester, so it runs on the same 5.1 the kit targets) now covers both
+directions, and `build-release.ps1` and CI both run it, so a kit that grades laptops wrongly
+cannot be packaged. Verified red before green: 9 of its 20 checks fail against the code as it
+was.
+
+**Date.** 2026-10-25.
+
+---
+
+## KIT-002 — A battery reading 109.7% of design was graded Good
+
+**Symptom.** In the same audit, a nine-year-old T470s reported a full charge of 25,800 mWh
+against a 23,510 mWh design capacity — 109.7% — and the app graded it **Good**. The fleet table
+showed "109.7%", telling the manager that laptop's battery was in better condition than new. The
+reading was taken while the pack sat at 2% and charging, which is when the estimate is least
+trustworthy.
+
+**Root cause.** `battery.json` grades `battery.capacity_pct` with `Good >= 80` and no upper
+bound, so any nonsense above 80 reads as healthy. A pack cannot hold more than it was built to
+hold: a figure past that means the gauge has lost its calibration and is not measuring wear at
+all. Both the Windows and the Linux module derive this metric from the same ratio, so the same
+reading from a Linux laptop would have been graded Good too.
+
+**How to verify.** `powercfg /batteryreport` and compare `FullChargeCapacity` with
+`DesignCapacity`; any ratio over about 105% is the gauge, not the battery.
+
+**Fix.** `BatteryCapacity` in `PcHealth.Core.Metrics` — shared, because the bug had a sibling in
+the Linux module and fixing one would have left the other. Above 105% the metric is emitted
+`InfoOnly`, so it is still *shown* (nobody should think the check was skipped) but no rule can
+grade it, and the module returns `PartiallyCompleted` so the scan says wear was not established.
+The kit shows "Not reliable" rather than the number and asks for a recheck.
+
+The margin is 105%, not 100%: a fresh pack routinely measures a shade over design, and refusing
+to grade those would fire the "some checks could not finish" banner on healthy laptops until
+nobody read it any more. Both directions are tested, in `BatteryCapacityTests` and in the Linux
+module's fixture tests.
+
+**Date.** 2026-10-25.
+
+---
+
 ## W11-001 — Windows 11 readiness said "System.String[]" and gave TPM advice to a processor block
 
 **Symptom.** The first live scan with the new Windows 11 check (2026-10-23, ThinkPad T470p)

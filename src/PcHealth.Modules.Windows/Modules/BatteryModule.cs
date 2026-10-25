@@ -101,6 +101,7 @@ internal sealed class BatteryModule : WindowsModuleBase
             }
 
             var index = 0;
+            var capacityUnreliable = false;
             foreach (var battery in doc.Descendants(ns + "Battery"))
             {
                 index++;
@@ -125,24 +126,35 @@ internal sealed class BatteryModule : WindowsModuleBase
                 if (design is > 0 && fullCharge is > 0)
                 {
                     var pct = Math.Round(fullCharge.Value * 100.0 / design.Value, 1);
-                    // 60% is where the rule calls it replacement territory; past that, 40% is where
-                    // an unplugged laptop stops being practical.
-                    var target = pct > 60 ? 60 : 40;
-                    var timeline = made is { } m && BatteryAge.LossPerYear(pct, m, today) is { } perYear
-                        ? $" It has lost about {perYear:0.#}% of its design capacity per year since it was made ({m:yyyy-MM-dd})" +
-                          (BatteryAge.ReachesPercent(pct, m, today, target) is { } when
-                              ? $"; if that continues it reaches {target}% around {when:yyyy-MM}."
-                              : ".")
-                        : "";
-                    metrics.Add(new Metric("battery.capacity_pct", "Battery capacity vs design", pct,
-                        HealthCategory.Battery, Unit: "%", Subject: subject,
-                        Detail: $"Full-charge {fullCharge:N0} mWh of {design:N0} mWh design. If the battery is swollen, stop using the device immediately." +
-                                timeline +
-                                (deskBound && pct < 60
-                                    ? $" This PC ran on battery {usage!.OnBatteryPct:0.#}% of the time recently, so the worn battery limits how " +
-                                      "long it can work unplugged rather than putting anything at risk: replace it when you need to work away " +
-                                      "from a socket, or at once if it swells."
-                                    : "")));
+                    if (!BatteryCapacity.IsPlausible(pct))
+                    {
+                        capacityUnreliable = true;
+                        metrics.Add(new Metric("battery.capacity_pct", "Battery capacity vs design", pct,
+                            HealthCategory.Battery, Unit: "%", Subject: subject, InfoOnly: true,
+                            Detail: $"Full-charge {fullCharge:N0} mWh of {design:N0} mWh design. " +
+                                    BatteryCapacity.CalibrationAdvice(pct)));
+                    }
+                    else
+                    {
+                        // 60% is where the rule calls it replacement territory; past that, 40% is where
+                        // an unplugged laptop stops being practical.
+                        var target = pct > 60 ? 60 : 40;
+                        var timeline = made is { } m && BatteryAge.LossPerYear(pct, m, today) is { } perYear
+                            ? $" It has lost about {perYear:0.#}% of its design capacity per year since it was made ({m:yyyy-MM-dd})" +
+                              (BatteryAge.ReachesPercent(pct, m, today, target) is { } when
+                                  ? $"; if that continues it reaches {target}% around {when:yyyy-MM}."
+                                  : ".")
+                            : "";
+                        metrics.Add(new Metric("battery.capacity_pct", "Battery capacity vs design", pct,
+                            HealthCategory.Battery, Unit: "%", Subject: subject,
+                            Detail: $"Full-charge {fullCharge:N0} mWh of {design:N0} mWh design. If the battery is swollen, stop using the device immediately." +
+                                    timeline +
+                                    (deskBound && pct < 60
+                                        ? $" This PC ran on battery {usage!.OnBatteryPct:0.#}% of the time recently, so the worn battery limits how " +
+                                          "long it can work unplugged rather than putting anything at risk: replace it when you need to work away " +
+                                          "from a socket, or at once if it swells."
+                                        : "")));
+                    }
                 }
                 if (fullCharge is > 0 && doc.Descendants(ns + "Battery").Count() == 1 &&
                     Wmi.TryQuery(@"root\wmi", "SELECT PowerOnline, Charging, Discharging, RemainingCapacity FROM BatteryStatus", out _)
@@ -172,6 +184,11 @@ internal sealed class BatteryModule : WindowsModuleBase
             if (!metrics.Any(m => m.Id == "battery.capacity_pct"))
             {
                 notes.Add("Battery report contained no capacity data (some batteries do not expose it), so battery wear was NOT checked.");
+                return ModuleStatus.PartiallyCompleted;
+            }
+            if (capacityUnreliable)
+            {
+                notes.Add(BatteryCapacity.UnreliableNote);
                 return ModuleStatus.PartiallyCompleted;
             }
             return ModuleStatus.Completed;

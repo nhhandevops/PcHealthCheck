@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
+using PcHealth.Modules.Windows.Storage;
 using PcHealth.Modules.Windows.Support;
 
 namespace PcHealth.Modules.Windows.Modules;
@@ -16,7 +17,7 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
     public override ModuleManifest Manifest { get; } = new()
     {
         Id = "disk.reliability",
-        Name = "Drive wear & error counters",
+        Name = SmartAvailability.ReliabilityCheckName,
         Description = "SSD endurance used, drive temperature, and uncorrected read/write errors as reported by the storage driver. This is how NVMe SSD health is measured.",
         Reads = ["Storage reliability counters (WMI)", "Volume dirty flag (fsutil, read-only query)"],
         NeedsAdmin = true,

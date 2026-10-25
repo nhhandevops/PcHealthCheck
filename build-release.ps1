@@ -52,6 +52,12 @@ if (-not $SkipTests) {
     Step 'Tests'
     dotnet test $solution -c Release --nologo -v q
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed - not packaging a build that does not pass.' }
+
+    # The audit kit is PowerShell, so dotnet test cannot see it. Its verdict logic decides what a
+    # manager is told to replace, and it shipped a wrong answer once, so it is checked here too.
+    $kitTests = Join-Path $PSScriptRoot 'tests/audit-kit/kit-tests.ps1'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $kitTests
+    if ($LASTEXITCODE -ne 0) { throw 'Audit kit tests failed - not packaging a kit that grades laptops wrongly.' }
 }
 
 Step 'Privacy gate'
@@ -111,7 +117,25 @@ Get-ChildItem $staging | Sort-Object Length -Descending |
 Step 'Package'
 $zip = Join-Path $OutputDir "PcHealthCheck-$version-win-x64.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path "$staging\*" -DestinationPath $zip -CompressionLevel Optimal
+# Retried, because the step is racing a scanner, not a bug in the inputs. Running the kit's
+# PowerShell tests earlier in this script leaves Windows' script scanning warm, and it opens the
+# freshly copied .ps1 files just as Compress-Archive reaches them: the build failed three times
+# running on 2026-10-25 with "audit-common.ps1 is being used by another process", and passed
+# every time with -SkipTests (PKG-004). The wait is announced rather than silent, and a lock that
+# genuinely will not clear still fails the build - a zip is not worth shipping half-written.
+$zipped = $false
+foreach ($attempt in 1..5) {
+    try {
+        Compress-Archive -Path "$staging\*" -DestinationPath $zip -CompressionLevel Optimal -ErrorAction Stop
+        $zipped = $true
+        break
+    } catch [System.IO.IOException] {
+        if (Test-Path $zip) { Remove-Item $zip -Force -ErrorAction SilentlyContinue }
+        Write-Host "  a file was still open, waiting (attempt $attempt of 5): $($_.Exception.Message)" -ForegroundColor Yellow
+        Start-Sleep -Seconds (2 * $attempt)
+    }
+}
+if (-not $zipped) { throw 'Could not package the zip: a staged file stayed locked through five attempts.' }
 
 Step 'Checksums'
 # Published so a downloader can prove the file is the one that was built. Until the binary

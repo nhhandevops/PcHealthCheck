@@ -172,6 +172,46 @@ public sealed class ModuleTests
     }
 
     [Fact]
+    public async Task A_gauge_claiming_more_than_the_pack_was_built_to_hold_is_not_graded()
+    {
+        // The Windows side of this was found on a real laptop in the first fleet audit: a pack
+        // reading 109.7% of design was graded Good. The kernel's figures are no safer, so the
+        // same guard has to hold here, or the bug simply moves to the other operating system.
+        using var fake = new FakeLinux()
+            .Attributes("/sys/class/power_supply/BAT0",
+                ("type", "Battery"), ("present", "1"), ("status", "Charging"), ("capacity", "2"),
+                ("energy_full", "25800000"), ("energy_full_design", "23510000"));
+        var result = await fake.Run("linux.battery");
+
+        var capacity = Only(result, "battery.capacity_pct");
+        Assert.Equal(109.7, capacity.Value.Number);
+        // Shown, so nobody thinks the check was skipped - but InfoOnly, so no rule can grade it.
+        Assert.True(capacity.InfoOnly);
+        Assert.Contains("does not measure wear", capacity.Detail, StringComparison.Ordinal);
+        // And the scan says out loud that wear is still unknown.
+        Assert.Equal(ModuleStatus.PartiallyCompleted, result.Status);
+        Assert.Contains(result.Notes, n => n.Contains("NOT established", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_ordinary_worn_pack_is_still_graded()
+    {
+        // The other direction, and the one that matters as much: if this guard ever starts
+        // firing on normal packs, every healthy laptop reads "could not finish" and the warning
+        // stops meaning anything.
+        using var fake = new FakeLinux()
+            .Attributes("/sys/class/power_supply/BAT0",
+                ("type", "Battery"), ("present", "1"), ("status", "Full"), ("capacity", "100"),
+                ("energy_full", "23980000"), ("energy_full_design", "23510000"));
+        var result = await fake.Run("linux.battery");
+
+        var capacity = Only(result, "battery.capacity_pct");
+        Assert.Equal(102, capacity.Value.Number);
+        Assert.False(capacity.InfoOnly);
+        Assert.Equal(ModuleStatus.Completed, result.Status);
+    }
+
+    [Fact]
     public async Task One_pack_in_two_slots_is_just_the_battery()
     {
         using var fake = Fixtures.ThinkPad().File("/sys/class/power_supply/BAT1/present", "0\n");

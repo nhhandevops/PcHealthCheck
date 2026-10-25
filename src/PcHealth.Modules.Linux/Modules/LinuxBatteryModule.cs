@@ -74,11 +74,21 @@ internal sealed class LinuxBatteryModule(SystemFiles files) : HealthModuleBase
                     Detail: "The maker and model the battery's own chip reports. Compare them with the label on the battery " +
                             "and your laptop's official battery list: a model from a different laptop usually means a third-party pack."));
 
-            if (PowerSupply.Wear(battery) is { } wear)
+            if (PowerSupply.Wear(battery) is { } wear && BatteryCapacity.IsPlausible(wear.Pct))
                 metrics.Add(new Metric("battery.capacity_pct", "Battery capacity vs design", wear.Pct, HealthCategory.Battery,
                     Unit: "%", Subject: subject,
                     Detail: $"Full charge {wear.Full:0.#} {wear.Unit} of {wear.Design:0.#} {wear.Unit} design. " +
                             "If the battery is swollen, stop using the device immediately."));
+            else if (PowerSupply.Wear(battery) is { } unreliable)
+            {
+                // Ungraded, not Good: the same guard the Windows module applies, because both
+                // derive this metric from the same ratio and the kernel's figures are no safer.
+                metrics.Add(new Metric("battery.capacity_pct", "Battery capacity vs design", unreliable.Pct,
+                    HealthCategory.Battery, Unit: "%", Subject: subject, InfoOnly: true,
+                    Detail: $"Full charge {unreliable.Full:0.#} {unreliable.Unit} of {unreliable.Design:0.#} {unreliable.Unit} design. " +
+                            BatteryCapacity.CalibrationAdvice(unreliable.Pct)));
+                failures.Record($"Battery wear ({battery.Name})", BatteryCapacity.UnreliableNote);
+            }
             else
                 failures.Record($"Battery wear ({battery.Name})",
                     "the battery reports no full-charge and design capacity, so its wear was NOT checked");

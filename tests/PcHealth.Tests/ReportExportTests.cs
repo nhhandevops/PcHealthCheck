@@ -180,6 +180,52 @@ public class ReportExportTests
     }
 
     [Fact]
+    public void No_sentinel_number_reaches_the_machine_readable_report()
+    {
+        // "Never scanned" used to serialize as 1.7976931348623157e+308. Nothing downstream could
+        // tell that from a PC last scanned 1.8e308 days ago.
+        var verdict = new Verdict(
+            new Metric("malware.quick_scan_age_days", "Days since last quick scan", "never run",
+                HealthCategory.Security, Detail: "No quick scan has ever been recorded on this PC."),
+            Grade.Bad, "rule.malware.quick-scan-age", ["Run one now"], null);
+
+        var json = JsonReportExporter.ToJson(Report(verdicts: [verdict]));
+
+        Assert.Contains("\"Text\": \"never run\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("e+308", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("1.7976931348623157", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_value_that_is_not_a_number_reads_as_words_in_the_html()
+    {
+        // The HTML did NOT suppress the sentinel: two of the first fleet audit's reports printed
+        // 309 digits in this cell, under a red "Action needed" chip.
+        var verdict = new Verdict(
+            new Metric("malware.quick_scan_age_days", "Days since last quick scan", "never run",
+                HealthCategory.Security),
+            Grade.Bad, "rule.malware.quick-scan-age", [], null);
+
+        var html = HtmlReportExporter.ToHtml(Report(verdicts: [verdict]));
+
+        Assert.Contains("<td>never run</td>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("17976931348623", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_ordinary_reading_still_prints_its_number_and_unit()
+    {
+        var verdict = new Verdict(
+            new Metric("malware.quick_scan_age_days", "Days since last quick scan", 3d,
+                HealthCategory.Security, Unit: "days"),
+            Grade.Good, "rule.malware.quick-scan-age", [], null);
+
+        var html = HtmlReportExporter.ToHtml(Report(verdicts: [verdict]));
+
+        Assert.Contains("<td>3 days</td>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Json_export_round_trips_the_report()
     {
         var trend = new TrendFinding(

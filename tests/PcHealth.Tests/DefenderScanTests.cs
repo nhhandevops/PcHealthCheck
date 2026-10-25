@@ -1,3 +1,5 @@
+using PcHealth.Core.Metrics;
+using PcHealth.Core.Verdicts;
 using PcHealth.Modules.Windows.Security;
 using Xunit;
 
@@ -157,6 +159,79 @@ public class DefenderScanTests
             ScanStart);
 
         Assert.Empty(found);
+    }
+
+    /// <summary>
+    /// The defect: "never scanned" was reported as Double.MaxValue, which reached the JSON as
+    /// 1.7976931348623157e+308 and the HTML as 309 digits. The grade was right and the value was
+    /// a lie, so both halves are locked here.
+    /// </summary>
+    [Fact]
+    public void A_scan_that_never_ran_carries_no_number_at_all()
+    {
+        var metric = ScanRecency.QuickScan(ScanRecency.NeverSentinel, defenderInCharge: true);
+
+        Assert.Null(metric.Value.Number);
+        Assert.Equal("never run", metric.Value.Text);
+        Assert.Null(metric.Unit); // "never run days" would be nonsense
+    }
+
+    [Fact]
+    public void A_scan_that_never_ran_is_still_graded_Bad()
+    {
+        var engine = new VerdictEngine(RulesLoader.LoadEmbedded("windows"));
+
+        var verdict = engine.EvaluateOne(ScanRecency.QuickScan(ScanRecency.NeverSentinel, defenderInCharge: true));
+
+        Assert.Equal(Grade.Bad, verdict.Grade);
+        Assert.NotEmpty(verdict.Tips);
+    }
+
+    [Theory]
+    [InlineData(0u, Grade.Good)]
+    [InlineData(7u, Grade.Good)]
+    [InlineData(8u, Grade.Normal)]
+    [InlineData(30u, Grade.Normal)]
+    [InlineData(31u, Grade.Bad)]
+    public void An_ordinary_reading_is_still_a_number_graded_by_its_age(uint days, Grade expected)
+    {
+        var engine = new VerdictEngine(RulesLoader.LoadEmbedded("windows"));
+
+        var metric = ScanRecency.QuickScan(days, defenderInCharge: true);
+
+        Assert.Equal((double)days, metric.Value.Number!.Value);
+        Assert.Equal("days", metric.Unit);
+        Assert.Equal(expected, engine.EvaluateOne(metric).Grade);
+    }
+
+    /// <summary>
+    /// The same else branch used to catch a figure Defender simply did not return, and told the
+    /// reader the PC had never been scanned. Over-correcting here is the worse bug: a red row on
+    /// a PC that may have been scanned this morning. It is shown, ungraded, and the scan says so.
+    /// </summary>
+    [Fact]
+    public void A_figure_Defender_did_not_return_is_neither_clean_nor_overdue()
+    {
+        var engine = new VerdictEngine(RulesLoader.LoadEmbedded("windows"));
+
+        var metric = ScanRecency.QuickScan(null, defenderInCharge: true);
+
+        Assert.True(metric.InfoOnly);
+        Assert.Null(metric.Value.Number);
+        Assert.Equal(Grade.Unknown, engine.EvaluateOne(metric).Grade);
+        Assert.DoesNotContain("never", metric.Detail!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NOT established", ScanRecency.NotReportedNote, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Another_antivirus_in_charge_leaves_the_reading_ungraded()
+    {
+        var engine = new VerdictEngine(RulesLoader.LoadEmbedded("windows"));
+
+        Assert.Equal(Grade.Unknown, engine.EvaluateOne(
+            ScanRecency.QuickScan(400, defenderInCharge: false)).Grade);
+        Assert.Equal(Grade.Unknown, engine.EvaluateOne(
+            ScanRecency.QuickScan(ScanRecency.NeverSentinel, defenderInCharge: false)).Grade);
     }
 
     private static string Describe(DefenderScanKind kind, int exitCode, IReadOnlyList<string> detections, string? subject = null) =>
