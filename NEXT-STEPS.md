@@ -32,10 +32,21 @@ app is the tool, and the results are its first field test.
 
   Verdict here: REPLACE (CpuFms), plus a battery at 50%.
 - **Not yet run:** the kit's **administrator path** (`--include-admin` through the kit) and a real person answering the questions. The owner's pilot on 2–3 laptops is that test.
-- **The zip the owner carries** was built on 2026-10-23 from `af47a36`, so its exe says `1.0.0-rc.1+af47a36…`.
-  - SHA-256 of `PcHealthCheck-1.0.0-rc.1-win-x64.zip`: `D8A124D34D892AED6EB117DA0FF9B581C3270BE1832E641D2178812F69C0CC79`.
-  - Commits after it (`158bd2b` onward) change only Linux code and docs, which are not in that zip.
-  - Every result zip's `kit.json` names its `AppVersion`, so a finding can always be traced to this build.
+- **Two builds are now in play, and every result zip's `kit.json` names which one made it.**
+  - **The first three laptops** were checked on 2026-10-23 with the build from `af47a36`
+    (`1.0.0-rc.1+af47a36…`, zip SHA-256
+    `D8A124D34D892AED6EB117DA0FF9B581C3270BE1832E641D2178812F69C0CC79`). Their zips are the ones
+    reviewed on 2026-10-25, and they predate every fix that review produced: their reports still
+    carry the Double.MaxValue scan age (REP-001), the admin-blaming SMART note (SMART-001) and, on
+    one of them, `ScanSeconds: -316` (KIT-004). That is expected. **Do not re-run those three** —
+    their verdicts were right, only the reasons were wrong, and `summarize-fleet.ps1` now reads
+    the old zips correctly.
+  - **Every laptop from here on** uses the build from `7b7d537` (`1.0.0-rc.1+7b7d537…`, zip SHA-256
+    `BF4425554EC31735B5FDD9A29BC364EDAFCAB5593CC3DD4DE2E807CDC7D0B9D1`), copied onto the stick on
+    2026-10-25. It carries all five fixes from that review.
+  - Rebuild the stick's copy after any commit that touches Windows code or the kit, and rebuild
+    **after** committing, not before: the exe is stamped with HEAD at build time, so a zip built
+    on a dirty tree names a commit that does not contain the code inside it.
 
 **How they come back:** on the owner's USB stick, reviewed on another computer. After `git pull`,
 the owner copies the zips into `audit-results/`. Git ignores everything there except its README,

@@ -98,6 +98,18 @@ Skipping does not let an unread drive pass as healthy: the module emits no metri
 when `disk.reliability` comes back empty too, the fleet row says "No drive inside this laptop
 reported its own health, so drive health was NOT checked" (KIT-003).
 
+**Deliberately not done: softening the fleet row.** The review also proposed a change in
+`audit-common.ps1` so that "Did not finish: Drive SMART health" became a note rather than a reason
+whenever the wear counters had read the drive. Once the app fix landed, that turned out to be
+both unnecessary and wrong. Unnecessary, because an NVMe-only laptop now returns `Skipped`, and
+the fleet row only raises a recheck for `Failed` or `PartiallyCompleted` — so the reason it was
+meant to suppress no longer appears. Wrong, because the cases where SMART still *fails* are the
+ones where a drive that could have answered did not: a SATA disk behind Intel RST, a controller in
+RAID mode, an unelevated scan. In every one of those the drive genuinely went unread and the
+manager should be told. The proposed gate was `$driveRead`, which never asked *why* SMART failed,
+so it would have softened exactly those. Fixing the diagnosis in the app removed the need to
+weaken the verdict in the kit.
+
 **Sibling, same class.** `VolumesModule` carried the identical unchecked diagnosis for TRIM —
 "unavailable without admin, it is covered by the elevated scan" — in a module that is not an
 admin module and may already be running elevated, in which case both halves of that sentence were
