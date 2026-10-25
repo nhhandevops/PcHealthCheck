@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-23** (456 tests passing: 393 Windows + 63 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit; see the top of NEXT-STEPS.
+Snapshot for continuing work on another machine. Last updated: **2026-10-25** (502 tests passing: 436 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 45 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed; the rest of the fleet is waiting on the owner. Start at the top of NEXT-STEPS, then read "The first fleet audit" below — it is the most useful thing in this file right now.
 
 ## What this is
 
@@ -18,7 +18,8 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 git clone https://github.com/nhhandevops/PcHealthCheck   # public, no login needed
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 458 tests (2 Linux-only, skipped on Windows); WorkerProtocolTests launch the real exe
+dotnet test  PcHealthCheck.slnx               # 504 tests (2 Linux-only, skipped on Windows); WorkerProtocolTests launch the real exe
+powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 45 more: the audit kit is PowerShell, dotnet test cannot see it
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] [--skip-benchmarks] --out <dir>   # automation mode
@@ -52,7 +53,8 @@ The rebuilt exe is stamped with that machine's commit (`+d98a609…` or later), 
 | M5 — multi-user startup coverage | ✅ shipped and verified elevated |
 | M5 — Linux provider phase 1: five unelevated modules, per-OS rules, fixture tests, `ubuntu-latest` CI job | ✅ 2026-10-23 · verified on a real kernel in CI (Ubuntu 24.04, 6.17); one cosmetic fix |
 | Windows 11 readiness (`os.win11_ready`, from Windows' own appraiser verdict) and the laptop audit kit with `AUDIT-GUIDE.md` | ✅ 2026-10-23 · kit tested unelevated on the T470p; its admin path awaits the owner's pilot |
-| **Company laptop audit: pilot on 2–3 laptops, then review the zips** (NEXT-STEPS, top) | ⬜ now, owner first |
+| Company laptop audit — pilot on 3 laptops, zips reviewed, 5 faults found and fixed | ✅ 2026-10-25 · see "The first fleet audit" below |
+| **Company laptop audit — the rest of the fleet** | ⬜ now, owner first; the stick is ready |
 | **M5 remainder — Linux phase 2 (`PcHealth.Cli`), Vietnamese localization** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — `build-release.ps1`, icon, version 1.0.0-rc.1, docs | ✅ done |
@@ -65,6 +67,53 @@ The rebuilt exe is stamped with that machine's commit (`+d98a609…` or later), 
 | **Acceptance — J3 (Vietnamese Windows), J1 (a PC with no SDK), the D rows, and the 14 rows that need a person** | ⬜ next |
 | Repository public, with a "not fully tested" disclaimer (YOU-1) | ✅ 2026-10-23 |
 | **Then signing per `RELEASING.md`** | ⬜ after that; the public-repo prerequisite for SignPath is now met |
+
+## The first fleet audit, and the five faults it found (2026-10-25)
+
+**Read this before touching the audit kit.** Three ThinkPads were checked on 2026-10-23 and their
+result zips reviewed on 2026-10-25. Every fault below came from reading real output; none was
+caught by a test, and the codebase had 457 of them at the time.
+
+The verdicts were right. The **reasons given to the manager were wrong**, which is the more
+dangerous failure: a verdict gets sanity-checked by a human, a reason gets acted on.
+
+| | What it did | Log |
+|---|---|---|
+| Drive health counted USB drives | Told the manager to replace a healthy NVMe SSD, naming the external drive the audit was running from | KIT-003 |
+| Battery graded 109.7% as Good | Reported a pack nobody could measure as better than new | KIT-002 |
+| Elapsed time from two clock readings | A three-minute scan recorded as `-316` seconds | KIT-004 |
+| SMART blamed missing admin | Said it on an elevated scan of an NVMe-only laptop, whose drive health was already in the same report | SMART-001 |
+| `Double.MaxValue` for "never scanned" | Printed a 309-digit number in two of the four HTML reports | REP-001 |
+
+Four things worth carrying forward, more than the fixes themselves:
+
+1. **The audit kit had no tests at all.** It has 45 now (`tests/audit-kit/kit-tests.ps1`), run by
+   `build-release.ps1` and by CI's `Audit kit tests` step. The kit decides what a manager is told
+   to replace; it had less coverage than any other part of this project.
+2. **A filter that hides readings is one edit away from hiding a failure.** The USB fix had to add
+   "no drive inside this laptop reported its own health" at the same time, or a laptop whose only
+   readings came from the audit drive would have read as Good.
+3. **The direction of a capability list is a safety property.** The first SMART draft listed the
+   buses that *can* report SMART, so an unknown bus number counted as "nothing to read here" and
+   turned an unread SATA disk into a silent pass — this project's four-times-shipped bug, in a
+   fix meant to prevent it. It lists the *incapable* buses now. `[InlineData(250)]` holds that line.
+4. **A search that confirms the comfortable answer should be rerun.** REP-001 was first written up
+   as invisible to humans, because the search looked for `1.79769...e+308` and the HTML renders the
+   same value as a plain 309-digit integer.
+
+**Deliberately not done:** softening "Did not finish: Drive SMART health" in the fleet row. Once
+`disk.smart` returns `Skipped` on an NVMe-only machine the reason stops appearing by itself, and
+the cases where SMART still *fails* are the ones where a drive that could have answered did not.
+Reasoning in SMART-001; do not re-propose it without reading that.
+
+**One acceptance row closed for free.** The fourth zip in that batch was the dev desktop, run
+through the kit by mistake. It reported "No battery detected — desktop system, module skipped"
+with the Battery category correctly absent, which is **J2's desktop half** — open since August
+for want of a desktop. `ACCEPTANCE-RUN-2026-10-23.md` still shows J2 as PARTIAL; that record is
+of that day's run and is left as it was.
+
+**Do not re-run the three laptops already checked.** Their zips predate every fix, which is
+expected and recorded in NEXT-STEPS; `summarize-fleet.ps1` reads them correctly now.
 
 ## Architecture in brief
 
@@ -296,6 +345,10 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 - Unelevated `MSFT_MpPreference` returns "N/A: Must be an administrator…" placeholder strings instead of failing.
 - Multi-line git commit messages with quotes: write to a file, `git commit -F file` (PowerShell here-strings break).
 - xUnit here is v2: no `Assert.SkipWhen`.
+- **Build the release AFTER committing, never before.** The exe is stamped `1.0.0-rc.1+<HEAD>`, so a zip built on a dirty tree names a commit that does not contain the code inside it. Caught on 2026-10-25 only because the stick was checked after copying.
+- **`build-release.ps1` can fail to package right after running the kit tests** — `Compress-Archive` hits a sharing violation on a `.ps1` it just copied, because running a PowerShell suite leaves Windows' script scanning warm. It retries five times and says so out loud (PKG-004). It is not a flake and not an input problem; `-SkipTests` packaging cleanly is what proves which it is.
+- **The audit kit must stay ASCII and Windows PowerShell 5.1.** `audit-common.ps1` says so in its header: 5.1 reads a BOM-less script in the ANSI code page, so a literal em dash is garbled on some laptops. Build one by code point (`[char]0x2014`) when matching the app's drive subjects.
+- **Scripted edits from bash mangle backslashes.** Writing `tests\audit-kit\kit-tests.ps1` through a heredoc produced a real TAB and a real BEL byte, because `\t` and `\a` were interpreted. It happened twice on 2026-10-25, the second time in the very line documenting the first. Use forward slashes in PowerShell paths - they work - or read the file back after writing it (TOOL-001).
 - CI (`.github/workflows/build.yml`) runs on every push: `-warnaserror` build, tests, the System.Net gate, a single-file publish with SHA-256 checksums. When it goes red, check **which step** first (`gh run view <id> --json jobs`): on 2026-10-21 a red run was the artifact quota, not the code (CI-001). On a reinstalled machine `gh` needs `gh auth login` even when `git push` already works.
 
 ## What M4 part 2 shipped
@@ -341,17 +394,29 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 
 ## Suggested next session
 
-**First (state saved 2026-10-23):** the owner is running the laptop audit pilot. The result zips
-come on a **USB stick, to another computer**. There the owner pulls this repository and copies the
-zips from the stick's `PcHealthCheck\Results\` into **`audit-results/`**. Git ignores that folder,
-because the zips hold serial numbers and user names and this repository is public. Then:
-1. Follow `audit-results/README.md`.
-2. Review the zips in the order at the top of NEXT-STEPS.
-3. Fix what they show, with tests and fault-log entries, and rebuild the kit.
-4. Only then let the rest of the fleet be checked.
+**First (state saved 2026-10-25):** the pilot is done and reviewed; the owner is checking the rest
+of the fleet. The stick (`H:` on the dev desktop) carries the build from `8107bbd`'s parent,
+`1.0.0-rc.1+7b7d537`, with all five fixes. Nothing is blocked on code.
 
-Never commit a zip, a serial number, a computer name or a user name. Nothing else is in progress:
-the tree is clean and pushed, and CI is green on both jobs.
+When the next zips come back, the loop is the same one that worked:
+1. Copy them from the stick's `PcHealthCheck\Results\` into **`audit-results/`**. Git ignores that
+   folder, because the zips hold serial numbers, computer names and Windows user names, and this
+   repository is public. Check `git status` and see nothing.
+2. Follow `audit-results/README.md`, then the review order at the top of NEXT-STEPS.
+3. Build the fleet table, then read for *wrong reasons*, not just wrong verdicts. Every fault in
+   the first round was a plausible-looking reason attached to a correct verdict.
+4. Fix with tests and a fault-log entry, rebuild the kit **after committing**, and re-copy it to
+   the stick.
+
+**Never commit a zip, a serial number, a computer name or a user name.** This bit the first round:
+a review agent copied a real serial into a test fixture, and it was caught only by grepping the
+staged diff for the known serials before committing. Do that grep every time.
+
+**Engineering, when the fleet is not the job:** M5 remainder — Linux phase 2 (`PcHealth.Cli`, needs
+the Ubuntu 26.04 VM; neither WSL nor Docker is on the dev desktop), then Vietnamese localization.
+Acceptance rows still needing a person: J3's display-language half, J1, B1, B4, E1, G3, D4.
+
+The tree is clean and pushed, and CI is green on both jobs.
 
 **Needs a person:** row J3, the app on a Windows set to Tiếng Việt (highest-value acceptance row left); then
 J1 and the other person-only rows in `NEXT-STEPS.md`; and the decisions YOU-1 to YOU-3 (public repo for signing,
