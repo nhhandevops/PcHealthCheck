@@ -10,6 +10,50 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## KIT-005 — The fleet table sent a laptop for a drive check over errors on two USB drives
+
+**Symptom.** On 2026-10-26 the pilot's zips were reviewed again on the T470p. One ThinkPad T470p
+carried the reason *"Disk errors in the event log, check that drive: Disk I/O errors (90 days)"*.
+The report's own Detail line said where the 47 errors came from: *"on the disk Windows runs from
+(disk 0): 0; on other drives: disk 1: 34, disk 2: 13"*. In that zip's `disks.json`, disks 1 and 2
+are both on USB: the audit drive, and a laptop hard disk in a USB caddy. The laptop's own SSD had
+logged none.
+
+**Root cause.** The fleet row turned the app's grade of `events.disk_errors_90d` straight into a
+reason. The app grades the total for every drive Windows has seen, and keeps the per-drive split
+only in the Detail text. KIT-003 filtered USB drives out of the *drive health* grade but left this
+line alone.
+
+**The wrong first guess.** KIT-003's entry says `audit-common.ps1` "already excluded
+`events.disk_errors_90d`" for this reason. That was true of the drive-health grade only. The
+separate event-log reason, added on 2026-10-23, still fired on the total. The comment was read as
+covering the whole metric, so the 2026-10-25 review did not look at it again.
+
+**How to verify.** In a result zip, read the Detail of `events.disk_errors_90d` in
+`report/pc-health-report.json`, and look up each disk number it names in `disks.json`. A reason
+may count only the disk Windows runs from, disks attached now on an internal bus, and errors
+tied to no disk.
+
+**Fix.** `Get-DiskErrorSplit` and `Get-DiskErrorsAgainstLaptop` in `audit-common.ps1` read the
+split, which is fixed English from `DiskEventAttribution.Describe`.
+
+- **Excluded, but printed as a note:** errors on USB drives, and on disk numbers not attached
+  during the audit.
+- **Still counted:** errors tied to no disk, following KIT-003's rule that unknown stays in.
+- **The whole total still counts** when anything is missing: no split in the Detail, a split that
+  does not add up to the total, no Detail field (the JSON omits empty ones), or no drive list.
+  An unreadable sentence must never make errors disappear.
+- **The threshold** (`$script:DiskErrorsNormalMax` = 5) mirrors `rule.storage.disk-events`, and a
+  test fails if the two disagree.
+
+There are 17 new kit checks, and 11 of them failed against the old code. The other 6 are the
+fallback cases, where counting everything is the old behaviour kept on purpose. All 62 pass. Old
+zips are read correctly, because the split has been in the Detail since HW-001 (2026-10-21).
+
+**Date.** 2026-10-26.
+
+---
+
 ## PKG-004 — Adding the kit's tests to the build made the build fail to package
 
 **Symptom.** From 2026-10-25, `build-release.ps1` failed at the Package step with

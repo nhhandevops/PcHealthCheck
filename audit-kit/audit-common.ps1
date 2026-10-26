@@ -175,6 +175,82 @@ function Test-ExternalDrive([string]$Subject, $ExternalNames) {
     return $false
 }
 
+# Disk errors in the event log above this many in 90 days are a fault, at or below it a note. It
+# mirrors rule.storage.disk-events in src/PcHealth.Core/Rules/storage.json (Normal up to 5), and
+# kit-tests.ps1 fails if the two ever disagree.
+$script:DiskErrorsNormalMax = 5
+
+# A property the app may have left out: its JSON omits every empty field, so a Detail or Subject
+# that was null is simply absent, and strict mode turns reading an absent property into an error.
+function Get-OptionalProperty($Object, [string]$Name) {
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($property) { return $property.Value }
+    return $null
+}
+
+# The event log's disk errors split by the drive that logged them. The app writes the split into
+# the metric's Detail, in fixed English that is never translated (DiskEventAttribution.Describe):
+#   "By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 34, disk 2: 13."
+# Returns $null when there is no split, or when its numbers do not add up to the total: the caller
+# then counts every error against the laptop, because a sentence that cannot be read must never
+# make errors disappear.
+function Get-DiskErrorSplit($Verdict) {
+    $detail = [string](Get-OptionalProperty $Verdict.Metric 'Detail')
+    $total = Get-OptionalProperty (Get-OptionalProperty $Verdict.Metric 'Value') 'Number'
+    if (-not $detail -or $null -eq $total) { return $null }
+    $byDisk = @{}
+    $systemDisk = $null
+    $match = [regex]::Match($detail, 'on the disk Windows runs from \(disk (\d+)\): (\d+)')
+    if ($match.Success) {
+        $systemDisk = [int]$match.Groups[1].Value
+        $byDisk[$systemDisk] = [int]$match.Groups[2].Value
+    }
+    foreach ($list in [regex]::Matches($detail, '(?:on other drives|by disk number): ([^;.]+)')) {
+        foreach ($pair in [regex]::Matches($list.Groups[1].Value, 'disk (\d+): (\d+)')) {
+            $n = [int]$pair.Groups[1].Value
+            $byDisk[$n] = [int]$byDisk[$n] + [int]$pair.Groups[2].Value
+        }
+    }
+    $unattributed = 0
+    $match = [regex]::Match($detail, 'no disk named: (\d+)')
+    if ($match.Success) { $unattributed = [int]$match.Groups[1].Value }
+    if ($byDisk.Count -eq 0 -and $unattributed -eq 0) { return $null }
+    $sum = $unattributed
+    foreach ($count in $byDisk.Values) { $sum += $count }
+    if ($sum -ne [int]$total) { return $null }
+    return [pscustomobject]@{ ByDisk = $byDisk; SystemDisk = $systemDisk; Unattributed = $unattributed }
+}
+
+# Which of those errors are this laptop's. The disk Windows runs from always is, and so is any disk
+# that is attached now over an internal bus. A disk attached over USB is the audit drive or someone's
+# backup drive, and a disk number not attached now is a drive that is not in the laptop as it will be
+# handed over: both are reported but not counted. Errors the app could not tie to any disk are
+# counted, because nothing shows they came from elsewhere (the KIT-003 rule: unknown stays in).
+# Returns $null when the drive list is missing, so nothing is excluded on no evidence.
+function Get-DiskErrorsAgainstLaptop($Verdict, $Disks) {
+    $split = Get-DiskErrorSplit $Verdict
+    $diskList = @($Disks | Where-Object { $_ })
+    if (-not $split -or $diskList.Count -eq 0) { return $null }
+    $busByNumber = @{}
+    foreach ($disk in $diskList) { $busByNumber[[string]$disk.DeviceId] = [string]$disk.BusType }
+    $own = [int]$split.Unattributed
+    $ownParts = New-Object System.Collections.Generic.List[string]
+    $external = New-Object System.Collections.Generic.List[string]
+    $detached = New-Object System.Collections.Generic.List[string]
+    foreach ($n in @($split.ByDisk.Keys | Sort-Object)) {
+        $count = [int]$split.ByDisk[$n]
+        if ($count -le 0) { continue }
+        $text = "disk ${n}: $count"
+        if ($n -eq $split.SystemDisk) { $own += $count; $ownParts.Add("$text (the disk Windows runs from)") }
+        elseif (-not $busByNumber.ContainsKey([string]$n)) { $detached.Add($text) }
+        elseif ($script:ExternalBusTypes -contains $busByNumber[[string]$n]) { $external.Add($text) }
+        else { $own += $count; $ownParts.Add($text) }
+    }
+    if ($split.Unattributed -gt 0) { $ownParts.Add("$($split.Unattributed) not tied to any drive") }
+    return [pscustomobject]@{ Own = $own; OwnParts = $ownParts; External = $external; Detached = $detached }
+}
+
 # The checks whose failure makes a verdict unsafe. Any other check that did not finish is a note.
 $script:CriticalModules = @('sys.overview', 'volumes', 'battery', 'disk.smart', 'disk.reliability')
 
@@ -260,10 +336,27 @@ function Get-AuditRow($Bundle, $Rules) {
         if ($Rules.driveWarningsNeedFix) { $fix.Add("Drive warnings: $($driveIssues -join ', ')") }
         else { $notes.Add("Drive shows early warnings, worth watching: $($driveIssues -join ', ')") }
     }
-    $eventGrade = Get-WorstGrade $eventVerdicts
-    $eventIssues = @($eventVerdicts | Where-Object { $_.Grade -eq 'Bad' -or $_.Grade -eq 'Normal' } | ForEach-Object { Format-Subject $_ })
-    if ($eventGrade -eq 'Bad') { $fix.Add("Disk errors in the event log, check that drive: $($eventIssues -join ', ')") }
-    elseif ($eventGrade -eq 'Normal') { $notes.Add("A few disk errors in the event log: $($eventIssues -join ', ')") }
+    # Disk errors in the event log count against the laptop only when they came from its own drives.
+    # The app's grade is on the total of every drive Windows ever saw, so on the first fleet audit a
+    # T470p was sent for a drive check over 47 errors, all of them on two USB drives, while its own
+    # SSD had logged none (KIT-005). Where the split cannot be read, the total still counts.
+    foreach ($eventVerdict in $eventVerdicts) {
+        $split = Get-DiskErrorsAgainstLaptop $eventVerdict $Bundle.Disks
+        if (-not $split) {
+            if ($eventVerdict.Grade -eq 'Bad') { $fix.Add("Disk errors in the event log, check that drive: $(Format-Subject $eventVerdict)") }
+            elseif ($eventVerdict.Grade -eq 'Normal') { $notes.Add("A few disk errors in the event log: $(Format-Subject $eventVerdict)") }
+            continue
+        }
+        $outside = @()
+        if ($split.External.Count -gt 0) { $outside += "on USB drives ($($split.External -join ', '))" }
+        if ($split.Detached.Count -gt 0) { $outside += "on drives not attached during the audit ($($split.Detached -join ', '))" }
+        if ($outside.Count -gt 0) { $notes.Add("Not counted against this laptop, disk errors in the event log $($outside -join ' and ')") }
+        if ($split.Own -gt $script:DiskErrorsNormalMax) {
+            $fix.Add("Disk errors in the event log from this laptop's own drive: $($split.Own) in 90 days ($($split.OwnParts -join ', ')), check that drive")
+        } elseif ($split.Own -gt 0) {
+            $notes.Add("A few disk errors in the event log from this laptop's own drive: $($split.Own) in 90 days ($($split.OwnParts -join ', '))")
+        }
+    }
 
     # --- Drive type: Windows 11 on a hard disk is slow enough to cost an employee real time.
     $diskType = if ($m) { [string]$m.SystemDiskMediaType } else { '' }

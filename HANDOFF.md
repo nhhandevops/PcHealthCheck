@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-25** (502 tests passing: 436 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 45 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed; the rest of the fleet is waiting on the owner. Start at the top of NEXT-STEPS, then read "The first fleet audit" below — it is the most useful thing in this file right now.
+Snapshot for continuing work on another machine. Last updated: **2026-10-25** (502 tests passing: 436 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 62 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed; the rest of the fleet is waiting on the owner. Start at the top of NEXT-STEPS, then read "The first fleet audit" below — it is the most useful thing in this file right now.
 
 ## What this is
 
@@ -19,7 +19,7 @@ winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only p
 git clone https://github.com/nhhandevops/PcHealthCheck   # public, no login needed
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
 dotnet test  PcHealthCheck.slnx               # 504 tests (2 Linux-only, skipped on Windows); WorkerProtocolTests launch the real exe
-powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 45 more: the audit kit is PowerShell, dotnet test cannot see it
+powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 62 more: the audit kit is PowerShell, dotnet test cannot see it
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] [--skip-benchmarks] --out <dir>   # automation mode
@@ -53,7 +53,7 @@ The rebuilt exe is stamped with that machine's commit (`+d98a609…` or later), 
 | M5 — multi-user startup coverage | ✅ shipped and verified elevated |
 | M5 — Linux provider phase 1: five unelevated modules, per-OS rules, fixture tests, `ubuntu-latest` CI job | ✅ 2026-10-23 · verified on a real kernel in CI (Ubuntu 24.04, 6.17); one cosmetic fix |
 | Windows 11 readiness (`os.win11_ready`, from Windows' own appraiser verdict) and the laptop audit kit with `AUDIT-GUIDE.md` | ✅ 2026-10-23 · kit tested unelevated on the T470p; its admin path awaits the owner's pilot |
-| Company laptop audit — pilot on 3 laptops, zips reviewed, 5 faults found and fixed | ✅ 2026-10-25 · see "The first fleet audit" below |
+| Company laptop audit — pilot on 3 laptops, zips reviewed, 5 faults found and fixed, a 6th on re-review | ✅ 2026-10-25, 2026-10-26 · see "The first fleet audit" below |
 | **Company laptop audit — the rest of the fleet** | ⬜ now, owner first; the stick is ready |
 | **M5 remainder — Linux phase 2 (`PcHealth.Cli`), Vietnamese localization** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
@@ -84,10 +84,11 @@ dangerous failure: a verdict gets sanity-checked by a human, a reason gets acted
 | Elapsed time from two clock readings | A three-minute scan recorded as `-316` seconds | KIT-004 |
 | SMART blamed missing admin | Said it on an elevated scan of an NVMe-only laptop, whose drive health was already in the same report | SMART-001 |
 | `Double.MaxValue` for "never scanned" | Printed a 309-digit number in two of the four HTML reports | REP-001 |
+| Event-log disk errors counted every drive | Found on re-review, 2026-10-26: sent a T470p for a drive check over 47 errors that were all on two USB drives; its own SSD had logged none | KIT-005 |
 
 Four things worth carrying forward, more than the fixes themselves:
 
-1. **The audit kit had no tests at all.** It has 45 now (`tests/audit-kit/kit-tests.ps1`), run by
+1. **The audit kit had no tests at all.** It has 62 now (`tests/audit-kit/kit-tests.ps1`), run by
    `build-release.ps1` and by CI's `Audit kit tests` step. The kit decides what a manager is told
    to replace; it had less coverage than any other part of this project.
 2. **A filter that hides readings is one edit away from hiding a failure.** The USB fix had to add
@@ -403,7 +404,7 @@ holds the rows a desktop cannot.
 ## Shipping
 
 - `build-release.ps1` — tests, privacy gate, self-contained publish, zip, SHA-256. One command.
-- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's 45 PowerShell checks** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
+- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's PowerShell checks, 62 since KIT-005** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
 - `USER-GUIDE.md` — for the person running it, not for whoever builds it. Ships inside the zip.
 - `ACCEPTANCE.md` — 19 blocking rows out of ~60. Run before giving the app to anyone.
 - `RELEASING.md` — the steps a script cannot do: SignPath application (needs a **public** repo, takes weeks), GitHub release, SmartScreen submission, winget manifest.

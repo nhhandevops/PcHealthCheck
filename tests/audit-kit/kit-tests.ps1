@@ -286,6 +286,78 @@ $row = Get-AuditRow (New-Bundle @(
 Check 'a report carrying a text value still produces a row' { $row.Battery -eq '95%' }
 Check 'and no sentinel number reaches the manager table' { ($row | Format-List | Out-String) -notmatch '17976931348623' }
 
+# --- Disk errors in the event log from drives that are not in the laptop (KIT-005) --------------
+# The real case: a T470p sent for a drive check over 47 event-log errors, every one of them on the
+# two USB drives plugged in during the audit, while the disk Windows runs from had logged none.
+
+function New-DiskAt([string]$Number, [string]$Name, [string]$Bus) {
+    [pscustomobject]@{ DeviceId = $Number; FriendlyName = $Name; MediaType = 'SSD'; BusType = $Bus; Size = 256060514304; HealthStatus = 'Healthy' }
+}
+
+# The metric as the app writes it: the split sits in Detail, in DiskEventAttribution's wording.
+function New-DiskErrors([int]$Count, [string]$Grade, [string]$ByDrive) {
+    $detail = 'Bad blocks, retried I/O, controller resets, or NTFS corruption events. Any growth here deserves attention ' +
+        [char]0x2014 + ' and a backup.'
+    if ($ByDrive) { $detail += ' ' + $ByDrive }
+    [pscustomobject]@{
+        Grade  = $Grade
+        Metric = [pscustomobject]@{
+            Id = 'events.disk_errors_90d'; Label = 'Disk I/O errors (90 days)'; Subject = ''; Detail = $detail
+            Value = [pscustomobject]@{ Number = $Count; Text = ''; Flag = $null }
+        }
+    }
+}
+
+$renumbered = ' USB drives take the next free number when plugged in, so these numbers may name drives no longer attached.'
+$internalSmart = New-Verdict 'smart.reallocated' 'Good' 0 (Subject-For 'Internal SATA SSD' 240) 'Reallocated sectors'
+$t470pDisks = @((New-DiskAt '0' 'Internal SATA SSD' 'SATA'), (New-DiskAt '1' 'Laptop drive in a USB caddy' 'USB'), (New-DiskAt '2' 'Audit drive' 'USB'))
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 47 'Bad' ('By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 34, disk 2: 13.' + $renumbered)), $internalSmart) $t470pDisks) $rules
+Check 'no drive check for errors that were all on USB drives' { $row.Reasons -notmatch 'Disk errors' }
+Check 'the USB errors are still reported, with their counts' { $row.Notes -match 'on USB drives \(disk 1: 34, disk 2: 13\)' }
+Check 'and the note says they were not counted' { $row.Notes -match 'Not counted against this laptop, disk errors' }
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 25 'Bad' ('By drive: on the disk Windows runs from (disk 0): 12; on other drives: disk 2: 13.' + $renumbered)), $internalSmart) $t470pDisks) $rules
+Check 'errors on the disk Windows runs from still send it for a check' { $row.Reasons -match 'own drive: 12 in 90 days' }
+Check 'and the USB drive''s share is not added to them' { $row.Reasons -notmatch 'own drive: 25' }
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 3 'Normal' 'By drive: on the disk Windows runs from (disk 0): 3.'), $internalSmart) $t470pDisks) $rules
+Check 'a few errors on its own drive are a note, not a reason' { $row.Reasons -notmatch 'Disk errors' }
+Check 'and the note gives the count' { $row.Notes -match 'own drive: 3 in 90 days' }
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 9 'Bad' 'By drive: on the disk Windows runs from (disk 0): 0; from controllers or the file system, no disk named: 9.'), $internalSmart) $t470pDisks) $rules
+Check 'errors tied to no drive count against the laptop' { $row.Reasons -match 'own drive: 9 in 90 days' }
+Check 'and say they are tied to no drive' { $row.Reasons -match '9 not tied to any drive' }
+
+$desktopDisks = @((New-DiskAt '0' 'Internal NVMe' 'NVMe'), (New-DiskAt '1' 'Internal hard disk' 'SATA'))
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 20 'Bad' ('By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 20.' + $renumbered)), $internalSmart) $desktopDisks) $rules
+Check 'a second internal drive''s errors count' { $row.Reasons -match 'own drive: 20 in 90 days' }
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 8 'Bad' ('By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 3: 8.' + $renumbered)), $internalSmart) $t470pDisks) $rules
+Check 'errors on a drive no longer attached are not counted' { $row.Reasons -notmatch 'Disk errors' }
+Check 'but are reported as such' { $row.Notes -match 'not attached during the audit \(disk 3: 8\)' }
+
+# The other direction: whenever the split cannot be trusted, every error still counts.
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 47 'Bad' 'By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 34.'), $internalSmart) $t470pDisks) $rules
+Check 'a split that does not add up to the total falls back to the total' { $row.Reasons -match 'Disk errors in the event log, check that drive' }
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 47 'Bad' ''), $internalSmart) $t470pDisks) $rules
+Check 'no split at all falls back to the total' { $row.Reasons -match 'Disk errors in the event log, check that drive' }
+
+$noDetail = [pscustomobject]@{
+    Grade  = 'Bad'
+    Metric = [pscustomobject]@{ Id = 'events.disk_errors_90d'; Label = 'Disk I/O errors (90 days)'; Subject = ''; Value = [pscustomobject]@{ Number = 47 } }
+}
+$row = Get-AuditRow (New-Bundle @($noDetail, $internalSmart) $t470pDisks) $rules
+Check 'a metric with no Detail field (the JSON omits empty ones) falls back, without throwing' { $row.Reasons -match 'Disk errors in the event log, check that drive' }
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 47 'Bad' ('By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 34, disk 2: 13.' + $renumbered)), $internalSmart) @()) $rules
+Check 'with no drive list, nothing is excluded on no evidence' { $row.Reasons -match 'Disk errors in the event log, check that drive' }
+
+$storageRules = Get-Content (Join-Path $PSScriptRoot '../../src/PcHealth.Core/Rules/storage.json') -Raw | ConvertFrom-Json
+$normalBand = @(@($storageRules.rules | Where-Object { $_.id -eq 'rule.storage.disk-events' })[0].bands | Where-Object { $_.grade -eq 'Normal' })[0]
+Check 'the kit''s disk-error threshold matches the app''s rule' { [int]$normalBand.lte -eq $script:DiskErrorsNormalMax }
+
 # --- Result -----------------------------------------------------------------
 
 Write-Host ''
