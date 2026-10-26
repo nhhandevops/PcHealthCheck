@@ -439,9 +439,11 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 ## Suggested next session
 
 **First (state saved 2026-10-26):** the pilot is done and was reviewed twice. The re-review on the
-T470p found a sixth fault (KIT-005). The owner is checking the rest of the fleet. The stick (`H:` on
-the dev desktop, `E:` on the T470p) carries `1.0.0-rc.1+462f176`, with all six fixes. Nothing is
-blocked on code. The pilot's fleet table is in `audit-results/` on the T470p only; git ignores it,
+T470p found a sixth fault (KIT-005), and the owner's photo of the kit found a seventh, the `ù` in every
+progress line (KIT-006). The owner is checking the rest of the fleet. The stick (`H:` on the dev
+desktop, `E:` on the T470p) carries `1.0.0-rc.1+d14c59b`, with all seven fixes. The kit's admin path
+has now run for real: 22 of 22 checks, elevated. One thing is open: closing the kit's window before
+its last step loses that laptop's zip (NEXT-STEPS, top). The pilot's fleet table is in `audit-results/` on the T470p only; git ignores it,
 so another machine has to rebuild it from the zips.
 
 When the next zips come back, the loop is the same one that worked:

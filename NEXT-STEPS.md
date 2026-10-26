@@ -31,7 +31,14 @@ app is the tool, and the results are its first field test.
   - "nothing left on the laptop", with `history.db` restored byte-identical.
 
   Verdict here: REPLACE (CpuFms), plus a battery at 50%.
-- **Not yet run:** the kit's **administrator path** (`--include-admin` through the kit) and a real person answering the questions. The owner's pilot on 2–3 laptops is that test.
+- **The kit's administrator path has run for real** (2026-10-26, the T470p, build `462f176`). The owner
+  started the kit at 11:11. The elevated scan finished in 68 s with all 22 checks Completed and
+  `RanElevated` true. The window was then closed during the first question, at 12:16, so the kit's
+  closing step never ran: no zip and no `kit.json`. The scan survives only as
+  `Results\.work-<serial>_<computer>_2026-10-26_1111\` on the stick. That run also produced the
+  owner's photo of KIT-006.
+- **Still not run:** a real person answering all the questions. Also, closing the window before the
+  end loses the result: the zip is only written in the last step.
 - **Two builds are now in play, and every result zip's `kit.json` names which one made it.**
   - **The first three laptops** were checked on 2026-10-23 with the build from `af47a36`
     (`1.0.0-rc.1+af47a36…`, zip SHA-256
@@ -41,12 +48,16 @@ app is the tool, and the results are its first field test.
     one of them, `ScanSeconds: -316` (KIT-004). That is expected. **Do not re-run those three** —
     their verdicts were right, only the reasons were wrong, and `summarize-fleet.ps1` now reads
     the old zips correctly.
-  - **Every laptop from here on** uses the build from `462f176` (`1.0.0-rc.1+462f176…`, zip SHA-256
-    `A9E8396710BEF6EDADCFEE5C389624B2CD21C6C3624CA319A28869AE2EFB46E7`), copied onto the stick on
-    2026-10-26 from the T470p, where the stick was `E:`. Every file was verified against the build
-    and the `Results` folder was left untouched. It carries the five fixes of 2026-10-25 and KIT-005.
-    The previous stick build, `7b7d537` (zip `BF4425554EC31735B5FDD9A29BC364EDAFCAB5593CC3DD4DE2E807CDC7D0B9D1`),
-    checked no laptop: no zip was made with it.
+  - **Every laptop from here on** uses the build from `d14c59b` (`1.0.0-rc.1+d14c59b…`, zip SHA-256
+    `3807B43A13FF0AFFCC269F7D30706F1090EA5A1732993EA5849BEA0174EC9324`), copied onto the stick on
+    2026-10-26 at about 12:15, from the T470p, where the stick was `E:`. Every file was verified
+    against the build, and the `Results` folder (including the unfinished run above) was
+    fingerprinted before and after: unchanged. It carries the five fixes of 2026-10-25, KIT-005 and
+    KIT-006, so its console text is UTF-8.
+  - **Earlier stick builds and what they produced.** `462f176` (zip
+    `A9E8396710BEF6EDADCFEE5C389624B2CD21C6C3624CA319A28869AE2EFB46E7`) made only the unfinished run
+    above, and no zip. `7b7d537` (zip `BF4425554EC31735B5FDD9A29BC364EDAFCAB5593CC3DD4DE2E807CDC7D0B9D1`)
+    checked no laptop at all.
   - Rebuild the stick's copy after any commit that touches Windows code or the kit, and rebuild
     **after** committing, not before: the exe is stamped with HEAD at build time, so a zip built
     on a dirty tree names a commit that does not contain the code inside it.
