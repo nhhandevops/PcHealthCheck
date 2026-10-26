@@ -225,6 +225,33 @@ if (-not $built) {
 }
 
 # ---------------------------------------------------------------------------------------------
+# The audit kit is PowerShell, so dotnet test cannot see it, and a smoke that said PASS without
+# running it would be claiming coverage it did not have. The kit decides what a manager is told
+# to replace; it is not an optional extra.
+Step 'Audit kit checks'
+$kitTests = Join-Path $root 'tests/audit-kit/kit-tests.ps1'
+if (-not (Test-Path -LiteralPath $kitTests)) {
+    Result 'Audit kit checks' 'FAIL' 'tests/audit-kit/kit-tests.ps1 is missing'
+} else {
+    $kitLog = Join-Path $run 'kit-tests.log'
+    $kitExit = Invoke-Logged $kitLog 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $kitTests)
+    $kitText = if (Test-Path -LiteralPath $kitLog) { Get-Content -LiteralPath $kitLog -Raw } else { '' }
+    $kitCount = if ($kitText -match 'All (\d+) kit checks passed') { [int]$Matches[1] } else { 0 }
+    if ($kitExit -eq 0 -and $kitCount -gt 0) {
+        Result 'Audit kit checks' 'PASS' "$kitCount kit checks passed"
+        $testSummary += " + $kitCount kit"
+    } elseif ($kitExit -eq 0) {
+        # Exit 0 with no count line means the script changed shape, not that everything passed.
+        Result 'Audit kit checks' 'FAIL' "kit tests exited 0 but printed no result line - see $kitLog"
+        $testSummary += ' + kit UNKNOWN'
+    } else {
+        $kitFailed = if ($kitText -match '(\d+) of (\d+) kit checks FAILED') { $Matches[0] } else { "exit $kitExit" }
+        Result 'Audit kit checks' 'FAIL' "$kitFailed - see $kitLog"
+        $testSummary += ' + kit FAILED'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
 Step 'Scan (unelevated, headless)'
 $scanSummary = 'not run'
 $diskSpd = @(

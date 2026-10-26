@@ -332,10 +332,41 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 
 **2. A false "poor airflow" alarm on an idle RTX 3060.** The check compared *all* fans against *any* sensor over 60 °C, so a 72 °C GPU hotspot (normal, and hot by design) made stopped fans look like a failure. Fixed by grading airflow per device with hot-by-design sensors excluded and per-class thresholds (`GpuFansExpectedAboveC = 80`, `CpuFansExpectedAboveC = 70`). **A threshold that a healthy machine trips is a bug in the threshold, not a finding** — and false alarms are more corrosive here than missed ones, because they teach the user to ignore the app.
 
-## Known machine-specific facts (original dev PC, MSI board, i-something + RTX 3060)
+## The two machines, and what each one can and cannot do
 
-- CPU temperature needs PawnIO (not installed there yet as of the snapshot date; app offers it in a banner).
-- Baseline findings: component store "Repairable" (fix: `DISM /Online /Cleanup-Image /RestoreHealth` then `sfc /scannow`), 0 restore points, no BitLocker, 69 disk I/O events + 9 unexpected shutdowns per 90 days with clean SMART on all 3 drives.
+There are two. Work moves between them by `git pull`, and the differences below decide which
+tasks are possible where. Both facts lists are dated, because both have already gone stale once.
+
+### The dev desktop (MS-7E01, checked 2026-10-26)
+
+i5-12400F, RTX 3060, 32 GB, **Windows 11 Pro build 26300**. This is where the audit results are
+reviewed and where the USB stick lives. The repository sits on `D:`.
+
+- **PawnIO is installed** (the August note saying otherwise is retired), so CPU temperature reads
+  here. A desktop, so it closes the acceptance rows that need one: J2's desktop half went this way.
+- **DiskSpd is installed**, which has one permanent consequence: `daily-smoke.ps1` refuses to run
+  its scan step here, forever, and the smoke reports `Scan: SKIP`. That is the smoke's single most
+  valuable step. It is a deliberate trade — DiskSpd is the precondition for acceptance rows D2,
+  D3, D5-D8, which are still open — but it means **real-scan coverage has to come from the other
+  machine, or from a temporary `winget uninstall Microsoft.DiskSpd`**. Do not read a green smoke
+  here as "a scan ran".
+- **No WSL distribution and no Docker**, so Linux phase 2 (`PcHealth.Cli`) still cannot be
+  verified here. It needs the Ubuntu 26.04 VM. Hyper-V could not even be queried unelevated.
+- **7-Zip is not on PATH**, so the CPU benchmark finds nothing unless `7za.exe` is fetched first.
+- Five lettered volumes, two of them external: `F:` (ANTS-SSD-1) and `H:` (An Disk, which carries
+  the audit kit and its `Results\` folder). Anything that walks drives will see them.
+- Its own health, from the kit run on 2026-10-25: overall **Bad**, and it is worth knowing why,
+  because it is this app's own verdict on the machine it is built on. Component store
+  **"Repairable"** — the same finding as August, still unfixed (`DISM /Online /Cleanup-Image
+  /RestoreHealth` then `sfc /scannow`). **5 unexpected shutdowns** in 90 days (Kernel-Power 41)
+  and **repeated Windows Update failures**. Disk I/O errors are down to 2 in 90 days from 69 in
+  August. No BitLocker on any volume. SMART clean, ST2000DM008 at 48 degrees.
+
+### The ThinkPad T470p
+
+Windows 10 Pro 22H2, i7-7820HQ, 16 GB. The acceptance runs of 2026-08-26 and 2026-10-23 were done
+here, and the laptop audit kit was first tested here. It has a battery, so it holds the rows a
+desktop cannot, and it has no DiskSpd, so the daily smoke's scan step actually runs.
 
 ## Gotchas (each cost real time)
 
@@ -360,7 +391,7 @@ Both were found on 2026-08-20 by running the app on the dev PC rather than by an
 ## Shipping
 
 - `build-release.ps1` — tests, privacy gate, self-contained publish, zip, SHA-256. One command.
-- `daily-smoke.ps1` — the daily check (added 2026-10-19), about two minutes and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
+- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's 45 PowerShell checks** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
 - `USER-GUIDE.md` — for the person running it, not for whoever builds it. Ships inside the zip.
 - `ACCEPTANCE.md` — 19 blocking rows out of ~60. Run before giving the app to anyone.
 - `RELEASING.md` — the steps a script cannot do: SignPath application (needs a **public** repo, takes weeks), GitHub release, SmartScreen submission, winget manifest.

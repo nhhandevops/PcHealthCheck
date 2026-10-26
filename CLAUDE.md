@@ -43,6 +43,12 @@ powershell -ExecutionPolicy Bypass -File ./build-release.ps1     # tests, privac
 powershell -ExecutionPolicy Bypass -File ./daily-smoke.ps1       # "do the daily smokes"
 ```
 
+`daily-smoke.ps1` covers the kit checks too, so it is the one command that runs everything.
+**It refuses to run its scan step while DiskSpd is installed** — the disk benchmark would write
+to every physical drive, backup drives included — and reports `Scan: SKIP`. On a machine with
+DiskSpd that is permanent, so a green smoke there does not mean a scan ran. Which machine is in
+which state is in [HANDOFF.md](HANDOFF.md) under "The two machines".
+
 The audit kit (`audit-kit/*.ps1`) is **Windows PowerShell 5.1 and ASCII only** — 5.1 reads a
 BOM-less script in the ANSI code page, so a literal em dash is garbled on some laptops. Build one
 by code point when you need to match the app's output.
