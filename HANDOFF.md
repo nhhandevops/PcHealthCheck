@@ -438,9 +438,11 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 
 ## Suggested next session
 
-**First (state saved 2026-10-25):** the pilot is done and reviewed; the owner is checking the rest
-of the fleet. The stick (`H:` on the dev desktop) carries the build from `8107bbd`'s parent,
-`1.0.0-rc.1+7b7d537`, with all five fixes. Nothing is blocked on code.
+**First (state saved 2026-10-26):** the pilot is done and was reviewed twice. The re-review on the
+T470p found a sixth fault (KIT-005). The owner is checking the rest of the fleet. The stick (`H:` on
+the dev desktop, `E:` on the T470p) carries `1.0.0-rc.1+462f176`, with all six fixes. Nothing is
+blocked on code. The pilot's fleet table is in `audit-results/` on the T470p only; git ignores it,
+so another machine has to rebuild it from the zips.
 
 When the next zips come back, the loop is the same one that worked:
 1. Copy them from the stick's `PcHealthCheck\Results\` into **`audit-results/`**. Git ignores that

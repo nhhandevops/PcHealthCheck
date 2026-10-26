@@ -41,9 +41,12 @@ app is the tool, and the results are its first field test.
     one of them, `ScanSeconds: -316` (KIT-004). That is expected. **Do not re-run those three** —
     their verdicts were right, only the reasons were wrong, and `summarize-fleet.ps1` now reads
     the old zips correctly.
-  - **Every laptop from here on** uses the build from `7b7d537` (`1.0.0-rc.1+7b7d537…`, zip SHA-256
-    `BF4425554EC31735B5FDD9A29BC364EDAFCAB5593CC3DD4DE2E807CDC7D0B9D1`), copied onto the stick on
-    2026-10-25. It carries all five fixes from that review.
+  - **Every laptop from here on** uses the build from `462f176` (`1.0.0-rc.1+462f176…`, zip SHA-256
+    `A9E8396710BEF6EDADCFEE5C389624B2CD21C6C3624CA319A28869AE2EFB46E7`), copied onto the stick on
+    2026-10-26 from the T470p, where the stick was `E:`. Every file was verified against the build
+    and the `Results` folder was left untouched. It carries the five fixes of 2026-10-25 and KIT-005.
+    The previous stick build, `7b7d537` (zip `BF4425554EC31735B5FDD9A29BC364EDAFCAB5593CC3DD4DE2E807CDC7D0B9D1`),
+    checked no laptop: no zip was made with it.
   - Rebuild the stick's copy after any commit that touches Windows code or the kit, and rebuild
     **after** committing, not before: the exe is stamped with HEAD at build time, so a zip built
     on a dirty tree names a commit that does not contain the code inside it.
