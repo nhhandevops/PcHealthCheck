@@ -358,6 +358,19 @@ $storageRules = Get-Content (Join-Path $PSScriptRoot '../../src/PcHealth.Core/Ru
 $normalBand = @(@($storageRules.rules | Where-Object { $_.id -eq 'rule.storage.disk-events' })[0].bands | Where-Object { $_.grade -eq 'Normal' })[0]
 Check 'the kit''s disk-error threshold matches the app''s rule' { [int]$normalBand.lte -eq $script:DiskErrorsNormalMax }
 
+# --- The app's console output is UTF-8, and everything that shows it decodes UTF-8 (KIT-006) ----
+# On the laptops every progress line read "System overview u-grave running": the app wrote its em
+# dash as byte 0x97 (ANSI code page) and the kit decoded it with the console's. Writer and readers
+# live in different files, so both halves are held here; the daily smoke checks the real bytes.
+Check 'audit-laptop.ps1 decodes the app''s output as UTF-8' { $laptop -match 'StreamReader\(\$stream, \(New-Object Text\.UTF8Encoding \$false\)\)' }
+Check 'and never with the console''s code page' { $laptop -notmatch 'StreamReader\(\$stream, \[Console\]::OutputEncoding\)' }
+$collect = Get-Content (Join-Path $PSScriptRoot '../../collect-results.ps1') -Raw
+Check 'collect-results.ps1 reads the console output as UTF-8' { $collect -match 'Get-Content \$stdout -Tail 12 -Encoding UTF8' }
+$headless = Get-Content (Join-Path $PSScriptRoot '../../src/PcHealth.App/HeadlessScan.cs') -Raw
+Check 'the app writes its console output as UTF-8' { $headless -match 'Console\.SetOut\(new StreamWriter\(Console\.OpenStandardOutput\(\), new UTF8Encoding\(false\)\)' }
+Check 'and its error output too, where a crash report goes' { $headless -match 'Console\.SetError\(new StreamWriter\(Console\.OpenStandardError\(\), new UTF8Encoding\(false\)\)' }
+Check 'a crash is written by the app through that writer, not left to the runtime' { $headless -match 'catch \(Exception e\)\s*\{\s*Console\.Error\.WriteLine\(\$"Unhandled exception\. \{e\}"\);\s*return ExitCrashed;' }
+
 # --- Result -----------------------------------------------------------------
 
 Write-Host ''

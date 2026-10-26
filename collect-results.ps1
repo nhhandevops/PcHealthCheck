@@ -141,7 +141,8 @@ switch ($exit) {
     0       { Write-Host "  Exit code 0 - the scan finished and every selected check ran." -ForegroundColor Green }
     default { Write-Host "  Exit code $exit - see console-output.txt; some checks did not finish. Send this, it is the useful case." -ForegroundColor Yellow }
 }
-Get-Content $stdout -Tail 12 | ForEach-Object { "  $_" }
+# The app writes UTF-8 (KIT-006); Windows PowerShell would otherwise read the file as ANSI.
+Get-Content $stdout -Tail 12 -Encoding UTF8 | ForEach-Object { "  $_" }
 
 Step 'Packing'
 $facts['ScanExitCode'] = $exit

@@ -57,7 +57,9 @@ because the repository is public. `audit-results/README.md` has the exact comman
 
 **When result zips come back, read in this order:**
 
-1. `kit.json` `ScriptErrors`, and `console-errors.txt`: kit or app crashes.
+1. `kit.json` `ScriptErrors`, and `console-errors.txt`: kit or app crashes. The console files are
+   UTF-8 from the KIT-006 build on. Zips from the `af47a36` and `462f176` builds hold them in ANSI
+   (code page 1252), so decode those as 1252, or every em dash reads as an invalid character.
 2. Modules not `Completed` in the JSON report, and why.
 3. Verdict sanity: compare `fleet-summary` with each report. Look especially for drive type `Unknown`, Windows 11 `Not assessed`, `NO-SERIAL`, and `RanElevated` false despite `AdminRequested`.
 4. Models the app has never seen: unknown appraiser codes ("not explained by this app"), placeholder serials, missing battery figures.

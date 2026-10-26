@@ -18,7 +18,9 @@ Follow "When result zips come back" at the top of `NEXT-STEPS.md`. In short:
 1. Build the fleet table from the zips, without touching the stick's copy:
    `powershell -ExecutionPolicy Bypass -File audit-kit\summarize-fleet.ps1 -ResultsDir audit-results -RulesFile audit-kit\audit-rules.json`
 2. Read the zips in this order:
-   - each zip's `kit.json` `ScriptErrors` and `console-errors.txt`;
+   - each zip's `kit.json` `ScriptErrors` and `console-errors.txt`. The console files are UTF-8
+     from the KIT-006 build on; zips from the `af47a36` and `462f176` builds hold them in code
+     page 1252, so decode those as 1252;
    - modules that are not Completed in `report\pc-health-report.json`;
    - whether the verdicts make sense;
    - models the app has never seen before.

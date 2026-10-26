@@ -21,7 +21,9 @@
                        counted rather than shrugged off.
       5. Scan          The Release exe, --headless-scan --no-history, unelevated: the exe must carry
                        this commit's stamp, exit 0, have no check Failed or PartiallyCompleted, and
-                       its report must still say it made 0 network connections.
+                       its report must still say it made 0 network connections. Its console output
+                       must decode strictly as UTF-8 with the progress lines' em dash intact
+                       (KIT-006: it was ANSI, and the laptops showed every em dash as a u-grave).
       6. Backups       Only with -BackupDir: re-hash each folder against its MANIFEST-SHA256.txt.
                        A copy on a failing drive goes bad silently and looks fine until it is needed.
 
@@ -305,6 +307,14 @@ if (-not $built) {
             if ($broken) { $why += "did not finish: $(($broken | ForEach-Object { "$($_.ModuleId) $($_.Status)" }) -join ', ')" }
             if ($report.RanElevated) { $why += 'report claims an elevated run' }
             if (-not $networkLine) { $why += 'report no longer states 0 network connections' }
+            # The console text is UTF-8 since KIT-006. Decoding it strictly proves that on every run,
+            # and the em dash in the progress lines must survive it: before the fix it was byte 0x97.
+            $consoleUtf8 = $false
+            try {
+                $consoleText = (New-Object Text.UTF8Encoding($false, $true)).GetString([IO.File]::ReadAllBytes((Join-Path $run 'scan-console.txt')))
+                $consoleUtf8 = $consoleText.Contains([string][char]0x2014)
+            } catch { }
+            if (-not $consoleUtf8) { $why += 'console output is not UTF-8 with its em dashes intact (KIT-006)' }
             if ($why) { Result 'Scan' 'FAIL' ($why -join '; ') }
             else { Result 'Scan' 'PASS' "exit 0, $scanSummary (${scanSecs}s)" }
         }

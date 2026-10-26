@@ -1,3 +1,4 @@
+using System.Text;
 using PcHealth.App.Worker;
 using PcHealth.Core.History;
 using PcHealth.Core.Modules;
@@ -23,7 +24,9 @@ namespace PcHealth.App;
 ///   2 — the scan ran, but some checks could not finish (a query failed, the UAC prompt was
 ///       declined, the elevated helper died). Their results are missing from the report.
 ///   3 — the scan could not run: no check produced a result, so the report has nothing in it.
-///   1 is left alone, so an unhandled crash keeps whatever the runtime reports.
+///   1 — the scan crashed. The exception, stack included, is written to stderr in UTF-8. Before
+///       KIT-006 the runtime printed it itself, in the ANSI code page (a Vietnamese user name lost
+///       its letters to "?"), and exited with 0xE0434352.
 ///
 /// The health grade is deliberately NOT an exit code. Bad is a true answer about the PC, not a
 /// failure of the run, and a code that fires on every unhealthy PC is a code every script learns
@@ -36,8 +39,33 @@ internal static class HeadlessScan
     private const int ExitOk = 0;
     private const int ExitChecksIncomplete = 2;
     private const int ExitScanDidNotRun = 3;
+    private const int ExitCrashed = 1;
 
     public static async Task<int> RunAsync(string[] args)
+    {
+        // UTF-8, said explicitly. This is a windowed app, so its redirected output otherwise uses the
+        // ANSI code page (1252 on every laptop checked so far), while the scripts that show it decoded
+        // with the console's: every em dash in the progress lines reached the screen as "u" with a
+        // grave accent (KIT-006). UTF-8 carries every character on every Windows language, and the
+        // audit kit, collect-results.ps1 and the daily smoke all decode it as UTF-8.
+        Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true });
+        Console.SetError(new StreamWriter(Console.OpenStandardError(), new UTF8Encoding(false)) { AutoFlush = true });
+
+        // A crash is caught here so its report goes through the UTF-8 writer above. Left to the
+        // runtime, it is printed in the ANSI code page, and a crash report is exactly the text a
+        // reviewer must be able to read (console-errors.txt in every audit zip).
+        try
+        {
+            return await RunScanAsync(args).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine($"Unhandled exception. {e}");
+            return ExitCrashed;
+        }
+    }
+
+    private static async Task<int> RunScanAsync(string[] args)
     {
         var outDir = Directory.GetCurrentDirectory();
         var outIndex = Array.IndexOf(args, "--out");

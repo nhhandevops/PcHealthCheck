@@ -10,6 +10,42 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## KIT-006 — Every progress line on the laptops read "System overview ù running"
+
+**Symptom.** The owner photographed the kit's window during a laptop check on 2026-10-26. Every
+progress line had a `ù` where the em dash belongs: `[1/15] Security posture ù running`. The scan
+itself was unaffected, but the same garbling was in every result zip's `console-output.txt`.
+
+**Root cause.** The app is a WinExe and has no console of its own, so .NET encodes its redirected
+output in the ANSI code page (1252), where the em dash is byte `0x97`. `Show-NewLines` in
+`audit-laptop.ps1` decoded the file with `[Console]::OutputEncoding`, the OEM code page (437 on the
+laptops), where `0x97` is `ù`. `collect-results.ps1` read it as ANSI by default, so it happened to
+be right on English Windows, by luck rather than design.
+
+**The wrong first guess.** It was mine, and it is written into the 2026-10-23 code. I assumed the
+app, started with `-NoNewWindow`, shares the console and so writes in the console's code page. That
+holds for a console app, but not for a windowed one. There is also a tempting second wrong guess:
+CLAUDE.md warns that a literal em dash in a *kit script* is garbled on some laptops. The kit
+scripts are pure ASCII, though, and the byte came from the exe.
+
+**How to verify.** Read the raw bytes of a `console-output.txt`. Before the fix, all three laptop
+zips and the T470p had `0x97` and no `E2 80 94`. After it, the T470p had 29 UTF-8 em dashes, no
+`0x97` and no BOM, and the file decodes strictly as UTF-8.
+
+**Fix.** `HeadlessScan` sets UTF-8 (no BOM) on stdout and stderr before writing anything, so every
+character survives on every Windows language, Vietnamese included. It also catches a crash and
+writes the report itself, through that writer, then exits with 1. A review agent proved that the
+runtime's own crash text bypassed the writer: with a Vietnamese letter in the output path, it
+printed `?` for that letter and exited with `0xE0434352`. All the readers decode UTF-8:
+the kit's live display, `collect-results.ps1`, and the daily smoke. The smoke decodes the real scan
+output strictly every day and fails if the em dash does not survive. Six kit checks hold the writer,
+the readers and the crash path together, because they live in different files. Zips from the earlier
+`af47a36` and `462f176` builds still hold ANSI text, so decode those as code page 1252.
+
+**Date.** 2026-10-26.
+
+---
+
 ## KIT-005 — The fleet table sent a laptop for a drive check over errors on two USB drives
 
 **Symptom.** On 2026-10-26 the pilot's zips were reviewed again on the T470p. One ThinkPad T470p

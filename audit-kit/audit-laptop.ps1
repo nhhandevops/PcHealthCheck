@@ -81,11 +81,13 @@ function ConvertTo-SafeName([string]$Value, [int]$Max = 40) {
 
 # Prints the lines the app has written since the last call. The output file is still open in the
 # app, so it is opened with ReadWrite sharing; the last line may be half-written and waits.
+# The app writes UTF-8. This decoded with the console's code page until KIT-006, which turned the
+# em dash of every progress line into a "u" with a grave accent on the laptops.
 function Show-NewLines([string]$Path, [int]$Already) {
     if (-not (Test-Path -LiteralPath $Path)) { return $Already }
     try {
         $stream = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
-        try { $text = (New-Object IO.StreamReader($stream, [Console]::OutputEncoding)).ReadToEnd() } finally { $stream.Dispose() }
+        try { $text = (New-Object IO.StreamReader($stream, (New-Object Text.UTF8Encoding $false))).ReadToEnd() } finally { $stream.Dispose() }
     } catch { return $Already }
     $lines = $text -split "`r?`n"
     $complete = $lines.Count - 1
