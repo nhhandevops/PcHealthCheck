@@ -362,11 +362,23 @@ reviewed and where the USB stick lives. The repository sits on `D:`.
   and **repeated Windows Update failures**. Disk I/O errors are down to 2 in 90 days from 69 in
   August. No BitLocker on any volume. SMART clean, ST2000DM008 at 48 degrees.
 
-### The ThinkPad T470p
+### The ThinkPad T470p (checked 2026-10-26)
 
-Windows 10 Pro 22H2, i7-7820HQ, 16 GB. The acceptance runs of 2026-08-26 and 2026-10-23 were done
-here, and the laptop audit kit was first tested here. It has a battery, so it holds the rows a
-desktop cannot, and it has no DiskSpd, so the daily smoke's scan step actually runs.
+Windows 10 Pro 22H2 (build 19045), i7-7820HQ, 16 GB. The acceptance runs of 2026-08-26 and
+2026-10-23 were done here, and the laptop audit kit was first tested here. It has a battery, so it
+holds the rows a desktop cannot.
+
+- **No DiskSpd, so the daily smoke's scan step runs here.** This is the machine for real-scan
+  coverage. On 2026-10-26 at `36dfe42`, the first smoke after the pilot fixes passed every step in
+  147 s: 502/504 tests, 45 kit checks, and the scan (16 done, 1 skipped: `bench.disk`). Its HTML and
+  JSON reports contained no runaway number, so REP-001 held on real output.
+- **7-Zip is installed** in Program Files, so the CPU benchmark runs in the smoke here.
+- **PawnIO is not installed**, so the processor temperature comes from the ACPI zone fallback.
+- **No WSL distribution**, so Linux phase 2 cannot be verified here either.
+- Its own health on 2026-10-26: overall **Bad**. The Bad readings were 13 pending updates, 7 disk
+  errors in 90 days (the USB drives have produced these before), 4 low-memory events in 30 days, and
+  the battery at 50%. Windows 11 is blocked by the processor (CpuFms), so the audit kit's verdict for
+  it is REPLACE.
 
 ## Gotchas (each cost real time)
 
