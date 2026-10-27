@@ -71,6 +71,18 @@ app is the tool, and the results are its first field test.
     `A9E8396710BEF6EDADCFEE5C389624B2CD21C6C3624CA319A28869AE2EFB46E7`) made only the unfinished run
     above, and no zip. `7b7d537` (zip `BF4425554EC31735B5FDD9A29BC364EDAFCAB5593CC3DD4DE2E807CDC7D0B9D1`)
     checked no laptop at all.
+  - **The remedies plan waits on the owner (2026-10-27).** [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md)
+    records the owner's decisions and six questions still open, among them which Windows goes onto a
+    reimaged laptop, commercial ESU, and whether "Windows 11 does not support this processor" should
+    still mean REPLACE. Nothing in it is built. Phase 1 starts on the owner's "go". It changes the app
+    on the stick, so the stick is rebuilt and re-copied after the commit, as always.
+  - **The stick's own health (2026-10-27).** The stick is a 1 TB laptop hard disk in a USB case.
+    The T470p's event log had 7 disk errors against it in 90 days, and it carries a `FOUND.000`
+    folder dated 21 October. The pilot's Silicon-Power drive also reported uncorrected read
+    errors. Windows Error Checking on the stick found no file-system errors on 2026-10-27, so the
+    owner keeps using it. That check covers the file system only, not the disk surface. After
+    every batch, copy `Results` off the stick. If a zip ever fails to open, switch sticks and
+    copy the whole kit folder, `Results` included, onto the new one.
   - Rebuild the stick's copy after any commit that touches Windows code or the kit, and rebuild
     **after** committing, not before: the exe is stamped with HEAD at build time, so a zip built
     on a dirty tree names a commit that does not contain the code inside it.

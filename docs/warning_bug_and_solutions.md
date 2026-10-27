@@ -10,6 +10,54 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## OS-001 — An unenrolled Windows 10 company laptop is graded "supported until 2027-10-12"
+
+**Status: open, not fixed (found 2026-10-27).** The fix is planned as Step A rows 8 and 9 in
+`docs/REMEDIES-PLAN.md`.
+
+**Symptom.** `os.supported` reads **Good**, "Windows 10 security updates (incl. consumer ESU) end
+2027-10-12", on all three pilot laptops and on the dev T470p. On the dev T470p, all 24 ESU licence
+rows in `SoftwareLicensingProduct` read `LicenseStatus` 0, which means none is licensed. The build is
+19045.6466, the November 2025 out-of-band build for unenrolled devices, which carries the October 2025
+security content. That laptop has had no Windows security fix since October 2025, and the report says
+it is fine. "Days since last successful update" reads Good on it too.
+
+**Root cause.**
+- `SysOverviewModule.cs:17` hard-codes the consumer ESU end date, and `:77` grades "supported" as
+  `DateTime.Now <` that date. Nothing reads whether ESU is active.
+- Microsoft says consumer ESU "can't be used in commercial scenarios", so on a company laptop the
+  date is wrong as well as unchecked.
+- `UpdatesModule.cs:31-39` and `:83` take the newest hotfix install date and the newest
+  successful update of any kind, Defender definitions included. After a reimage, every hotfix is
+  dated the reimage day.
+
+**The wrong first guess.** HW-001 (2026-10-21) moved the date from 2026-10-13 to 2027-10-12 because
+consumer ESU had been extended, and its "Reality" column called the old Bad grade wrong. The old
+Bad was nearer the truth for an unenrolled PC. The fix should have asked "is this PC enrolled, and
+may it use consumer ESU?", not "what is the latest date?".
+`HardwareAuditFixTests.Windows10_end_of_support_tip_names_the_extended_date` locks the 2027-10-12
+text and has to change deliberately with the fix.
+
+**How to verify.**
+- Read-only, unelevated:
+  - `Get-CimInstance SoftwareLicensingProduct -Filter "Name like '%ESU%'"`: the
+    `LicenseStatus` of each row;
+  - `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` `UBR`: the running build.
+- Compare both with the `os.supported` row of a scan on the same PC.
+
+**Fix (planned).**
+- Grade `os.supported` from the edition, the ESU licence for the year that covers today
+  (`LicenseIsAddon` rows), and the running build.
+- Keep the end dates in one data table with sources and a "checked on" date.
+- Report the newest Windows update by KB number or build, never by install date or title.
+- A failed read is a failure, not a Note.
+- Ship it together with the stricter update grading, so no Windows 10 laptop without ESU is left
+  with only Good rows.
+
+**Date.** 2026-10-27.
+
+---
+
 ## KIT-007 — Closing the kit's window at the questions lost a complete scan
 
 **Symptom.** On 2026-10-26 the owner ran the kit on the T470p, with administrator rights. The scan
@@ -824,6 +872,10 @@ whose Wear and Temperature are both 0 and whose other fields are all empty as **
 temperature".
 
 **Date.** 2026-10-21.
+
+**Correction, 2026-10-27 (OS-001).** The `os.supported` row of the table above was itself wrong. The
+2027-10-12 date applies only to a PC enrolled in consumer ESU, which Microsoft does not allow for
+company use, and this T470p is not enrolled. So "supported until 2027-10-12" is the new misgrade.
 
 ---
 

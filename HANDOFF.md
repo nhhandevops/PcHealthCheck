@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-25** (502 tests passing: 436 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 208 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed; the rest of the fleet is waiting on the owner. Start at the top of NEXT-STEPS, then read "The first fleet audit" below — it is the most useful thing in this file right now.
+Snapshot for continuing work on another machine. Last updated: **2026-10-27** (502 tests passing: 436 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 208 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed, and the owner is checking the rest. **Next engineering job:** the remedies plan, [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md). The owner answered its questions on 2026-10-27, and nothing in it is built yet. Start at "Suggested next session" at the bottom, then the top of NEXT-STEPS.
 
 ## What this is
 
@@ -55,6 +55,8 @@ The rebuilt exe is stamped with that machine's commit (`+d98a609…` or later), 
 | Windows 11 readiness (`os.win11_ready`, from Windows' own appraiser verdict) and the laptop audit kit with `AUDIT-GUIDE.md` | ✅ 2026-10-23 · kit tested unelevated on the T470p; its admin path awaits the owner's pilot |
 | Company laptop audit — pilot on 3 laptops, zips reviewed, 5 faults found and fixed, a 6th on re-review | ✅ 2026-10-25, 2026-10-26 · see "The first fleet audit" below |
 | **Company laptop audit — the rest of the fleet** | ⬜ now, owner first; the stick is ready |
+| **Remedies plan, `docs/REMEDIES-PLAN.md`: advice, guided actions, the handover check, Vietnamese** | 📝 2026-10-27: written by 8 agents, revised by 8 more after the owner's decisions. Nothing built. Phase 1 Step A is first, and waits for the owner's go |
+| **OS-001: an unenrolled Windows 10 company laptop graded "supported until 2027-10-12"** | ⬜ open, found 2026-10-27; the fix is Step A rows 8-9 |
 | **M5 remainder — Linux phase 2 (`PcHealth.Cli`), Vietnamese localization** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — `build-release.ps1`, icon, version 1.0.0-rc.1, docs | ✅ done |
@@ -442,7 +444,47 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 
 ## Suggested next session
 
-**First (state saved 2026-10-27):** the pilot is done and was reviewed twice. The re-review on the
+**Newest (state saved 2026-10-27, evening): the remedies plan and the owner's decisions.**
+
+The owner asked whether the app could do more than diagnose: clear junk when the disk is full,
+calm a browser that eats the RAM, and speed up start-up. [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md)
+is the answer. It is a plan only, and no code has changed for it.
+- **Read first:** its first section, "Update, 27 October 2026". It records the owner's decisions and
+  what they change. Section 6 lists the decisions themselves. A private page of the plan exists on
+  the owner's claude.ai account; the file in the repo is the source.
+- **The decisions:**
+  - Laptops are reimaged before handover, by restoring a Rescuezilla image.
+  - Every laptop gets four apps: Chrome, Unikey, LightShot, NetBird. They are also the startup
+    allowlist.
+  - The app never deletes the user's or Windows' files.
+  - The kit records profile sizes before the wipe, with accounts numbered, never named.
+  - Testing is in a VM first, then on spare test laptops.
+  - English first, then Vietnamese in the app window, its report and the kit's questions. The kit
+    prints each English line followed by its Vietnamese one, and the `.ps1` files stay ASCII.
+  - Which Windows goes on a reimaged laptop is **not decided**. The plan lists the facts.
+- **What waits on the owner:** a "go" for Phase 1, and the six "Still open" questions at the top of
+  the plan. Do not start Step A without the go. It changes the app on the stick in the middle of
+  the audit.
+- **Found during the review and not fixed: OS-001** (fault log). The app calls an unenrolled
+  Windows 10 company laptop "supported until 2027-10-12", which is the consumer ESU date. HW-001
+  introduced that date and now carries a correction. It is Step A rows 8-9.
+- **Facts about the fleet that a later session needs:**
+  - None of the T470/T470s/T470p processors is supported by Windows 11, so the kit marks every one
+    REPLACE while `requireWindows11Ready` is on.
+  - The audit stick also carries the reimage images (one captured on a ThinkPad T14 Gen 1, one on
+    the pilot T470p, whose SSD is now failing). It is the same 1 TB Seagate that logged disk errors.
+    Error Checking passed on 2026-10-27, and the owner keeps using it. See NEXT-STEPS.
+- **Where the work runs best:**
+  - Windows 11 tests and the VM host: the dev desktop (Windows 11 Pro, 32 GB). The T470 laptops
+    can't host a Windows 11 VM.
+  - Real-scan smokes: the T470p, which has no DiskSpd.
+  - Both machines continue from `git pull`. Don't work on both at once; HANDOFF and NEXT-STEPS
+    conflict.
+- **The privacy grep before committing** now also covers the reimage images' folder names and any
+  personal backup folder names on the stick. They hold a company name and a user name, and neither
+  goes into the repo.
+
+**Before that (state saved 2026-10-27, morning):** the pilot is done and was reviewed twice. The re-review on the
 T470p found a sixth fault (KIT-005), and the owner's photo of the kit found a seventh, the `ù` in every
 progress line (KIT-006). The kit's admin path has run for real: 22 of 22 checks, elevated. Closing
 the kit's window, Ctrl+C or an error no longer loses or misreports a laptop (KIT-007, five review
