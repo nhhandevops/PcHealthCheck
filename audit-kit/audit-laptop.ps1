@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     Started by "1 - Check this laptop.cmd". In order:
-      1. Reads which laptop this is: serial number, model, processor, memory, disks, Windows.
+      1. Reads which laptop this is: serial number, hardware UUID, model, processor, memory, disks,
+         Windows.
       2. Runs PC Health Check with every check, administrator ones included (one Windows prompt).
          Nothing is installed, no benchmark runs, and no history is kept on this laptop.
       3. Asks about what only a person can check: battery swelling, screen, keyboard, ports...
@@ -13,12 +14,15 @@
 
     WHAT THE ZIP CONTAINS: the app's HTML and JSON reports (they name this computer, its drives,
     its startup programs with their paths, its browser extensions and the programs using the most
-    memory), the app's console output, this laptop's serial number, model, BIOS version, memory,
-    disks and Windows version, and your answers to the questions. It contains no passwords, no
-    product keys and no file contents: the app never reads them.
+    memory), the app's console output, this laptop's serial number, hardware UUID (a fixed ID its
+    firmware reports), model, BIOS version, memory, disks and Windows version, your answers to the
+    questions, and short fingerprints (not the names) of the results already on the stick. It
+    contains no passwords, no product keys and no file contents: the app never reads them.
 
-    WHAT IS LEFT ON THE LAPTOP: nothing. The app's own folder in %LOCALAPPDATA% is removed again
-    if this run created it, and all work happens on the USB stick.
+    WHAT IS LEFT ON THE LAPTOP: nothing of the kit's or the app's. All work happens on the USB
+    stick, the app's temporary files included, and the app's own folder in %LOCALAPPDATA% is
+    removed again if this run created it. Only if the stick cannot be written does the result go
+    to this laptop's Desktop, and the kit says so.
 
 .PARAMETER NoAdmin
     Skip the checks that need administrator rights. Drive health (SMART) is then NOT checked, and
@@ -54,8 +58,15 @@ $scriptErrors = New-Object System.Collections.Generic.List[string]
 function Step([string]$Text) { Write-Host ''; Write-Host "=== $Text ===" -ForegroundColor Cyan }
 function Say([string]$Text, [string]$Color = 'Gray') { Write-Host "  $Text" -ForegroundColor $Color }
 
+# Written to a temporary name, then moved over the real file, so a window closed mid-write never leaves
+# a half-written file (KIT-007): kit.json and the answers are rewritten many times a run. The move is
+# not atomic: Move-Item -Force in Windows PowerShell 5.1 deletes the old file and then renames the new
+# one, so for a moment only the complete .tmp exists, and the summary reads that (Read-KitFile).
+# [IO.File]::Replace, which is atomic, does not work on the audit stick.
 function Save-Json([string]$Name, $Object) {
-    Write-Utf8NoBom (Join-Path $work $Name) (ConvertTo-Json -InputObject $Object -Depth 6)
+    $path = Join-Path $work $Name
+    Write-Utf8NoBom "$path.tmp" (ConvertTo-Json -InputObject $Object -Depth 6)
+    Move-Item -LiteralPath "$path.tmp" -Destination $path -Force
 }
 
 # Each fact on its own, so one WMI class that fails on an odd laptop does not lose the rest.
@@ -63,20 +74,12 @@ function Try-Read([string]$What, [scriptblock]$Block) {
     try { return (& $Block) } catch { $scriptErrors.Add("${What}: $($_.Exception.Message)"); return $null }
 }
 
-# Firmware fills the serial field with placeholders on some machines. Those must never become a
-# file name, or two different laptops would share one.
-$placeholderSerials = @('', '0', 'None', 'Default string', 'To be filled by O.E.M.', 'System Serial Number',
-    'Not Specified', 'Not Applicable', 'Chassis Serial Number', 'INVALID', '123456789', '0123456789', 'N/A')
+# Firmware fills the serial field with placeholders on some machines, and a person may type one
+# ("unknown", "?"). Those must never become a file name, or two different laptops would share one.
+# The list is shared with the fleet summary (Test-PlaceholderSerial in audit-common.ps1).
 function Test-RealSerial([string]$Value) {
     if ($null -eq $Value) { return $false }
-    $v = $Value.Trim()
-    return ($placeholderSerials -notcontains $v) -and ($v -notmatch '^[0\s.*xX-]+$')
-}
-
-function ConvertTo-SafeName([string]$Value, [int]$Max = 40) {
-    $safe = ($Value.Trim() -replace '[^A-Za-z0-9._-]', '-').Trim('-')
-    if ($safe.Length -gt $Max) { $safe = $safe.Substring(0, $Max) }
-    return $safe
+    return -not (Test-PlaceholderSerial $Value)
 }
 
 # Prints the lines the app has written since the last call. The output file is still open in the
@@ -98,6 +101,14 @@ function Show-NewLines([string]$Path, [int]$Already) {
 Write-Host ''
 Write-Host '  PC Health Check - laptop audit' -ForegroundColor White
 Write-Host "  Kit $script:AuditKitVersion. Takes about 3 minutes, plus the questions." -ForegroundColor White
+# A laptop whose clock battery is flat comes up years in the past. Its result is still saved, but the
+# fleet summary cannot then tell which of the laptop's checks came last (KIT-007).
+try {
+    $kitMade = [datetime]::ParseExact($script:AuditKitVersion.Substring(0, 10), 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+    if ($started -lt $kitMade) {
+        Write-Host "  This laptop's clock says $($started.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)), before this kit was made. Set the date and time first if you can." -ForegroundColor Yellow
+    }
+} catch { }
 
 if (-not (Test-Path -LiteralPath $exe)) {
     Say 'PcHealthCheck.exe is not next to this script. Copy the whole kit folder to the USB stick, not just this file.' 'Red'
@@ -116,6 +127,8 @@ try {
     Say "The result will be saved on this laptop's Desktop instead: copy it off before handing the laptop over." 'Yellow'
     $ResultsDir = $fallback
 }
+# A full path from here on: the app is given folders inside it, and refuses a relative one.
+try { $ResultsDir = (Resolve-Path -LiteralPath $ResultsDir).ProviderPath } catch { }
 
 Step 'Which laptop is this'
 $bios    = Try-Read 'BIOS' { Get-CimInstance Win32_BIOS }
@@ -123,6 +136,10 @@ $cs      = Try-Read 'Computer system' { Get-CimInstance Win32_ComputerSystem }
 $product = Try-Read 'Computer product' { Get-CimInstance Win32_ComputerSystemProduct }
 $os      = Try-Read 'Windows version' { Get-CimInstance Win32_OperatingSystem }
 $cpu     = Try-Read 'Processor' { Get-CimInstance Win32_Processor | Select-Object -First 1 }
+# The hardware UUID tells laptops apart when the firmware has no serial: the fleet summary groups runs
+# by it, never by computer name, which cloned laptops share (KIT-007). Recorded in kit.json from the
+# first moment, so even a run closed before machine.json is written says which laptop it was.
+$machineUuid = if ($product -and $product.UUID) { ([string]$product.UUID).Trim() } else { '' }
 
 $serial = $null; $serialSource = 'none'
 foreach ($candidate in @($(if ($bios) { $bios.SerialNumber }), $(if ($product) { $product.IdentifyingNumber }))) {
@@ -135,17 +152,120 @@ if (-not $serial -and -not $SkipQuestions) {
 }
 $serialPart = if ($serial) { ConvertTo-SafeName $serial } else { 'NO-SERIAL' }
 $resultName = '{0}_{1}_{2}' -f $serialPart, (ConvertTo-SafeName $env:COMPUTERNAME), $started.ToString('yyyy-MM-dd_HHmm')
-if (Test-Path -LiteralPath (Join-Path $ResultsDir "$resultName.zip")) { $resultName += $started.ToString('ss') }
-
-# The work folder sits next to the results, on the stick, so this laptop's disk is not written to.
-$work = Join-Path $ResultsDir ".work-$resultName"
-New-Item -ItemType Directory -Force -Path $work | Out-Null
-try { Start-Transcript -LiteralPath (Join-Path $work 'audit-transcript.txt') | Out-Null } catch { $scriptErrors.Add("Transcript: $($_.Exception.Message)") }
+# A second run in the same minute gets the seconds too, whether the first left a zip or only its work
+# folder (closed early): reusing that folder would mix two scans, and the first run's app, which
+# outlives a closed window, would still hold files in it open (KIT-007).
+if ((Test-Path -LiteralPath (Join-Path $ResultsDir "$resultName.zip")) -or
+    (Test-Path -LiteralPath (Join-Path $ResultsDir ".work-$resultName"))) { $resultName += $started.ToString('ss') }
 
 $appData = Join-Path $env:LOCALAPPDATA 'PcHealthCheck'
 $appDataExisted = Test-Path -LiteralPath $appData
 $exit = $null
 $scanSeconds = $null
+$zip = Join-Path $ResultsDir "$resultName.zip"
+$appVersion = ''
+try { $appVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion } catch { }
+
+# The results already on the stick, which this run comes after whatever any clock says: the fleet
+# summary orders a laptop's checks by them (Get-RunHash in audit-common.ps1). Keep the Results folder
+# on the stick until the audit is over, or the summary has only the laptops' clocks to go by.
+$earlierNames = @(Get-ResultNames $ResultsDir)
+$earlierRuns = @($earlierNames | ForEach-Object { Get-RunHash $_ })
+# An earlier check of this laptop dated after this laptop's clock: one of the two clocks is wrong.
+$startedText = $started.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+$aheadOfClock = @($earlierNames | ForEach-Object { Get-ResultNameParts $_ $env:COMPUTERNAME } | Where-Object {
+    $_.StartedAt -and [string]::CompareOrdinal($_.StartedAt, $startedText) -gt 0 -and
+        ((ConvertTo-SafeName $_.Computer) -eq (ConvertTo-SafeName $env:COMPUTERNAME) -or ($serial -and (Get-SerialKey $_.Serial) -eq (Get-SerialKey $serial))) })
+if ($aheadOfClock.Count -gt 0) {
+    Say "An earlier check of this laptop on this stick is dated $($aheadOfClock[0].StartedAt), after this laptop's clock ($startedText). Set the date and time if you can." 'Yellow'
+}
+
+# kit.json, written at every stage: now ("started"), once the scan is saved ("scanned"), after every
+# answer ("answering") and at the very end ("complete"). Closing the window kills PowerShell outright,
+# so no finally block runs; whatever was written last is what an interrupted run leaves, and it says
+# how far the run got (KIT-007). Ctrl+C and an error do run the last step, which then records the
+# stage the run had reached, not "complete", and how it stopped.
+$lastStage = 'started'
+$runFinished = $false
+$stoppedByError = $false
+$answersNotSaved = $false
+$answersWarned = $false
+$proc = $null
+function New-KitRecord([string]$Stage, [string]$Left) {
+    # One wall-clock reading and one Stopwatch reading, taken together, so the two times below and
+    # the step between them all describe the same instant.
+    # InvariantCulture because ':' in a custom format string is the culture's time separator, not a
+    # literal: under fi-FI the same format writes "16.51", and these strings are sorted as text to
+    # pick a laptop's latest run.
+    $finished = Get-Date
+    [ordered]@{
+        KitVersion       = $script:AuditKitVersion
+        AppVersion       = $appVersion
+        Serial           = if ($serial) { $serial } else { '' }
+        SerialSource     = $serialSource
+        MachineUuid      = $machineUuid
+        ComputerName     = $env:COMPUTERNAME
+        ResultName       = "$resultName.zip"
+        EarlierRuns      = $earlierRuns
+        Stage            = $Stage
+        StartedAt        = $started.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+        FinishedAt       = $finished.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+        AdminRequested   = -not $NoAdmin
+        SkipQuestions    = [bool]$SkipQuestions
+        ScanExitCode     = $exit
+        ScanSeconds      = $scanSeconds
+        RunSeconds       = [int]$runWatch.Elapsed.TotalSeconds
+        ClockJumpSeconds = Measure-ClockJump $started $finished $runWatch.Elapsed.TotalSeconds
+        LeftOnLaptop     = $Left
+        ScriptErrors     = @($scriptErrors)
+    }
+}
+
+# The work folder sits next to the results, on the stick, so this laptop's disk is not written to.
+# Its kit.json is made ready before the folder exists and written the moment it does, before even the
+# transcript starts: a window closed in the run's first second still leaves a file that says which
+# laptop this was (KIT-007). Building it took a third of a second, the first ConvertTo-Json of a session.
+$work = Join-Path $ResultsDir ".work-$resultName"
+$startedJson = ConvertTo-Json -InputObject (New-KitRecord 'started' 'not known yet: the run had not finished') -Depth 6
+New-Item -ItemType Directory -Force -Path $work | Out-Null
+try { Write-Utf8NoBom (Join-Path $work 'kit.json') $startedJson } catch { $scriptErrors.Add("kit.json: $($_.Exception.Message)") }
+try { Start-Transcript -LiteralPath (Join-Path $work 'audit-transcript.txt') | Out-Null } catch { $scriptErrors.Add("Transcript: $($_.Exception.Message)") }
+
+# The result zip, from the work folder as it is now. It is written as ".partial-<name>.zip", which
+# the fleet summary ignores, and renamed only once complete. Compress-Archive writes the whole file
+# at its end, so a window closed while it ran used to leave a zip nothing could open, and the early
+# zip had already been deleted to make room for it (KIT-007). The transcript is held open for writing
+# while the kit runs, and Compress-Archive cannot read it then ("being used by another process"), so
+# an early save pauses it and resumes it with -Append. Windows PowerShell 5.1 writes subfolder
+# entries as "report\...", which Expand-Archive reads.
+function Save-ResultZip([switch]$Early) {
+    $partial = Join-Path $ResultsDir ".partial-$resultName.zip"
+    if ($Early) { try { Stop-Transcript | Out-Null } catch { } }
+    try {
+        if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force }
+        Compress-Archive -Path (Join-Path $work '*') -DestinationPath $partial -CompressionLevel Optimal
+        # Replaces the old zip. The work folder holds everything meanwhile, and the summary reads it
+        # if a zip is missing or cannot be opened.
+        Move-Item -LiteralPath $partial -Destination $zip -Force
+    } finally {
+        if ($Early) {
+            try { Start-Transcript -LiteralPath (Join-Path $work 'audit-transcript.txt') -Append | Out-Null } catch { }
+        }
+    }
+}
+
+# Leave the laptop as it was: the app's own folder goes if this run created it. Called right after
+# the scan, so a window closed during the questions leaves nothing behind either, and again at the
+# end in case the scan itself broke off. (The consent file in %APPDATA% is written only by the app's
+# window, never by this headless scan.)
+function Remove-AppTraces {
+    if ($appDataExisted) { return "$appData existed before this run and was left as it was" }
+    if (Test-Path -LiteralPath $appData) {
+        try { Remove-Item -LiteralPath $appData -Recurse -Force } catch { return "could not remove $($appData): $($_.Exception.Message)" }
+    }
+    return 'nothing'
+}
+
 
 try {
     # A friendly model: Lenovo puts the machine type in Model ("20J7S08T03") and the name people
@@ -180,6 +300,7 @@ try {
         SystemFamily        = $family
         FriendlyModel       = $friendly
         IsLaptop            = [bool]($cs -and $cs.PCSystemType -eq 2)
+        MachineUuid         = $machineUuid
         BiosVersion         = if ($bios) { [string]$bios.SMBIOSBIOSVersion } else { '' }
         BiosDate            = if ($bios -and $bios.ReleaseDate) { $bios.ReleaseDate.ToString('yyyy-MM-dd') } else { '' }
         Windows             = if ($os) { "$($os.Caption) (build $($os.BuildNumber))" } else { '' }
@@ -223,7 +344,10 @@ try {
     # (a stick named "My USB") would be cut in two.
     # --skip-benchmarks: a benchmark runs only where its tool happens to be installed, which would
     # make laptops incomparable, and the disk one writes test files to every drive.
-    $scanArgs = @('--headless-scan', '--no-history', '--skip-benchmarks', '--out', "`"$reportDir`"")
+    # --temp-dir on the stick: the app writes nothing to this laptop's disk, even if the window is
+    # closed during the scan, when the app keeps running and no cleanup of the kit's would run.
+    $scanArgs = @('--headless-scan', '--no-history', '--skip-benchmarks', '--out', "`"$reportDir`"",
+                  '--temp-dir', "`"$(Join-Path $work 'app-temp')`"")
     if (-not $NoAdmin) {
         $scanArgs += '--include-admin'
         Say 'Windows will ask for administrator permission once: click Yes (or type the admin password).' 'Yellow'
@@ -250,6 +374,21 @@ try {
         default { Say "The scan did not run properly (exit code $exit). The zip will hold what it said; send it." 'Red' }
     }
 
+    # Saved now, before the questions, so closing the window during them still leaves this laptop's
+    # result. Until KIT-007 the zip was written only in the last step, and a window closed at the
+    # first question lost a complete elevated scan. The final step replaces this zip.
+    Save-Json 'manual-checks.json' ([ordered]@{ Asked = $false; Items = @(); ExtraNote = '' })
+    $left = Remove-AppTraces
+    Save-Json 'kit.json' (New-KitRecord 'scanned' $left)
+    $lastStage = 'scanned'
+    try {
+        Save-ResultZip -Early
+        Say "Scan saved: $zip" 'Green'
+    } catch {
+        $scriptErrors.Add("Early save: $($_.Exception.Message)")
+        Say "Could not save the scan yet ($($_.Exception.Message)); it will be saved at the end." 'Yellow'
+    }
+
     # --- The questions only a person can answer
     $questions = @(
         @{ Id = 'battery_swelling'; Short = 'Battery swelling'; Text = 'Is the case flat: no bulge under the keyboard or touchpad, and the laptop does not rock on a table?' },
@@ -268,69 +407,93 @@ try {
     if (-not $SkipQuestions) {
         Step 'Questions only a person can answer'
         Say 'Type y if it is fine, n if there is a problem, s to skip a check you cannot do now.'
+        Say 'Each answer is saved to the stick as you give it. Keep this window open until it says "Saved".'
         $manual.Asked = $true
+        $manual.Total = @($questions | Where-Object { $_.Id -ne 'battery_swelling' -or $machine.IsLaptop }).Count
         $items = @()
+        $inputEnded = $false
+        # Saved after every answer, and a "no" before its note is asked: the answers used to live only
+        # in memory, so a swollen battery answered first and a window closed at the next prompt read
+        # as READY (KIT-007).
+        # A stick that fills up or turns read-only would otherwise drop every answer without a word. A
+        # later save that works holds every answer so far, so the warning at the end is only for a
+        # stick that is still refusing them.
+        function Save-Answers([string]$Stage = 'answering') {
+            try {
+                $manual.Items = $items
+                Save-Json 'manual-checks.json' $manual
+                $script:lastStage = $Stage
+                Save-Json 'kit.json' (New-KitRecord $Stage $left)
+                $script:answersNotSaved = $false
+            } catch {
+                $scriptErrors.Add("Saving an answer: $($_.Exception.Message)")
+                $script:answersNotSaved = $true
+                if (-not $script:answersWarned) {
+                    $script:answersWarned = $true
+                    Say "Your answers are NOT being saved to the stick: $($_.Exception.Message)" 'Red'
+                    Say 'Keep answering, and write down every answer that is "n": the stick may be full or write-protected.' 'Red'
+                }
+            }
+        }
         foreach ($q in $questions) {
             if ($q.Id -eq 'battery_swelling' -and -not $machine.IsLaptop) { continue }
-            $answer = $null; $note = ''
+            $answer = $null
             while (-not $answer) {
-                $typed = ([string](Read-Host "  $($q.Text) [y/n/s]")).Trim().ToLowerInvariant()
+                if ($inputEnded) { $answer = 'not checked'; break }
+                $raw = Read-Host "  $($q.Text) [y/n/s]"
+                # $null means the input itself has ended, which happens only when it is redirected,
+                # as in a test. Asked again it would stay $null and this loop would never end.
+                if ($null -eq $raw) { $inputEnded = $true; continue }
+                $typed = ([string]$raw).Trim().ToLowerInvariant()
                 switch ($typed) {
                     'y' { $answer = 'ok' }
-                    'n' { $answer = 'problem'; $note = [string](Read-Host '    What is wrong? (one line, or Enter)') }
+                    'n' { $answer = 'problem' }
                     's' { $answer = 'not checked' }
                     default { Say 'Please type y, n or s.' 'Yellow' }
                 }
             }
-            if ($q.Id -eq 'battery_swelling' -and $answer -eq 'problem') {
-                Say 'STOP: a swollen battery can catch fire. Unplug the charger, do not charge it again, and mark it for battery replacement.' 'Red'
+            $item = [ordered]@{ Id = $q.Id; Short = $q.Short; Question = $q.Text; Answer = $answer; Note = '' }
+            $items += $item
+            Save-Answers
+            if ($answer -eq 'problem') {
+                if ($q.Id -eq 'battery_swelling') {
+                    Say 'STOP: a swollen battery can catch fire. Unplug the charger, do not charge it again, and mark it for battery replacement.' 'Red'
+                }
+                if (-not $inputEnded) {
+                    $note = Read-Host '    What is wrong? (one line, or Enter)'
+                    if ($null -eq $note) { $inputEnded = $true }
+                    else { $item.Note = ([string]$note).Trim(); Save-Answers }
+                }
             }
-            $items += [ordered]@{ Id = $q.Id; Short = $q.Short; Question = $q.Text; Answer = $answer; Note = $note.Trim() }
         }
-        $manual.Items = $items
-        $manual.ExtraNote = ([string](Read-Host '  Anything else worth noting about this laptop? (one line, or Enter)')).Trim()
+        # Every question has its answer: the check is complete, and the closing remark is optional.
+        # Recorded before the remark is asked, so a re-check closed at that prompt still counts as a
+        # finished check, the one that can show a repair was made.
+        Save-Answers 'complete'
+        if (-not $inputEnded) {
+            $manual.ExtraNote = ([string](Read-Host '  Anything else worth noting about this laptop? (one line, or Enter)')).Trim()
+        }
     }
     Save-Json 'manual-checks.json' $manual
+    $answersNotSaved = $false
+    # The last statement of the run: only a run that got here, or past its last question, is "complete".
+    $runFinished = $true
 } catch {
+    $stoppedByError = $true
     $scriptErrors.Add("Audit script: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)")
     Say "Something went wrong: $($_.Exception.Message)" 'Red'
     Say 'Whatever was collected is still saved; send the zip, it shows what happened.' 'Red'
 } finally {
-    # Leave the laptop as it was: the app's own folder goes if this run created it. (The consent
-    # file in %APPDATA% is written only by the app's window, never by this headless scan.)
-    $left = 'nothing'
-    if ($appDataExisted) { $left = "$appData existed before this run and was left as it was" }
-    elseif (Test-Path -LiteralPath $appData) {
-        try { Remove-Item -LiteralPath $appData -Recurse -Force } catch { $left = "could not remove $($appData): $($_.Exception.Message)" }
-    }
-
-    $appVersion = ''
-    try { $appVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion } catch { }
-
-    # One wall-clock reading and one Stopwatch reading, taken together, so the two times below and
-    # the step between them all describe the same instant.
-    # InvariantCulture because ':' in a custom format string is the culture's time separator, not a
-    # literal: under fi-FI the same format writes "16.51", and these strings are sorted as text to
-    # pick a laptop's latest run.
-    $finished = Get-Date
-    $clockJump = Measure-ClockJump $started $finished $runWatch.Elapsed.TotalSeconds
-    $kit = [ordered]@{
-        KitVersion       = $script:AuditKitVersion
-        AppVersion       = $appVersion
-        Serial           = if ($serial) { $serial } else { '' }
-        SerialSource     = $serialSource
-        ComputerName     = $env:COMPUTERNAME
-        ResultName       = "$resultName.zip"
-        StartedAt        = $started.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
-        FinishedAt       = $finished.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
-        AdminRequested   = -not $NoAdmin
-        ScanExitCode     = $exit
-        ScanSeconds      = $scanSeconds
-        RunSeconds       = [int]$runWatch.Elapsed.TotalSeconds
-        ClockJumpSeconds = $clockJump
-        LeftOnLaptop     = $left
-        ScriptErrors     = @($scriptErrors)
-    }
+    # Ctrl+C runs this block too, without the catch: a run stopped at the battery question must not be
+    # recorded as complete, or the laptop reads READY on a question nobody answered (KIT-007).
+    $kit = New-KitRecord $(if ($runFinished) { 'complete' } else { $lastStage }) (Remove-AppTraces)
+    if (-not $runFinished -and $lastStage -ne 'complete') { $kit['StoppedEarly'] = if ($stoppedByError) { 'error' } else { 'interrupted' } }
+    # Ctrl+C during the scan does not stop the app, a windowed program: it goes on writing its report
+    # into the work folder. That folder is kept then, whatever the zip below holds, or a finished scan
+    # would be deleted with it.
+    $appStillRunning = ($null -ne $proc) -and -not $proc.HasExited
+    $reportBefore = @(Get-ChildItem -LiteralPath (Join-Path $work 'report') -Filter '*.json' -ErrorAction SilentlyContinue).Count -gt 0
+    $clockJump = $kit.ClockJumpSeconds
     try { Save-Json 'kit.json' $kit } catch { }
 
     # Said out loud here as well as in the zip: the operator is the only person who can tell whether
@@ -338,28 +501,65 @@ try {
     $clockNote = Get-ClockJumpText $clockJump
     if ($clockNote) { Say "$clockNote." 'Yellow' }
 
-    # The verdict, computed by the same code the fleet summary uses.
+    # The verdict, computed by the same code the fleet summary uses. It is worked out now but shown
+    # only after the zip is saved: the old order showed it first, and an operator who read it and
+    # closed the window cut the save short (KIT-007).
+    # From the stick, which is what the fleet summary will read; when the stick refused the answers,
+    # from the answers as given, so the screen still tells the operator what they found.
+    $row = $null; $verdictError = ''
     try {
-        $row = Get-AuditRow (Read-AuditFolder $work) (Read-AuditRules (Join-Path $kitDir 'audit-rules.json'))
+        $bundle = Read-AuditFolder $work
+        if ($answersNotSaved) {
+            $bundle.Manual = ConvertTo-Json -InputObject $manual -Depth 6 | ConvertFrom-Json
+            $bundle.Kit = ConvertTo-Json -InputObject $kit -Depth 6 | ConvertFrom-Json
+        }
+        $row = Get-AuditRow $bundle (Read-AuditRules (Join-Path $kitDir 'audit-rules.json'))
+    } catch { $verdictError = $_.Exception.Message }
+    if ($row) {
+        # Kept in kit.json too: the transcript stops before the verdict reaches the screen.
+        $kit['Verdict'] = $row.Verdict
+        $kit['VerdictReasons'] = $row.Reasons
+        try { Save-Json 'kit.json' $kit } catch { }
+    }
+
+    Say 'Saving the result to the stick...'
+    try { Stop-Transcript | Out-Null } catch { }
+    $saveError = ''
+    try { Save-ResultZip } catch { $saveError = $_.Exception.Message }
+    # A report that appeared while the zip was written is in the folder, perhaps not in the zip.
+    $reportAfter = @(Get-ChildItem -LiteralPath (Join-Path $work 'report') -Filter '*.json' -ErrorAction SilentlyContinue).Count -gt 0
+    $keepWork = $appStillRunning -or ($reportAfter -and -not $reportBefore)
+    if (-not $saveError -and -not $keepWork) {
+        # The zip holds everything now. If the folder cannot be removed, the summary prefers the zip.
+        try { Remove-Item -LiteralPath $work -Recurse -Force } catch { }
+    }
+
+    if ($row) {
         Step "Verdict: $($row.Verdict)"
         $color = switch ($row.Verdict) { 'READY' { 'Green' } 'CHECK AGAIN' { 'Yellow' } default { 'Red' } }
         Say "$($row.Model), $($row.Cpu), $($row.RamGB) GB, $($row.SystemDisk)" $color
         Say "Drive health: $($row.DriveHealth)   Battery: $($row.Battery)   Windows 11: $($row.Windows11)" $color
         foreach ($reason in ($row.Reasons -split '; ' | Where-Object { $_ })) { Say "- $reason" $color }
         if ($row.Notes) { foreach ($n in ($row.Notes -split '; ')) { Say "  note: $n" } }
-    } catch {
-        Say "Could not compute the verdict here ($($_.Exception.Message)); the fleet summary will." 'Yellow'
+    } else {
+        Say "Could not compute the verdict here ($verdictError); the fleet summary will." 'Yellow'
     }
-
-    try { Stop-Transcript | Out-Null } catch { }
-    $zip = Join-Path $ResultsDir "$resultName.zip"
-    try {
-        Compress-Archive -Path (Join-Path $work '*') -DestinationPath $zip -CompressionLevel Optimal
-        Remove-Item -LiteralPath $work -Recurse -Force
+    if ($answersNotSaved) {
+        $problems = @(@($manual.Items) | Where-Object { $_ -and $_.Answer -eq 'problem' } | ForEach-Object { if ($_.Note) { "$($_.Short): $($_.Note)" } else { [string]$_.Short } })
+        Say 'Your answers did NOT reach the stick, so the fleet summary will not have them.' 'Red'
+        if ($problems.Count -gt 0) { Say "Write these down and pass them on with the results: $($problems -join '; ')" 'Red' }
+    }
+    $stillRunning = ($null -ne $proc) -and -not $proc.HasExited
+    if ($keepWork) {
+        if ($stillRunning) { Say "The app is still finishing its scan into $work. Leave that folder on the stick: the fleet summary reads it." 'Yellow' }
+        else { Say "The app finished its scan into $work after the zip was made. Leave that folder on the stick: the fleet summary reads it." 'Yellow' }
+    }
+    if (-not $saveError) {
         Step 'Saved'
         Say $zip 'Green'
-        Say 'You can close this window and unplug the stick.'
-    } catch {
-        Say "Could not create the zip: $($_.Exception.Message). The files are in $work." 'Red'
+        if ($stillRunning) { Say 'Wait a minute before unplugging the stick: the app is still writing to it.' 'Yellow' }
+        else { Say 'You can close this window and unplug the stick.' }
+    } else {
+        Say "Could not create the zip: $saveError. The files are in $work, and the fleet summary reads them from there." 'Red'
     }
 }

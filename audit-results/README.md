@@ -4,7 +4,9 @@ The result zips from the company laptop audit arrive on a USB stick, in its
 `PcHealthCheck\Results\` folder. To review them on this computer:
 
 1. `git pull`, so this computer has the latest code and notes.
-2. Copy every `*.zip` from the stick's `PcHealthCheck\Results\` into **this folder**.
+2. Copy everything in the stick's `PcHealthCheck\Results\` into **this folder**: every `*.zip`,
+   and every `.work-*` folder. A folder is a run whose window was closed before its zip was
+   finished, and the summary reads it. A run closed after its answers may exist only as a folder.
 3. Tell Claude: **"Review the audit results in audit-results/"**.
 
 **Nothing in this folder except this README is ever committed.** `.gitignore` makes sure of it.
@@ -17,8 +19,11 @@ Follow "When result zips come back" at the top of `NEXT-STEPS.md`. In short:
 
 1. Build the fleet table from the zips, without touching the stick's copy:
    `powershell -ExecutionPolicy Bypass -File audit-kit\summarize-fleet.ps1 -ResultsDir audit-results -RulesFile audit-kit\audit-rules.json`
-2. Read the zips in this order:
-   - each zip's `kit.json` `ScriptErrors` and `console-errors.txt`. The console files are UTF-8
+2. Read the zips and `.work-*` folders in this order:
+   - each run's `kit.json` `Stage` (anything but `complete` means the run stopped early, and
+     `StoppedEarly` says if it was Ctrl+C or an error; zips made before KIT-007 have no `Stage` and
+     are complete),
+     `ScriptErrors` and `console-errors.txt`. The console files are UTF-8
      from the KIT-006 build on; zips from the `af47a36` and `462f176` builds hold them in code
      page 1252, so decode those as 1252;
    - modules that are not Completed in `report\pc-health-report.json`;

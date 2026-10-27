@@ -19,11 +19,13 @@
       4. Tests         The whole suite. The one known flaky test (WARN-00x) is re-run alone before
                        it may fail the smoke, and is reported WARN either way so its rate gets
                        counted rather than shrugged off.
-      5. Scan          The Release exe, --headless-scan --no-history, unelevated: the exe must carry
-                       this commit's stamp, exit 0, have no check Failed or PartiallyCompleted, and
-                       its report must still say it made 0 network connections. Its console output
-                       must decode strictly as UTF-8 with the progress lines' em dash intact
-                       (KIT-006: it was ANSI, and the laptops showed every em dash as a u-grave).
+      5. Scan          The Release exe, --headless-scan --no-history --temp-dir, unelevated: the exe
+                       must carry this commit's stamp, exit 0, have no check Failed or
+                       PartiallyCompleted, and its report must still say it made 0 network
+                       connections. Its console output must decode strictly as UTF-8 with the
+                       progress lines' em dash intact (KIT-006: it was ANSI, and the laptops showed
+                       every em dash as a u-grave). Every file its receipt says it wrote must be
+                       inside --temp-dir (KIT-007: the audit kit relies on it to keep laptops clean).
       6. Backups       Only with -BackupDir: re-hash each folder against its MANIFEST-SHA256.txt.
                        A copy on a failing drive goes bad silently and looks fine until it is needed.
 
@@ -276,7 +278,10 @@ if (-not $built) {
     New-Item -ItemType Directory -Force -Path $scanDir | Out-Null
     # PcHealthCheck is a WinExe, so its console output only arrives through Start-Process redirection.
     $t = Get-Date
-    $proc = Start-Process -FilePath $exe -ArgumentList @('--headless-scan', '--no-history', '--out', "`"$scanDir`"") `
+    # --temp-dir as the audit kit passes it: the report's receipt must then show every file the app
+    # wrote inside that folder (KIT-007). On a machine with a battery that is the battery report.
+    $scanTemp = Join-Path $run 'app-temp'
+    $proc = Start-Process -FilePath $exe -ArgumentList @('--headless-scan', '--no-history', '--out', "`"$scanDir`"", '--temp-dir', "`"$scanTemp`"") `
         -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $run 'scan-console.txt') `
         -RedirectStandardError (Join-Path $run 'scan-errors.txt')
     $null = $proc.Handle   # without this, Windows PowerShell 5.1 can report ExitCode as empty
@@ -307,6 +312,8 @@ if (-not $built) {
             if ($broken) { $why += "did not finish: $(($broken | ForEach-Object { "$($_.ModuleId) $($_.Status)" }) -join ', ')" }
             if ($report.RanElevated) { $why += 'report claims an elevated run' }
             if (-not $networkLine) { $why += 'report no longer states 0 network connections' }
+            $strayWrites = @(@($report.Receipt) | Where-Object { $_.'$type' -eq 'fileWrite' -and -not ([string]$_.Path).StartsWith($scanTemp, [StringComparison]::OrdinalIgnoreCase) })
+            if ($strayWrites) { $why += "files written outside --temp-dir: $(($strayWrites | ForEach-Object Path) -join ', ')" }
             # The console text is UTF-8 since KIT-006. Decoding it strictly proves that on every run,
             # and the em dash in the progress lines must survive it: before the fix it was byte 0x97.
             $consoleUtf8 = $false

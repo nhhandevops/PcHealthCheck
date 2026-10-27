@@ -25,9 +25,12 @@ These are not style preferences. Each one is here because breaking it shipped a 
 
 ## Before you commit
 
-- **Never commit a serial number, a computer name or a Windows user name.** The repository is
-  public. `audit-results/` is gitignored for this reason. Grep the staged diff for the serials in
-  play before committing — a review agent once copied a real one into a test fixture.
+- **Never commit a serial number, a hardware UUID, a computer name or a Windows user name.** The
+  repository is public. `audit-results/` is gitignored for this reason. Grep the staged diff for
+  the serials in play, and for this machine's UUID (`Get-CimInstance Win32_ComputerSystemProduct`),
+  before committing — a review agent once copied a real serial into a test fixture, and a real UUID
+  nearly went the same way. A kit check fails on any UUID in the kit or its tests that is not a
+  placeholder or obviously made up.
 - **Build the release *after* committing.** The exe is stamped `1.0.0-rc.1+<HEAD>`, so a zip
   built on a dirty tree names a commit that does not contain the code inside it.
 - Multi-line commit messages: write to a file and `git commit -F file`. PowerShell here-strings
@@ -38,7 +41,7 @@ These are not style preferences. Each one is here because breaking it shipped a 
 ```text
 dotnet build PcHealthCheck.slnx -c Release -warnaserror
 dotnet test  PcHealthCheck.slnx                                  # 504; 2 Linux-only, skipped on Windows
-powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 68 more, invisible to dotnet test
+powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 208 more, invisible to dotnet test
 powershell -ExecutionPolicy Bypass -File ./build-release.ps1     # tests, privacy gate, publish, kit, zip, SHA-256
 powershell -ExecutionPolicy Bypass -File ./daily-smoke.ps1       # "do the daily smokes"
 ```

@@ -10,6 +10,272 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## KIT-007 — Closing the kit's window at the questions lost a complete scan
+
+**Symptom.** On 2026-10-26 the owner ran the kit on the T470p, with administrator rights. The scan
+finished in 68 s with all 22 checks Completed. The window was then closed at the first question.
+The stick held no zip, only `Results\.work-<name>`, and the fleet summary, which reads zips only,
+could not see it. On a company laptop that would have been a silently missing laptop.
+
+**Root cause.** The kit wrote `kit.json` and the result zip only in its `finally` block. Closing a
+console window kills PowerShell outright, and no `finally` runs. Everything else was already on the
+stick by then; only the step that makes it a result was lost.
+
+**The wrong first guesses, two of them.**
+
+- **That `finally` was enough.** It covers errors and Ctrl+C, and the kit had been tested with
+  both, but closing the window was never tried. It is also the most natural thing for a person to
+  do once the window says "Finished in 68 s; every check ran."
+- **That saving the zip early was the fix.** My first version did only that, plus reading unzipped
+  work folders in the summary. A review round of three agents killed real runs at every moment and
+  proved three high-severity holes in it:
+  - **The final save deleted the early zip and compressed in place.** Compress-Archive writes the
+    whole file at its end, so a window closed in those seconds (right when the old kit showed the
+    verdict, which the guide told the operator to read and then close) left a zip nothing could
+    open. The summary showed an anonymous UNREADABLE row.
+  - **The summary trusted the early zip over a work folder that held the answers.** A window
+    closed after the answers were saved, but before the final zip, turned a laptop answered
+    "the battery bulges" into READY.
+  - **The app outlives the window.** It is a windowed program, so closing the kit's window does not
+    stop it. It finished its scan and left `%LOCALAPPDATA%\PcHealthCheck\temp` on the laptop, and no
+    cleanup of the kit's ever ran. This was older than KIT-007.
+
+  The same round found smaller faults, all fixed here: answers held only in memory; a rerun in the
+  same minute reusing the old work folder, which the surviving app still held open; "(exit code )"
+  and battery or Windows noise on runs that never scanned; anonymous UNREADABLE rows; serials parsed
+  wrongly from names that contain "_"; and abandoned no-serial attempts counted as extra laptops.
+- **That the table should show each laptop's latest run.** A second review round, of four agents,
+  found that the redesign still lost findings, all fixed here:
+  - **A later unfinished run erased an earlier finished one.** A laptop checked to the end with
+    "the battery bulges", then rechecked and closed before any answer, showed only the second run:
+    CHECK AGAIN, with the swollen battery gone. The table now shows a laptop's latest *finished*
+    run and names the later unfinished one in its notes.
+  - **My fix for no-serial attempts dropped real laptops.** It dropped any unfinished no-serial run
+    whose computer name matched a finished one, and laptops cloned from one image share a computer
+    name. A laptop with a swollen battery vanished from the table. Runs are now grouped by serial,
+    or else by the hardware UUID, which the kit now records; never by computer name.
+  - **Same-minute runs sorted wrongly.** A folder's name starts with `.work-`, so it sorted before
+    every zip, and a second run's answered folder lost to the first run's early zip. Runs are now
+    ordered by their start time, then by name with the prefix removed.
+  - **A "no" was saved only after its note.** Closing the window at "What is wrong?" lost the
+    answer that the battery bulges. It is now saved, and the fire warning shown, before the note.
+  - **An interrupted run could be READY without anyone looking at the battery.** A run closed
+    before the battery question now asks for it to be answered, on a laptop.
+  - **Smaller faults:** a typed serial and its file-name form were two laptops; an UNREADABLE
+    zip of serial "AB_12" was parsed as laptop "AB"; a `kit.json` caught mid-rewrite ranked a
+    folder full of answers below an early zip; a report linked with no JSON beside it; and
+    `--temp-dir` accepted a missing or relative path.
+- **That one run should decide a laptop's row.** A third round, of three reviewers and nine
+  skeptics, proved that showing the latest finished run hid what other runs recorded, in both
+  directions, and that the kit's own last step was wrong. All fixed here:
+  - **A later unfinished check was reduced to a date.** Checked to the end and READY, then checked
+    again with "the battery bulges" and closed at the note: READY, the swollen battery nowhere. The
+    same with a failing drive found by the recheck. With no run finished, the latest run hid an
+    earlier one's swollen battery the same way.
+  - **A finished recheck that skipped the battery question erased "the battery bulges".**
+  - **Ctrl+C recorded "complete".** Ctrl+C, unlike a closed window, runs the `finally` block, and
+    it wrote `complete` whatever had happened. Ctrl+C at the battery question gave READY on a
+    question nobody answered, and after one answer the "N of 11 not reached" note was gone.
+  - **The first answer could be lost between two writes.** The kit saves the answer, then rewrites
+    `kit.json`. A window closed between the two left "scanned" beside the answer, the same rank as
+    the early zip, and the zip won the tie.
+  - **The `.tmp` move is not atomic.** `Move-Item -Force` on Windows PowerShell 5.1 deletes the old
+    file and then renames the new one, and a probe found the file missing in 3.5% of polls during
+    rewrites. A window closed in that gap left the answers only in `manual-checks.json.tmp`, which
+    nothing read: READY.
+  - **Two laptops given the same typed text were one laptop**, because a serial was trusted over the
+    hardware UUID. One laptop and its swollen battery vanished. And one laptop was two rows when one
+    run had a typed serial and another none.
+  - **This laptop's real hardware UUID was in a test fixture**, about to be published. It was
+    replaced with a made-up one, and a kit check now fails on any UUID in the kit or its tests that
+    is not a placeholder or obviously made up.
+  - **Smaller faults:** a stick that turned read-only during the questions dropped every answer
+    without a word; a no-serial run closed before `machine.json` was written could not be matched to
+    its laptop; `--temp-dir` accepted "C:temp"; and several documents still told the operator to copy
+    only the zips.
+- **That the hardware UUID and the clock could be trusted.** A fourth round, of three reviewers and
+  six skeptics, re-ran every third-round reproduction (all fixed) and then attacked the new rules:
+  - **Laptops that share a UUID became one row.** Firmware reuses UUIDs: Dell's for a blank service
+    tag is the same on every such laptop, and boards whose identity was never programmed share one.
+    Grouping by UUID first merged them, and one laptop, with its swollen battery, vanished. A
+    placeholder UUID made it worse: such a laptop typed "unknown" joined another laptop typed the same.
+  - **A wrong clock decided which check was later.** An old laptop's clock comes up reset, to 2018
+    say, and nothing corrects it during the run. A finished check with "the battery bulges" dated 2018
+    sorted before an unfinished check's "ok", which then cleared it: READY.
+  - **An empty work folder counted as a finished check.** A window closed in a run's first second
+    leaves a folder with nothing in it, and the summary's stand-in `kit.json` for a missing one ranked
+    it complete, so it replaced an earlier finished check.
+  - **A repair could not be shown, or was undone.** A re-check closed at the optional last remark
+    never counted as finished, so its Good drive never replaced the old fault; and a later check
+    without admin rights brought back a drive fault that an earlier finished check had read as fixed.
+  - **Ctrl+C in the last second of a scan could delete it.** The app, still running, wrote its report
+    after Compress-Archive had looked in the report folder; the zip went without it, and the kit then
+    deleted the folder that held it.
+  - **Smaller faults:** notes containing "; ", which the table splits into two; a battery fault listed
+    once per check, its percentage different each time; checks of the same minute mislabelled; a
+    warning that the answers were lost after a save that had recovered; and TOOL-004's trigger, wider
+    than I wrote.
+- **That patching the trust rules would converge.** A fifth round, of two reviewers and four
+  skeptics, found each fourth-round rule broken in a new way:
+  - **The clock test depended on the day the summary ran.** A check dated two days ahead was caught
+    only until that date passed; a summary run on a PC whose clock was behind flagged every check.
+    And one wrong clock froze a laptop for good: no repair checked again to the end could clear it.
+  - **The firmware serial was trusted too much.** A laptop with no serial was merged into a laptop
+    with a firmware serial whenever their UUIDs matched, and two laptops reporting a placeholder
+    serial the kit did not know ("Not Available") became one.
+  - **De-duplicating carried reasons by their first words dropped a second failing drive.**
+  - The fix is a different design, not another patch: checks are ordered by the stick, not the
+    clock (each run lists fingerprints of the results already there), and runs are grouped so that
+    any doubt keeps them apart.
+- **A confirmation round** re-ran every fifth-round case with real kit runs (a stub app, made-up
+  hardware): all fixed. It found the design's edges, all fixed here: two checks made on two sticks,
+  or with a result taken off the stick in between, were still put in order by their clocks, so a
+  check dated ahead still cleared a later swollen battery (their order is now unknown); a laptop with
+  no serial on a UUID that a firmware-serial laptop shares was one row per check; a typed-serial
+  laptop and a no-serial laptop on one UUID were merged (no-serial runs now join only under the same
+  computer name); and the note on two rows with one serial named the later row by its clock.
+  Two limits remain, both written down: a repair checked on a different stick keeps the old finding,
+  and two cloned laptops with no serial, one computer name and one shared UUID are one row.
+
+**How to verify.** Close the kit's window at each moment and run the fleet summary. Feed answers
+through a `cmd` pipe that stays open (TOOL-003 says why not .NET):
+
+- **during the scan:** nothing appears under `%LOCALAPPDATA%\PcHealthCheck`, the app finishes the
+  scan into the stick folder, and the row says so;
+- **after answering "the battery bulges":** the row carries SWOLLEN BATTERY;
+- **a normal run:** only the zip is left, and the verdict appears after "Saving".
+
+**Fix.**
+
+- **`kit.json` is written at every stage:** `started`, `scanned`, `answering` (after every answer,
+  with `manual-checks.json`), and `complete`. A "no" is saved before its note is asked. Each file
+  is written to a `.tmp` name and moved into place; the summary reads the `.tmp` when the file
+  itself is missing (`Read-KitFile`). The final `kit.json` also holds the verdict and its reasons,
+  which the transcript, closed before they are shown, cannot.
+- **Only a run that reached its end is `complete`.** Ctrl+C and errors run the last step, which
+  now records the stage the run had reached and `StoppedEarly` (`interrupted` or `error`), and the
+  notes say which. `kit.json` also records `SkipQuestions` and the hardware UUID from the start.
+- **A stick that stops taking answers is said out loud**, in red, at the first failed save and
+  again at the end, with the problems found; the on-screen verdict then uses the answers as given.
+- **The zip is saved right after the scan, before the questions.** The transcript is held open for
+  writing, so the early save pauses it around the zip and resumes it with `-Append`.
+- **Every zip is written as `.partial-<name>.zip`** and renamed over the real one only once it is
+  complete. The only gap is between deleting the old zip and the rename, and the work folder still
+  holds everything then.
+- **The verdict is shown only after the zip is saved.**
+- **The app's temporary files go to the stick.** The app gained `--temp-dir`, and the kit points it
+  at its work folder, so the app writes none of its files to the laptop's disk even if the window is
+  closed mid-scan. The cleanup after the scan stays as a safety net. A missing path, or one that is
+  not fully qualified ("C:temp" is rooted, and still relative), is refused before anything is
+  scanned, and the kit resolves its results folder to a full path. The daily smoke passes
+  `--temp-dir` too, and fails if the receipt lists any file written outside it.
+- **A result name gets seconds appended if its zip or its work folder already exists.**
+- **The summary uses whichever of a run's zip and work folder got further.**
+  - The order is `Get-StageRank`: a zip with no Stage counts as complete, and so does a folder from
+    an older kit that has a `kit.json`.
+  - An unreadable zip loses to its folder.
+  - Whether the scan finished is decided by whether a report exists, because the app can finish
+    after the kit recorded `started`.
+  - UNREADABLE rows say which laptop and file they are.
+  - Names are parsed from the right, by `Get-ResultNameParts`.
+  - A run ranks by the furthest of its `kit.json` stage and what is beside it: saved answers, then
+    a report. So does a `kit.json` that cannot be read.
+- **The summary groups runs into laptops by `Group-AuditRuns`, keeping them apart when in doubt**
+  (a wrong merge hides a laptop, a wrong split only shows one twice): one usable UUID is one laptop
+  unless its runs carry different serials; a run with no serial joins a UUID laptop only when that
+  laptop's serial was typed; a run with a serial and no usable UUID joins the one UUID laptop
+  carrying its serial only if its kit recorded no UUID at all (every kit before KIT-007) or it is an
+  unreadable zip. Never the computer name. The same serial on two boards is two rows, each naming
+  the other. Placeholder serials and UUIDs (Dell's blank service tag among them) name nothing; the
+  serial list is shared by the kit and the summary (`Test-PlaceholderSerial`).
+- **Checks are ordered by the stick, not the clock.** Each run records in `kit.json` EarlierRuns,
+  fingerprints (`Get-RunHash`) of the results already on the stick when it started; a run that lists
+  another came after it. Only checks that never shared a stick are ordered by their clocks, and not
+  when a clock is plainly wrong (dated before its kit, or contradicted by EarlierRuns). The summary
+  never reads its own PC's clock. The kit warns when an earlier check of the laptop is dated after
+  its clock.
+- **A laptop's row is built from all its runs (`Merge-LaptopRuns`).** It is shown from the latest
+  finished run, else the latest. A physical "problem" stands until a finished check known to be
+  later answered "ok"; a skip never erases it. A run's scan findings stay until a finished check
+  known to be later scanned again, its drive faults until such a check read the drive. Carried
+  reasons are tagged with the check that found it, and de-duplicated with their numbers masked. A
+  carried stale finding is the safe failure; a finished recheck made after it on the stick replaces it.
+- **A check is complete once its last question is answered**, before the optional remark, and
+  `kit.json` is written the moment the work folder exists, so even an empty-looking run names its
+  laptop. A folder with no real `kit.json` ranks by its contents alone.
+- **Ctrl+C while the app is still scanning keeps the work folder**, which the app goes on writing
+  its report into, and says so; the summary then reads the folder.
+- **The battery question decides by its answer, not by the stage.** A laptop whose battery was not
+  answered is CHECK AGAIN, unless the questions were skipped on purpose or the zip predates KIT-007.
+- **The question loop stops if its input ends** (`Read-Host` returns `$null`), instead of spinning
+  for ever.
+
+**Verified for real on the T470p.** Three runs, one for each case in "How to verify", behaved as
+listed there after each round, and so did a window closed at the first question. There are 140 new
+kit checks (208 in all). The summary's checks build 49 lettered states on disk, one per fault the
+reviews proved, and run the summary in a child process. Against the kit as committed before
+KIT-007, the run fails and aborts; against the second round's kit 38 checks fail, against the
+third's 28, against the fourth's 17 and against the fifth's 5, every new case among them. The three pilot zips read the
+same as before, every column.
+
+**Date.** 2026-10-26.
+
+---
+
+## TOOL-004 — "Argument types do not match" from `@($Runs)` in Windows PowerShell 5.1
+
+**Symptom.** While fixing KIT-007 the fleet summary died with "Argument types do not match", a .NET
+`ArgumentException`, on the line `foreach ($run in @($Runs))` of a new function.
+
+**Root cause.** In Windows PowerShell 5.1, `@($x)` throws that exception when `$x` is a
+`System.Collections.Generic.List[object]` made with `New-Object`, wherever it is: a local variable,
+a function argument or an object's property. `$b = New-Object System.Collections.Generic.List[object]; @($b)`
+fails at script scope. `foreach ($run in $b)` works, so does a pipeline inside the subexpression,
+`@($b | Where-Object ...)`, and so does a list made with `::new()`. The kit's existing code had only
+ever used the pipeline form on such lists. (My first entry here said it happened only to function
+arguments; the fourth KIT-007 review found the wider trigger.)
+
+**The wrong first guess.** That some property of the runs had the wrong type, since the message
+sounds like a type mismatch in the data.
+
+**How to verify.** The probe above, in `powershell.exe` (5.1).
+
+**Fix.** `foreach ($run in $Runs)` in `Group-AuditRuns`, with a comment pointing here. The kit
+checks cover the function with both arrays and the summary's `List[object]`.
+
+**Date.** 2026-10-26.
+
+---
+
+## TOOL-003 — Scripted answers through a .NET pipe arrived as "∩╗┐n"
+
+**Symptom.** While testing KIT-007, the kit ignored scripted answers. "n" then "case bulges" both
+drew "Please type y, n or s.", and nothing was saved.
+
+**Root cause.** `ProcessStartInfo.RedirectStandardInput` gives a `StreamWriter` whose encoding is
+the console's (UTF-8 here) and which is created with AutoFlush on. Turning AutoFlush on flushes at
+once, which writes the UTF-8 byte-order mark into the pipe before a single line is sent. PowerShell
+reads its input in the console's OEM code page, where EF BB BF are the characters ∩╗┐. So the first
+line read was "∩╗┐n". Writing raw bytes to `BaseStream` does not avoid it: the mark is already in
+the pipe.
+
+**The wrong first guesses.** That `Trim()` would remove the mark (it keeps U+FEFF), and then that
+skipping the writer would. A probe script printing the code points of what `Read-Host` received
+settled it: 2229 2557 2510 006E.
+
+**How to verify.** In a probe script, have `Read-Host` print the code points of what it received,
+and feed it one line through a .NET pipe.
+
+**Fix.** Tests feed answers the way a console does, with no .NET writer: `cmd /c "(echo n&echo
+note&powershell -NoProfile -Command Start-Sleep 900) | powershell -File audit-laptop.ps1"`. The
+sleep keeps the pipe open, so the kit really waits at the next question. A real keyboard never sends
+the mark, so the kit itself was left unchanged. A "fix" in the kit was written and then reverted,
+because its comment would have described a problem no person can hit.
+
+**Date.** 2026-10-26.
+
+---
+
 ## KIT-006 — Every progress line on the laptops read "System overview ù running"
 
 **Symptom.** The owner photographed the kit's window during a laptop check on 2026-10-26. Every

@@ -3,7 +3,7 @@
 # Windows PowerShell 5.1 compatible and ASCII only: 5.1 reads a script without a byte-order mark
 # in the ANSI code page, so any non-ASCII character here would be garbled on some laptops.
 
-$script:AuditKitVersion = '2026-10-25.1'
+$script:AuditKitVersion = '2026-10-26.1'
 
 function Write-Utf8NoBom([string]$Path, [string]$Text) {
     [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding $false))
@@ -98,16 +98,26 @@ function Read-AuditRules([string]$Path) {
     return [pscustomobject]$rules
 }
 
+# One of the kit's own files, which it rewrites as a run goes on (KIT-007). It writes "<name>.tmp" in
+# full and then moves it over "<name>", and Move-Item in Windows PowerShell 5.1 deletes the old file
+# before it renames the new one. A window closed in that gap leaves only the .tmp, complete by then;
+# reading nothing would turn an answered "the battery bulges" into no answer at all.
+function Read-KitFile([string]$Path) {
+    $data = Read-JsonFile $Path
+    if ($null -eq $data) { $data = Read-JsonFile "$Path.tmp" }
+    return $data
+}
+
 # Everything one laptop's run produced, from its unpacked folder.
 function Read-AuditFolder([string]$Dir) {
     $reportJson = Get-ChildItem -LiteralPath (Join-Path $Dir 'report') -Filter '*.json' -ErrorAction SilentlyContinue | Select-Object -First 1
     $reportHtml = Get-ChildItem -LiteralPath (Join-Path $Dir 'report') -Filter '*.html' -ErrorAction SilentlyContinue | Select-Object -First 1
     [pscustomobject]@{
         Dir        = $Dir
-        Kit        = Read-JsonFile (Join-Path $Dir 'kit.json')
-        Machine    = Read-JsonFile (Join-Path $Dir 'machine.json')
-        Manual     = Read-JsonFile (Join-Path $Dir 'manual-checks.json')
-        Disks      = Read-JsonFile (Join-Path $Dir 'disks.json')
+        Kit        = Read-KitFile (Join-Path $Dir 'kit.json')
+        Machine    = Read-KitFile (Join-Path $Dir 'machine.json')
+        Manual     = Read-KitFile (Join-Path $Dir 'manual-checks.json')
+        Disks      = Read-KitFile (Join-Path $Dir 'disks.json')
         Report     = if ($reportJson) { Read-JsonFile $reportJson.FullName } else { $null }
         ReportHtml = if ($reportHtml) { $reportHtml.FullName } else { $null }
     }
@@ -180,15 +190,6 @@ function Test-ExternalDrive([string]$Subject, $ExternalNames) {
 # kit-tests.ps1 fails if the two ever disagree.
 $script:DiskErrorsNormalMax = 5
 
-# A property the app may have left out: its JSON omits every empty field, so a Detail or Subject
-# that was null is simply absent, and strict mode turns reading an absent property into an error.
-function Get-OptionalProperty($Object, [string]$Name) {
-    if ($null -eq $Object) { return $null }
-    $property = $Object.PSObject.Properties[$Name]
-    if ($property) { return $property.Value }
-    return $null
-}
-
 # The event log's disk errors split by the drive that logged them. The app writes the split into
 # the metric's Detail, in fixed English that is never translated (DiskEventAttribution.Describe):
 #   "By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 34, disk 2: 13."
@@ -196,8 +197,8 @@ function Get-OptionalProperty($Object, [string]$Name) {
 # then counts every error against the laptop, because a sentence that cannot be read must never
 # make errors disappear.
 function Get-DiskErrorSplit($Verdict) {
-    $detail = [string](Get-OptionalProperty $Verdict.Metric 'Detail')
-    $total = Get-OptionalProperty (Get-OptionalProperty $Verdict.Metric 'Value') 'Number'
+    $detail = [string](Get-JsonField $Verdict.Metric 'Detail')
+    $total = Get-JsonField (Get-JsonField $Verdict.Metric 'Value') 'Number'
     if (-not $detail -or $null -eq $total) { return $null }
     $byDisk = @{}
     $systemDisk = $null
@@ -251,6 +252,203 @@ function Get-DiskErrorsAgainstLaptop($Verdict, $Disks) {
     return [pscustomobject]@{ Own = $own; OwnParts = $ownParts; External = $external; Detached = $detached }
 }
 
+# How far a run got, from its kit.json, for choosing between a run's zip and its work folder: the
+# fleet summary uses whichever got further. A zip from a kit older than KIT-007 has no Stage, and
+# such a kit wrote its zip only at the very end, so it counts as complete. A work folder from such
+# a kit is complete if it has a kit.json (written only at the end) and counts for nothing if not.
+$script:StageRank = @{ 'started' = 1; 'scanned' = 2; 'answering' = 3; 'complete' = 4 }
+# The files beside kit.json count too, whatever it says: the kit saves an answer before it rewrites
+# kit.json, so a window closed between the two leaves a kit.json still saying "scanned" beside the
+# answer, and that folder must not lose to the early zip, which has no answers. Saved answers mean
+# the run was answering; a report means the scan was saved. Nothing at all ranks lowest.
+function Get-StageRank($Bundle) {
+    $kit = $Bundle.Kit
+    $stage = [string](Get-JsonField $kit 'Stage')
+    $rank = 0
+    if ($stage -and $script:StageRank.ContainsKey($stage)) { $rank = $script:StageRank[$stage] }
+    # A real kit.json from before KIT-007, never the summary's stand-in for a missing one: an empty
+    # work folder, left by a window closed in the run's first second, has not finished anything.
+    elseif (Get-JsonField $kit 'KitVersion') { return 4 }
+    if ((Get-JsonField $Bundle.Manual 'Asked') -and @(Get-JsonField $Bundle.Manual 'Items' | Where-Object { $_ }).Count -gt 0) { $rank = [Math]::Max($rank, 3) }
+    elseif ($Bundle.Report) { $rank = [Math]::Max($rank, 2) }
+    return $rank
+}
+
+# A serial or computer name as it appears in a result name: anything but letters, digits, '.', '_'
+# and '-' becomes '-', at most 40 characters. The kit names its files with it, and the fleet summary
+# groups runs with it, so a typed serial "PF 0ABC12" and its file name "PF-0ABC12" are one laptop.
+function ConvertTo-SafeName([string]$Value, [int]$Max = 40) {
+    $safe = ($Value.Trim() -replace '[^A-Za-z0-9._-]', '-').Trim('-')
+    if ($safe.Length -gt $Max) { $safe = $safe.Substring(0, $Max) }
+    return $safe
+}
+
+# Which laptop a run belongs to (KIT-007). Two facts can say so: the serial, in its file-name form,
+# and the hardware UUID the firmware reports, which kits from KIT-007 on record in kit.json and
+# machine.json. Never the computer name: laptops cloned from one image share it. Neither fact can be
+# trusted alone: firmware reports placeholder serials, and some UUIDs are shared by many machines.
+$script:PlaceholderUuids = @('00000000-0000-0000-0000-000000000000', 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF',
+    '03000200-0400-0500-0006-000700080009', '00020003-0004-0005-0006-000700080009',
+    '4C4C4544-0000-2010-8020-80C04F202020')
+# Serials firmware fills in, or a person types, that name no laptop. Compared without letter case.
+$script:PlaceholderSerials = @('', '0', 'None', 'Default', 'Default string', 'To be filled by O.E.M.', 'To be filled by O.E.M',
+    'System Serial Number', 'Serial Number', 'SerialNumber', 'Chassis Serial Number', 'Base Board Serial Number',
+    'Not Specified', 'Not Applicable', 'Not Available', 'N/A', 'NA', 'TBD', 'Unknown', 'OEM', 'INVALID',
+    '123456789', '0123456789', '1234567890', '12345678')
+function Test-PlaceholderSerial([string]$Value) {
+    $v = ([string]$Value).Trim()
+    return ($script:PlaceholderSerials -contains $v) -or ($v -match '^[0\s.*xX-]+$') -or -not (ConvertTo-SafeName $v)
+}
+function Get-SerialKey([string]$Serial) {
+    if (Test-PlaceholderSerial $Serial) { return '' }
+    return (ConvertTo-SafeName $Serial).ToUpperInvariant()
+}
+# From machine.json, else kit.json, which has it from the first moment of a run: a window closed
+# before machine.json was written must still say which laptop it was.
+function Get-HardwareUuid($Machine, $Kit) {
+    foreach ($source in @($Machine, $Kit)) {
+        $uuid = ([string](Get-JsonField $source 'MachineUuid')).Trim().ToUpperInvariant()
+        if ($uuid -and $script:PlaceholderUuids -notcontains $uuid) { return $uuid }
+    }
+    return ''
+}
+
+# The order of a laptop's checks, without its clock (KIT-007). An old laptop's clock comes up reset
+# to some year long gone, or set ahead, and a check dated wrongly would otherwise count as the
+# earlier or the later one. So each run records, in kit.json EarlierRuns, a short fingerprint of the
+# name of every result already on the stick when it started: a run that lists another came after it,
+# whatever either clock said. Fingerprints, not names, so a zip carries no other laptop's serial.
+function Get-RunHash([string]$Name) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $bytes = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Name.ToUpperInvariant())) } finally { $sha.Dispose() }
+    return (($bytes[0..7] | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+# The results in a folder, by name: "<name>.zip" and ".work-<name>", never ".partial-*.zip".
+function Get-ResultNames([string]$Dir) {
+    @(Get-ChildItem -LiteralPath $Dir -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.PSIsContainer) { if ($_.Name.StartsWith('.work-')) { $_.Name.Substring(6) } }
+        elseif ($_.Extension -eq '.zip' -and -not $_.Name.StartsWith('.')) { $_.BaseName }
+    } | Where-Object { $_ } | Sort-Object -Unique)
+}
+
+# Runs into laptops. Each run carries SerialKey (empty for a placeholder), SerialSource ('firmware',
+# 'typed', or '' when not known), HardwareUuid (empty for a placeholder), and UuidRecorded (its kit
+# records a UUID field at all: every kit from KIT-007 on, even when the firmware gave none usable).
+# A wrong merge hides a laptop, a wrong split shows one twice, so when in doubt, runs stay apart:
+# 1. Runs with one usable UUID are one laptop, unless they carry different serials, when several
+#    laptops share that UUID: then one laptop per serial. A run with no serial joins only a laptop
+#    whose serial was typed (a laptop with no serial in its firmware, typed on one run and skipped
+#    on another), and only under the same computer name; a laptop whose firmware has a serial never
+#    gives a run without one. Runs with no serial are otherwise one laptop per computer name.
+# 2. A run with a serial and no usable UUID joins the one laptop of step 1 carrying its serial, but
+#    only if it comes from a kit too old to record a UUID, or is a zip nothing could read: a run
+#    whose kit did record one and found none usable is not a laptop that has one. Otherwise, runs of
+#    one serial with no UUID are one laptop.
+# A run with no serial and no UUID stands alone. The same serial on two system boards (a board
+# replaced, or two laptops reporting one serial) gives two laptops, which the fleet summary names on
+# each row. Returns a list of lists.
+# "foreach ($run in $Runs)", never "@($Runs)": in Windows PowerShell 5.1, @() of a List[object] made
+# with New-Object throws "Argument types do not match" (TOOL-004).
+function Group-AuditRuns($Runs) {
+    $groups = New-Object System.Collections.Generic.List[object]
+    function New-Group($First) {
+        $group = New-Object System.Collections.Generic.List[object]
+        if ($First) { $group.Add($First) }
+        $groups.Add($group)
+        return ,$group
+    }
+    $byUuid = @{}; $rest = New-Object System.Collections.Generic.List[object]
+    foreach ($run in $Runs) {
+        if ($run.HardwareUuid) {
+            if (-not $byUuid.ContainsKey($run.HardwareUuid)) { $byUuid[$run.HardwareUuid] = New-Object System.Collections.Generic.List[object] }
+            $byUuid[$run.HardwareUuid].Add($run)
+        } else { $rest.Add($run) }
+    }
+    # Runs with no serial and one UUID: the same laptop when they carry the same computer name. One
+    # with another name is another laptop sharing that UUID, or this one renamed; two rows then.
+    function Get-NameKey($Run) { (ConvertTo-SafeName ([string](Get-JsonField $Run 'Computer'))).ToUpperInvariant() }
+    function Add-ByName($Runs, $Into) {
+        $byName = @{}
+        foreach ($run in $Runs) {
+            $name = Get-NameKey $run
+            if ($Into -and @($Into | Where-Object { (Get-NameKey $_) -eq $name }).Count -gt 0) { $Into.Add($run); continue }
+            if (-not $byName.ContainsKey($name)) { $byName[$name] = New-Group $null }
+            $byName[$name].Add($run)
+        }
+    }
+    foreach ($uuid in @($byUuid.Keys)) {
+        $serials = @($byUuid[$uuid] | ForEach-Object { $_.SerialKey } | Where-Object { $_ } | Sort-Object -Unique)
+        $firmware = @($byUuid[$uuid] | Where-Object { $_.SerialKey -and $_.SerialSource -eq 'firmware' }).Count -gt 0
+        $noSerial = New-Object System.Collections.Generic.List[object]
+        foreach ($run in $byUuid[$uuid]) { if (-not $run.SerialKey) { $noSerial.Add($run) } }
+        if ($serials.Count -eq 0) { Add-ByName $noSerial $null; continue }
+        $bySerialHere = @{}
+        foreach ($run in $byUuid[$uuid]) {
+            if (-not $run.SerialKey) { continue }
+            if (-not $bySerialHere.ContainsKey($run.SerialKey)) { $bySerialHere[$run.SerialKey] = New-Group $null }
+            $bySerialHere[$run.SerialKey].Add($run)
+        }
+        # One typed serial: its runs without a serial, under the same computer name, are the same laptop.
+        $into = $null   # assigned, not "= if ...": an if-expression would unroll the list
+        if ($serials.Count -eq 1 -and -not $firmware) { $into = $bySerialHere[$serials[0]] }
+        if ($noSerial.Count -gt 0) { Add-ByName $noSerial $into }
+    }
+    # Which laptops carry each serial, for step 2: decided before any run of step 2 joins one.
+    $owners = @{}
+    foreach ($group in $groups) {
+        foreach ($key in @($group | ForEach-Object { $_.SerialKey } | Where-Object { $_ } | Sort-Object -Unique)) {
+            if (-not $owners.ContainsKey($key)) { $owners[$key] = New-Object System.Collections.Generic.List[object] }
+            $owners[$key].Add($group)
+        }
+    }
+    $bySerial = @{}
+    foreach ($run in $rest) {
+        if (-not $run.SerialKey) { $null = New-Group $run; continue }
+        if (-not $run.UuidRecorded -and $owners.ContainsKey($run.SerialKey) -and $owners[$run.SerialKey].Count -eq 1) {
+            $owners[$run.SerialKey][0].Add($run)
+            continue
+        }
+        if (-not $bySerial.ContainsKey($run.SerialKey)) { $bySerial[$run.SerialKey] = New-Group $null }
+        $bySerial[$run.SerialKey].Add($run)
+    }
+    return ,$groups
+}
+
+# Serial, computer and start time from a result name, <serial>_<computer>_<yyyy-MM-dd>_<HHmm[ss]>,
+# read from the right, because ConvertTo-SafeName keeps "_" and a serial may contain one. The
+# computer part is matched against the computer name when it is known. Used only when kit.json is
+# missing (kits older than KIT-007) or unreadable.
+function Get-ResultNameParts([string]$Name, [string]$ComputerName) {
+    $parts = $Name -split '_'
+    $result = [ordered]@{ Serial = ''; Computer = ''; StartedAt = '' }
+    if ($parts.Count -lt 3) { return [pscustomobject]$result }
+    $date = $parts[-2]; $time = $parts[-1]
+    if ($date -match '^\d{4}-\d{2}-\d{2}$' -and $time -match '^\d{4}') {
+        $result.StartedAt = '{0} {1}:{2}' -f $date, $time.Substring(0, 2), $time.Substring(2, 2)
+        $prefix = ($parts[0..($parts.Count - 3)]) -join '_'
+    } else {
+        $prefix = $Name
+    }
+    $safeComputer = ''
+    if ($ComputerName) { $safeComputer = ConvertTo-SafeName $ComputerName }
+    if ($safeComputer -and $prefix.EndsWith('_' + $safeComputer)) {
+        $result.Serial = $prefix.Substring(0, $prefix.Length - $safeComputer.Length - 1)
+        $result.Computer = $ComputerName.Trim()
+    } else {
+        # The computer is the last part: a Windows computer name practically never holds "_", while
+        # a typed serial may. Taking the first part as the serial turned "AB_12" into "AB".
+        $cut = $prefix.LastIndexOf('_')
+        if ($cut -gt 0) {
+            $result.Serial = $prefix.Substring(0, $cut)
+            $result.Computer = $prefix.Substring($cut + 1)
+        } else {
+            $result.Serial = $prefix
+        }
+    }
+    if ($result.Serial -eq 'NO-SERIAL') { $result.Serial = '' }
+    return [pscustomobject]$result
+}
+
 # The checks whose failure makes a verdict unsafe. Any other check that did not finish is a note.
 $script:CriticalModules = @('sys.overview', 'volumes', 'battery', 'disk.smart', 'disk.reliability')
 
@@ -259,29 +457,50 @@ $script:CriticalModules = @('sys.overview', 'volumes', 'battery', 'disk.smart', 
 # FIX FIRST   - usable after a repair or upgrade the reasons name (battery, drive, memory...).
 # REPLACE     - cannot meet the rules at any repair cost (today: a processor Windows 11 refuses).
 # CHECK AGAIN - something important was not checked, so no verdict would be honest.
+#
+# Used on one run, and by the fleet summary on the run it shows for a laptop checked more than once.
+# The summary then adds to the bundle: MergedAnswers, the latest real answer to each question from
+# any of the laptop's runs (an item with From names the check it came from); CarriedReplace,
+# CarriedFix and CarriedRecheck, reasons other runs found that this one could not supersede. The row
+# also returns the reasons that came from the scan (ScanReplace, ScanFix, DriveFix) and DriveRead, for
+# the summary to carry; it drops them from the table.
 function Get-AuditRow($Bundle, $Rules) {
     $kit = $Bundle.Kit; $m = $Bundle.Machine; $report = $Bundle.Report; $manual = $Bundle.Manual
-    $replace = New-Object System.Collections.Generic.List[string]
-    $fix     = New-Object System.Collections.Generic.List[string]
-    $recheck = New-Object System.Collections.Generic.List[string]
-    $notes   = New-Object System.Collections.Generic.List[string]
+    $replace  = New-Object System.Collections.Generic.List[string]
+    $physical = New-Object System.Collections.Generic.List[string]
+    $fix      = New-Object System.Collections.Generic.List[string]
+    $driveFix = New-Object System.Collections.Generic.List[string]
+    $recheck  = New-Object System.Collections.Generic.List[string]
+    $notes    = New-Object System.Collections.Generic.List[string]
     $verdicts = @()
     if ($report) { $verdicts = @($report.Verdicts) }
 
     # --- Physical checks first: a swollen battery outranks everything else on the list.
+    $merged = Get-JsonField $Bundle 'MergedAnswers'
+    $ownItems = @()
+    if ((Get-JsonField $manual 'Asked')) { $ownItems = @(Get-JsonField $manual 'Items' | Where-Object { $_ }) }
+    $items = @(if ($null -ne $merged) { $merged | Where-Object { $_ } } else { $ownItems })
     $manualProblems = @()
-    if ($manual -and $manual.Asked) {
-        foreach ($item in @($manual.Items)) {
+    if ($items.Count -gt 0 -or (Get-JsonField $manual 'Asked')) {
+        $fromOthers = [ordered]@{}
+        foreach ($item in $items) {
+            $from = [string](Get-JsonField $item 'From')
+            if ($from) {
+                if (-not $fromOthers.Contains($from)) { $fromOthers[$from] = @() }
+                $fromOthers[$from] += [string]$item.Short
+            }
             if ($item.Answer -eq 'problem') {
                 $text = if ($item.Note) { "$($item.Short): $($item.Note)" } else { [string]$item.Short }
-                $manualProblems += $text
-                if ($item.Id -eq 'battery_swelling') { $fix.Insert(0, 'SWOLLEN BATTERY: do not charge or use it; replace the battery first') }
-                else { $fix.Add("Physical check failed - $text") }
+                $tag = if ($from) { " (answered at the $from check)" } else { '' }
+                $manualProblems += "$text$tag"
+                if ($item.Id -eq 'battery_swelling') { $physical.Insert(0, "SWOLLEN BATTERY: do not charge or use it; replace the battery first$tag") }
+                else { $physical.Add("Physical check failed - $text$tag") }
             }
         }
-        $skipped = @(@($manual.Items) | Where-Object { $_.Answer -eq 'not checked' }).Count
+        foreach ($from in $fromOthers.Keys) { $notes.Add("Answers from the $from check of this laptop: $($fromOthers[$from] -join ', ')") }
+        $skipped = @($items | Where-Object { $_.Answer -eq 'not checked' }).Count
         if ($skipped -gt 0) { $notes.Add("$skipped physical check(s) skipped") }
-        if ($manual.ExtraNote) { $notes.Add("Remark: $($manual.ExtraNote)") }
+        if ((Get-JsonField $manual 'ExtraNote')) { $notes.Add("Remark: $($manual.ExtraNote)") }
     } else {
         $notes.Add('Physical checks not done')
     }
@@ -292,10 +511,76 @@ function Get-AuditRow($Bundle, $Rules) {
     $clockNote = Get-ClockJumpNote $kit
     if ($clockNote) { $notes.Add($clockNote) }
 
+    # --- A run that did not reach its last step (KIT-007). The kit writes kit.json at every stage:
+    # "started", "scanned" (the scan is whole, before any answer), "answering" (saved after each
+    # answer), "complete". FromWorkFolder is set by the fleet summary when it read the run's work
+    # folder because that got further than the zip, or because there was no readable zip.
+    # Whether the scan finished is answered by the report itself, not by the stage: the app is a
+    # windowed program and keeps running after the kit's window is closed, so it can finish and write
+    # its report after the kit recorded "started". A report on disk is whole: it is written once, at
+    # the end of the scan.
+    $stage = [string](Get-JsonField $kit 'Stage')
+    $fromFolder = [bool](Get-JsonField $Bundle 'FromWorkFolder')
+    $realKit = [bool](Get-JsonField $kit 'KitVersion')   # the summary's stand-in for a missing kit.json has none
+    # How the run stopped. A closed window leaves no trace of its own; Ctrl+C and an error let the
+    # kit's last step run, and it records which (StoppedEarly), with the stage the run had reached.
+    $stoppedEarly = [string](Get-JsonField $kit 'StoppedEarly')
+    $how = if ($stoppedEarly -eq 'error') { 'The kit stopped on an error' } elseif ($stoppedEarly) { 'The kit was stopped (Ctrl+C)' } else { 'The kit window was closed' }
+    $closedBeforeScan = "$how before the scan was saved: check this laptop again"
+    $answered = $ownItems
+    # The kit saves an answer before it rewrites kit.json, so a window closed between the two leaves
+    # "scanned" beside a saved answer: that run was answering.
+    if ($stage -eq 'scanned' -and $answered.Count -gt 0) { $stage = 'answering' }
+    # Notes never contain "; ": the table splits a row's notes on it.
+    $answeringNote = "$how during the questions: only the answers given before that are counted"
+    $total = Get-JsonField $manual 'Total'
+    if ($total -and [int]$total -gt $answered.Count) {
+        $answeringNote = "$how during the questions: $([int]$total - $answered.Count) of $total physical checks were not reached"
+    } elseif ($total -and $answered.Count -ge [int]$total) {
+        # A run is "complete" once its last answer is saved, so this one stopped at that answer's
+        # note, or on an error while saving.
+        $last = $answered[$answered.Count - 1]
+        if ([string](Get-JsonField $last 'Answer') -eq 'problem' -and -not [string](Get-JsonField $last 'Note')) {
+            $answeringNote = "$how at the last question, before its note was given"
+        } else { $answeringNote = "$how after every question was answered" }
+    }
+    if ($stage -eq 'scanned') {
+        if (Get-JsonField $kit 'SkipQuestions') { $notes.Add("$how after the scan was saved") }
+        else { $notes.Add("$how after the scan was saved, before any question was answered") }
+    }
+    elseif ($stage -eq 'answering') { $notes.Add($answeringNote) }
+    elseif ($stage -eq 'started') {
+        if ($report -and $null -ne (Get-JsonField $kit 'ScanExitCode')) { $notes.Add("$how after the scan finished, before it was saved or any question was asked") }
+        elseif ($report) { $notes.Add("$how during the scan, and the app finished the scan by itself, but no question was asked") }
+        else { $recheck.Add($closedBeforeScan) }
+    } elseif ($fromFolder -and $realKit) {
+        # Reached its end (a kit older than KIT-007 wrote kit.json only at the end), but no finished
+        # zip was saved: the window was closed during the final save, or the save failed.
+        $notes.Add('The final zip was not written (the window was closed or the save failed), so this result was read from its work folder on the stick')
+    } elseif ($fromFolder) {
+        # No readable kit.json: a kit older than KIT-007 closed before its end, or a window closed
+        # while kit.json was being rewritten. The other files say how far it got.
+        if ($answered.Count -gt 0) { $notes.Add($answeringNote) }
+        elseif ($report) { $notes.Add('The kit window was closed before its last step: the scan finished, but no answers were saved') }
+        else { $recheck.Add($closedBeforeScan) }
+    }
+    # The battery question is a fire risk, so a laptop must not read READY on a swelling question
+    # nobody answered: that is a reason to look again, not a note. Decided by the answers themselves,
+    # whatever the stage, because a closed window, Ctrl+C and an error all stop a run at different
+    # stages. Not asked on purpose (-SkipQuestions) is a note; so is a kit older than KIT-007, which
+    # had no stages and asked every question it was going to ask.
+    $batteryAnswered = @($items | Where-Object { [string](Get-JsonField $_ 'Id') -eq 'battery_swelling' }).Count -gt 0
+    $skippedOnPurpose = [bool](Get-JsonField $kit 'SkipQuestions')
+    $olderKit = $realKit -and -not [string](Get-JsonField $kit 'Stage')
+    if ((Get-JsonField $m 'IsLaptop') -and -not $batteryAnswered -and -not $skippedOnPurpose -and -not $olderKit) {
+        $recheck.Add('The battery swelling question was not answered: look at the case before handing this laptop over')
+    }
+
     # --- Did the scan itself run, and with administrator rights?
     if (-not $report) {
-        $exitText = if ($kit) { $kit.ScanExitCode } else { 'unknown' }
-        $recheck.Add("The scan produced no report (exit code $exitText)")
+        $exitCode = Get-JsonField $kit 'ScanExitCode'
+        if ($null -eq $exitCode) { $recheck.Add('The scan did not finish, so there is no report') }
+        else { $recheck.Add("The scan produced no report (exit code $exitCode)") }
     } else {
         if (-not $report.RanElevated) {
             if ($kit -and $kit.AdminRequested) { $recheck.Add('The administrator prompt was declined, so drive health was NOT checked') }
@@ -331,9 +616,9 @@ function Get-AuditRow($Bundle, $Rules) {
     $driveGrade = Get-WorstGrade $ownVerdicts
     $driveIssues = @($ownVerdicts | Where-Object { $_.Grade -eq 'Bad' -or $_.Grade -eq 'Normal' } | ForEach-Object { Format-Subject $_ })
     $driveText = if (-not $driveRead) { 'Not read' } elseif ($driveGrade) { $driveGrade } else { 'Read, not graded' }
-    if ($driveGrade -eq 'Bad') { $fix.Add("Replace the drive: $($driveIssues -join ', ')") }
+    if ($driveGrade -eq 'Bad') { $driveFix.Add("Replace the drive: $($driveIssues -join ', ')") }
     elseif ($driveGrade -eq 'Normal') {
-        if ($Rules.driveWarningsNeedFix) { $fix.Add("Drive warnings: $($driveIssues -join ', ')") }
+        if ($Rules.driveWarningsNeedFix) { $driveFix.Add("Drive warnings: $($driveIssues -join ', ')") }
         else { $notes.Add("Drive shows early warnings, worth watching: $($driveIssues -join ', ')") }
     }
     # Disk errors in the event log count against the laptop only when they came from its own drives.
@@ -343,7 +628,7 @@ function Get-AuditRow($Bundle, $Rules) {
     foreach ($eventVerdict in $eventVerdicts) {
         $split = Get-DiskErrorsAgainstLaptop $eventVerdict $Bundle.Disks
         if (-not $split) {
-            if ($eventVerdict.Grade -eq 'Bad') { $fix.Add("Disk errors in the event log, check that drive: $(Format-Subject $eventVerdict)") }
+            if ($eventVerdict.Grade -eq 'Bad') { $driveFix.Add("Disk errors in the event log, check that drive: $(Format-Subject $eventVerdict)") }
             elseif ($eventVerdict.Grade -eq 'Normal') { $notes.Add("A few disk errors in the event log: $(Format-Subject $eventVerdict)") }
             continue
         }
@@ -352,7 +637,7 @@ function Get-AuditRow($Bundle, $Rules) {
         if ($split.Detached.Count -gt 0) { $outside += "on drives not attached during the audit ($($split.Detached -join ', '))" }
         if ($outside.Count -gt 0) { $notes.Add("Not counted against this laptop, disk errors in the event log $($outside -join ' and ')") }
         if ($split.Own -gt $script:DiskErrorsNormalMax) {
-            $fix.Add("Disk errors in the event log from this laptop's own drive: $($split.Own) in 90 days ($($split.OwnParts -join ', ')), check that drive")
+            $driveFix.Add("Disk errors in the event log from this laptop's own drive: $($split.Own) in 90 days ($($split.OwnParts -join ', ')), check that drive")
         } elseif ($split.Own -gt 0) {
             $notes.Add("A few disk errors in the event log from this laptop's own drive: $($split.Own) in 90 days ($($split.OwnParts -join ', '))")
         }
@@ -362,7 +647,7 @@ function Get-AuditRow($Bundle, $Rules) {
     $diskType = if ($m) { [string]$m.SystemDiskMediaType } else { '' }
     $diskText = if ($m -and $m.SystemDiskModel) { "$diskType $($m.SystemDiskSizeGB) GB ($($m.SystemDiskModel))" } else { $diskType }
     if ($Rules.requireSsd -and $diskType -eq 'HDD') { $fix.Add('Replace the hard disk with an SSD') }
-    elseif ($diskType -ne 'SSD' -and $diskType -ne 'HDD') { $notes.Add('The system drive did not say whether it is an SSD or a hard disk') }
+    elseif ($m -and $diskType -ne 'SSD' -and $diskType -ne 'HDD') { $notes.Add('The system drive did not say whether it is an SSD or a hard disk') }
 
     # --- Memory
     $ram = $null
@@ -399,9 +684,11 @@ function Get-AuditRow($Bundle, $Rules) {
         $batteryText = 'Not reliable'
         $recheck.Add('The battery gauge reported a figure it cannot hold, so battery wear was NOT established')
         $notes.Add("Battery gauge reported $(($battery | ForEach-Object { [double]$_.Metric.Value.Number } | Measure-Object -Maximum).Maximum)% of design; recalibrate (full discharge, then a full uninterrupted charge) and check again")
-    } elseif ($m -and $m.IsLaptop) {
+    } elseif (($m -and $m.IsLaptop) -or -not $report -or -not $m) {
+        # A laptop whose battery was not read, or a run that read nothing at all: "No battery" would
+        # claim a fact nobody established. Without a report, the no-report reason already says why.
         $batteryText = 'Not read'
-        $recheck.Add('Laptop, but battery wear was NOT read')
+        if ($report -and $m -and $m.IsLaptop) { $recheck.Add('Laptop, but battery wear was NOT read') }
     }
 
     # --- Free space on the system drive
@@ -430,6 +717,8 @@ function Get-AuditRow($Bundle, $Rules) {
             if ($processor) { $replace.Add("Windows 11 will not run on this processor ($codes)") }
             else { $fix.Add("Windows 11 blocked by $($codes): turn on TPM / Secure Boot in the firmware settings") }
         }
+    } elseif (-not $report) {
+        $win11 = 'Not read'
     } else {
         $win11 = 'Not assessed'
         if ($Rules.requireWindows11Ready) { $recheck.Add('Windows has not assessed this laptop for Windows 11') }
@@ -449,7 +738,16 @@ function Get-AuditRow($Bundle, $Rules) {
         $notes.Add("Blue screens in the last 90 days: $($v.Metric.Value.Number)")
     }
 
-    $verdict = if ($replace.Count) { 'REPLACE' } elseif ($fix.Count) { 'FIX FIRST' } elseif ($recheck.Count) { 'CHECK AGAIN' } else { 'READY' }
+    # What the scan found, kept apart for the fleet summary to carry between runs, then everything
+    # other runs of the laptop found that this one did not supersede.
+    $scanReplace = @($replace)
+    $scanFix = @($driveFix) + @($fix)
+    foreach ($r in @(Get-JsonField $Bundle 'CarriedReplace' | Where-Object { $_ })) { $replace.Add([string]$r) }
+    foreach ($r in @(Get-JsonField $Bundle 'CarriedFix' | Where-Object { $_ })) { $fix.Add([string]$r) }
+    foreach ($r in @(Get-JsonField $Bundle 'CarriedRecheck' | Where-Object { $_ })) { $recheck.Add([string]$r) }
+    $allFix = @($physical) + @($driveFix) + @($fix)
+
+    $verdict = if ($replace.Count) { 'REPLACE' } elseif ($allFix.Count) { 'FIX FIRST' } elseif ($recheck.Count) { 'CHECK AGAIN' } else { 'READY' }
     $model = if ($m) { [string]$m.FriendlyModel } else { '' }
     [pscustomobject][ordered]@{
         Verdict            = $verdict
@@ -466,12 +764,16 @@ function Get-AuditRow($Bundle, $Rules) {
         Windows            = if ($m) { [string]$m.Windows } else { '' }
         Windows11          = $win11
         OverallGrade       = if ($report) { [string]$report.OverallGrade } else { '' }
-        Reasons            = (@($replace) + @($fix) + @($recheck)) -join '; '
+        Reasons            = (@($replace) + $allFix + @($recheck)) -join '; '
         Notes              = @($notes) -join '; '
         PhysicalProblems   = $manualProblems -join '; '
         CheckedAt          = Get-AuditCheckedAt $kit
         KitVersion         = if ($kit) { [string]$kit.KitVersion } else { '' }
         AppVersion         = if ($kit) { [string]$kit.AppVersion } elseif ($report) { [string]$report.AppVersion } else { '' }
         ResultFile         = if ($kit) { [string]$kit.ResultName } else { '' }
+        ScanReplace        = $scanReplace
+        ScanFix            = $scanFix
+        DriveFix           = @($driveFix)
+        DriveRead          = $driveRead
     }
 }

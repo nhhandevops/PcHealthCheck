@@ -13,7 +13,7 @@ namespace PcHealth.App;
 
 /// <summary>
 /// Developer/automation mode:
-///   PcHealthCheck --headless-scan [--out DIR] [--include-admin] [--no-history] [--skip-benchmarks]
+///   PcHealthCheck --headless-scan [--out DIR] [--include-admin] [--no-history] [--skip-benchmarks] [--temp-dir DIR]
 /// Runs the modules without the UI and writes HTML+JSON reports to DIR.
 /// Without --include-admin only the unelevated modules run (no UAC prompt); with it,
 /// admin modules run in-process when already elevated, otherwise through the same
@@ -91,13 +91,35 @@ internal static class HeadlessScan
             ? allModules.Where(m => m.Manifest.NeedsAdmin).ToList()
             : [];
 
+        // --temp-dir: where checks may write their temporary files (today only the battery report).
+        // The laptop audit kit points it at its work folder on the USB stick, so a kit run writes
+        // nothing to the laptop's disk. That matters because this is a windowed app: closing the
+        // kit's window does not stop it, so a cleanup the kit runs after the scan may never happen
+        // (KIT-007). Without the switch, the app's own folder under %LOCALAPPDATA%, as before.
+        // A switch given without a usable folder stops the scan instead of falling back, because the
+        // fallback is exactly the folder on the laptop the switch exists to keep clean. Fully qualified,
+        // not merely rooted: "C:temp" and "\temp" are rooted, and still depend on the current folder.
+        var appTempDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PcHealthCheck", "temp");
+        var tempIndex = Array.IndexOf(args, "--temp-dir");
+        if (tempIndex >= 0)
+        {
+            var value = tempIndex + 1 < args.Length ? args[tempIndex + 1] : null;
+            if (string.IsNullOrWhiteSpace(value) || value.StartsWith("--", StringComparison.Ordinal) || !Path.IsPathFullyQualified(value))
+            {
+                await Console.Error.WriteLineAsync("--temp-dir needs a full folder path after it, for example --temp-dir \"E:\\kit\\temp\". Nothing was scanned.")
+                    .ConfigureAwait(false);
+                return ExitScanDidNotRun;
+            }
+            appTempDir = value;
+            Console.WriteLine($"Temporary files go to {appTempDir}");
+        }
+
         var receipt = new ReceiptLog();
         var context = new ModuleContext
         {
             Processes = new ProcessRunner(receipt),
             Receipt = receipt,
-            AppTempDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PcHealthCheck", "temp"),
+            AppTempDir = appTempDir,
             IsElevated = alreadyElevated,
         };
 

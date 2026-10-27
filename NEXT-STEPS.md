@@ -21,7 +21,7 @@ app is the tool, and the results are its first field test.
   - `--skip-benchmarks` in the headless scan;
   - the Windows 11 readiness check (`os.win11_ready`, from Windows' own appraiser verdict).
 - **The kit itself:**
-  - The owner double-clicks `1 - Check this laptop.cmd` on each laptop. It writes one zip to the USB stick: `Results\<serial>_<computer>_<date>_<time>.zip`.
+  - The owner double-clicks `1 - Check this laptop.cmd` on each laptop. It writes one zip to the USB stick: `Results\<serial>_<computer>_<date>_<time>.zip`. If its window is closed early, the run's work folder `Results\.work-<that name>\` stays beside it. The summary reads whichever of the two got further, so copy both when results come back (KIT-007).
   - `2 - Summarize all laptops.cmd` builds `fleet-summary.html`/`.csv`, one verdict per laptop: READY, FIX FIRST, REPLACE or CHECK AGAIN.
   - The rules live in `audit-rules.json`. They are proposals for the manager to agree.
 - **Tested here on the T470p:**
@@ -37,8 +37,17 @@ app is the tool, and the results are its first field test.
   closing step never ran: no zip and no `kit.json`. The scan survives only as
   `Results\.work-<serial>_<computer>_2026-10-26_1111\` on the stick. That run also produced the
   owner's photo of KIT-006.
-- **Still not run:** a real person answering all the questions. Also, closing the window before the
-  end loses the result: the zip is only written in the last step.
+- **Still not run:** a real person answering all the questions.
+- **Closing the window early no longer loses a laptop, its answers, or anything on it (KIT-007,
+  2026-10-26).** Every stage and every answer is saved to the stick as it happens. Zips are swapped
+  in only once complete, and the app keeps its temporary files on the stick. The fleet summary uses
+  whichever of a run's zip and work folder got further, and builds each laptop's row from all its
+  runs, so no check's finding is hidden by another. Which check came later is taken from the stick
+  (each run lists fingerprints of the results already there), not from the laptops' clocks, so
+  **the owner must keep `Results\` on the stick until the audit is over**. Ctrl+C and errors are
+  recorded as such, not as a finished run. Five review rounds and a confirmation round killed real
+  and stub runs at every moment; each of the first five found high-severity holes in the version
+  before it.
 - **Two builds are now in play, and every result zip's `kit.json` names which one made it.**
   - **The first three laptops** were checked on 2026-10-23 with the build from `af47a36`
     (`1.0.0-rc.1+af47a36…`, zip SHA-256
@@ -63,7 +72,8 @@ app is the tool, and the results are its first field test.
     on a dirty tree names a commit that does not contain the code inside it.
 
 **How they come back:** on the owner's USB stick, reviewed on another computer. After `git pull`,
-the owner copies the zips into `audit-results/`. Git ignores everything there except its README,
+the owner copies everything in the stick's `Results` (the zips, and any `.work-*` folder a closed
+window left) into `audit-results/`. Git ignores everything there except its README,
 because the repository is public. `audit-results/README.md` has the exact commands.
 
 **When result zips come back, read in this order:**

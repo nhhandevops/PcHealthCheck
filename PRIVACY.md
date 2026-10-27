@@ -16,9 +16,11 @@
 - Trend history is stored locally in `%LOCALAPPDATA%\PcHealthCheck\history.db`. It holds only measurement names, the drive or volume they belong to, and numbers — enough to notice that a failure counter is growing, and nothing else. It never leaves the machine. Switch it off with the checkbox on the main screen (or `--no-history`), erase it with the **Delete history** button, or simply delete the file. Every scan tells you in the receipt exactly how many measurements it recorded.
 - **The laptop audit kit** (`1 - Check this laptop.cmd`, for checking company laptops before handover) reads more than the app itself:
   - the laptop's **serial number**, to name its result file, plus its BIOS version, memory slots and disk types;
+  - the laptop's **hardware UUID**, a fixed ID its firmware reports, so that two laptops with no serial are still told apart;
+  - a short fingerprint of the name of each result already on the stick, so the summary can tell which check came last without trusting the laptops' clocks (a fingerprint, so a zip holds no other laptop's serial or name);
   - your answers to its questions about the laptop's physical condition.
 
-  Everything stays in one zip on your USB stick, and the kit lists the zip's contents before you send it anywhere. The app itself still never reads a serial number. The kit removes the app's own folder from the laptop again if the run created it.
+  Everything stays on your USB stick, in one zip per laptop (plus a folder beside it if the kit's window was closed early), and the kit lists the zip's contents before you send it anywhere. The app itself still never reads a serial number. During a kit run the app keeps its temporary files (the battery report) on the stick, not on the laptop, so the app writes none of its files to the laptop's disk even if the kit's window is closed half-way. As a safety net, the kit also removes the app's own folder from the laptop if the run created one. Only if the stick cannot be written does the kit save the result to the laptop's Desktop instead, and it says so on screen.
 - **Windows 11 readiness** is read from the verdict Windows keeps in its registry (the same compatibility check Windows Update uses). Nothing is sent anywhere to get it.
 - **Linux checks (in development, not in any release yet).**
   - They read only files under `/proc`, `/sys` and `/etc/os-release`. They run no program, write no file and need no root.

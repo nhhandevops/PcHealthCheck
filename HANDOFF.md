@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-25** (502 tests passing: 436 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 68 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed; the rest of the fleet is waiting on the owner. Start at the top of NEXT-STEPS, then read "The first fleet audit" below — it is the most useful thing in this file right now.
+Snapshot for continuing work on another machine. Last updated: **2026-10-25** (502 tests passing: 436 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 208 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed; the rest of the fleet is waiting on the owner. Start at the top of NEXT-STEPS, then read "The first fleet audit" below — it is the most useful thing in this file right now.
 
 ## What this is
 
@@ -19,10 +19,10 @@ winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only p
 git clone https://github.com/nhhandevops/PcHealthCheck   # public, no login needed
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
 dotnet test  PcHealthCheck.slnx               # 504 tests (2 Linux-only, skipped on Windows); WorkerProtocolTests launch the real exe
-powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 68 more: the audit kit is PowerShell, dotnet test cannot see it
+powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 208 more: the audit kit is PowerShell, dotnet test cannot see it
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
-PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] [--skip-benchmarks] --out <dir>   # automation mode
+PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] [--skip-benchmarks] [--temp-dir <dir>] --out <dir>   # automation mode
 ```
 
 The release zip also carries the **laptop audit kit** (`audit-kit/` in the repo): `1 - Check this laptop.cmd` per laptop, then `2 - Summarize all laptops.cmd` for one table. See `AUDIT-GUIDE.md`.
@@ -88,7 +88,7 @@ dangerous failure: a verdict gets sanity-checked by a human, a reason gets acted
 
 Four things worth carrying forward, more than the fixes themselves:
 
-1. **The audit kit had no tests at all.** It has 68 now (`tests/audit-kit/kit-tests.ps1`), run by
+1. **The audit kit had no tests at all.** It has 208 now (`tests/audit-kit/kit-tests.ps1`), run by
    `build-release.ps1` and by CI's `Audit kit tests` step. The kit decides what a manager is told
    to replace; it had less coverage than any other part of this project.
 2. **A filter that hides readings is one edit away from hiding a failure.** The USB fix had to add
@@ -384,6 +384,10 @@ holds the rows a desktop cannot.
 ## Gotchas (each cost real time)
 
 - `dotnet test` won't rebuild `PcHealth.App` unless the test project references it — already wired with `ReferenceOutputAssembly=false`; don't remove it.
+- **The app outlives the audit kit's window.** It is a WinExe, not attached to the kit's console, so closing that window kills PowerShell but not the scan. The app finishes and writes its report anyway. That is why the kit passes `--temp-dir` on the stick (KIT-007).
+- **A closed window and Ctrl+C stop the kit differently.** Closing the window runs no `finally`; Ctrl+C (then Enter, at a `Read-Host`) runs the `finally` but not the `catch`. Test both: the `finally` used to record every Ctrl+C as a finished run (KIT-007).
+- **`@($list)` on a `List[object]` made with `New-Object` throws "Argument types do not match" in Windows PowerShell 5.1**, as a local, an argument or a property. Loop over it with `foreach ($x in $list)`, or pipe it inside the `@()` (TOOL-004).
+- **Feed scripted answers to the kit through a `cmd` pipe, never a .NET `StreamWriter`.** The writer puts a byte-order mark into the pipe before the first line, and PowerShell reads it as `∩╗┐` (TOOL-003).
 - The GUI is WinExe: to capture headless output use `Start-Process -Wait -RedirectStandardOutput`. **From the KIT-006 build on, that output is UTF-8, so read it as UTF-8.** Zips made by the `af47a36` and `462f176` builds hold it in ANSI (code page 1252): decode those as 1252, or every em dash reads as an invalid character. A WinExe has no console of its own, so before the fix .NET wrote the ANSI code page, and a reader using the console's code page showed every em dash as `ù`.
 - `SLIsGenuineLocal` lives in **slwga.dll**, not slc.dll.
 - Unelevated `MSFT_MpPreference` returns "N/A: Must be an administrator…" placeholder strings instead of failing.
@@ -404,7 +408,7 @@ holds the rows a desktop cannot.
 ## Shipping
 
 - `build-release.ps1` — tests, privacy gate, self-contained publish, zip, SHA-256. One command.
-- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's PowerShell checks, 68 since KIT-006** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
+- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's PowerShell checks, 208 since KIT-007** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
 - `USER-GUIDE.md` — for the person running it, not for whoever builds it. Ships inside the zip.
 - `ACCEPTANCE.md` — 19 blocking rows out of ~60. Run before giving the app to anyone.
 - `RELEASING.md` — the steps a script cannot do: SignPath application (needs a **public** repo, takes weeks), GitHub release, SmartScreen submission, winget manifest.
@@ -442,12 +446,13 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 T470p found a sixth fault (KIT-005), and the owner's photo of the kit found a seventh, the `ù` in every
 progress line (KIT-006). The owner is checking the rest of the fleet. The stick (`H:` on the dev
 desktop, `E:` on the T470p) carries `1.0.0-rc.1+d14c59b`, with all seven fixes. The kit's admin path
-has now run for real: 22 of 22 checks, elevated. One thing is open: closing the kit's window before
-its last step loses that laptop's zip (NEXT-STEPS, top). The pilot's fleet table is in `audit-results/` on the T470p only; git ignores it,
+has now run for real: 22 of 22 checks, elevated. Closing the kit's window before its last step no
+longer loses that laptop's scan (KIT-007). The pilot's fleet table is in `audit-results/` on the T470p only; git ignores it,
 so another machine has to rebuild it from the zips.
 
 When the next zips come back, the loop is the same one that worked:
-1. Copy them from the stick's `PcHealthCheck\Results\` into **`audit-results/`**. Git ignores that
+1. Copy everything in the stick's `PcHealthCheck\Results\`, the `.work-*` folders included, into
+   **`audit-results/`**. Git ignores that
    folder, because the zips hold serial numbers, computer names and Windows user names, and this
    repository is public. Check `git status` and see nothing.
 2. Follow `audit-results/README.md`, then the review order at the top of NEXT-STEPS.
@@ -456,9 +461,10 @@ When the next zips come back, the loop is the same one that worked:
 4. Fix with tests and a fault-log entry, rebuild the kit **after committing**, and re-copy it to
    the stick.
 
-**Never commit a zip, a serial number, a computer name or a user name.** This bit the first round:
-a review agent copied a real serial into a test fixture, and it was caught only by grepping the
-staged diff for the known serials before committing. Do that grep every time.
+**Never commit a zip, a serial number, a hardware UUID, a computer name or a user name.** This bit
+the first round: a review agent copied a real serial into a test fixture, and it was caught only by
+grepping the staged diff for the known serials before committing. KIT-007 nearly published the
+T470p's hardware UUID the same way. Do that grep every time, with this machine's UUID in it.
 
 **Engineering, when the fleet is not the job:** M5 remainder — Linux phase 2 (`PcHealth.Cli`, needs
 the Ubuntu 26.04 VM; neither WSL nor Docker is on the dev desktop), then Vietnamese localization.

@@ -38,16 +38,28 @@ physical checks.
 2. If Windows says **"Windows protected your PC"**, click **More info**, then **Run anyway**. The
    app is not code-signed yet, and that is the only reason for this warning.
 3. When Windows asks for **administrator permission**, click **Yes** or type the admin password.
-4. Wait about 3 minutes while the check runs. The window shows its progress.
+4. Wait about 3 minutes while the check runs. The window shows its progress. When it says
+   **"Scan saved"**, the scan is already on the stick.
 5. Answer the questions about the laptop's physical condition. Type `y` if something is fine,
    `n` if there is a problem (then describe it in one line), or `s` to skip a check you cannot do
    right now. To answer them, have a mouse ready for the USB ports and a Wi-Fi network you can join.
-6. Read the **Verdict**, then close the window and unplug the stick.
+   Each answer is saved to the stick as soon as you give it.
+6. Wait until the window says **"Saved"** and shows the **Verdict**, then close it and unplug the
+   stick. If the window is closed earlier, everything saved up to that moment is kept. The table
+   says what was missing, and asks for the laptop to be checked again if the scan had not finished.
 
 The result is saved on the stick as `Results\<serial>_<computer>_<date>_<time>.zip`, one zip per
 laptop per run. The serial is the laptop's own, read from its firmware, so every file name is
 unique and traceable. If a laptop reports no serial, you are asked to type the one on its label.
-If you skip that, the file starts with `NO-SERIAL`.
+If you skip that, the file starts with `NO-SERIAL`. A window closed before "Saved" can also leave a
+folder beside the zip, `Results\.work-<the same name>\`. Leave it there: it holds what that run
+saved, and the summary reads it.
+
+**Use one stick for the whole audit, and keep everything in `Results\` on it until the audit is
+done**, even after copying it somewhere. Each check notes which results were already on the stick,
+and that, not the laptop's clock, is how the table knows which of a laptop's checks came last. A
+laptop checked on two sticks, or after its earlier result was taken off the stick, keeps every
+finding of both checks, because nothing then says which came last.
 
 **Nothing is left on the laptop.** All work happens on the stick, nothing is installed, no
 benchmark runs, and no history is kept.
@@ -57,22 +69,27 @@ benchmark runs, and no history is kept.
 
 ## 3. Send the first results back
 
-After the first 2-3 laptops, send the zips from `Results\`. They are used to find what the app got
-wrong before you check the rest. Each zip contains:
+After the first 2-3 laptops, send the whole `Results\` folder: the zips, and any `.work-...` folder
+a closed window left. They are used to find what the app got wrong before you check the rest. Each
+zip, and each such folder, contains:
 
 - The app's reports. These include the computer name, drive models and free space, the names and
   paths of startup programs (paths include the Windows user name), browser extension names, and
   the programs using the most memory.
-- The laptop's serial number, model, BIOS version, memory, disks and Windows version.
+- The laptop's serial number, hardware UUID (a fixed ID its firmware reports, used to tell apart
+  laptops that have no serial), model, BIOS version, memory, disks and Windows version.
 - Your answers to the questions, and the app's console output.
+- Short fingerprints of the names of the results already on the stick, not the names themselves,
+  so the table can put the checks in order.
 
 It contains no passwords, no product keys and no file contents. Check that your company allows
 sharing this before you send it outside the company.
 
 **Reviewing them on another computer:**
 1. Pull the PcHealthCheck repository there.
-2. Copy the zips from the stick's `PcHealthCheck\Results\` into the repository's `audit-results\`
-   folder. Git never uploads anything from that folder except its README.
+2. Copy everything in the stick's `PcHealthCheck\Results\`, the `.work-...` folders included, into
+   the repository's `audit-results\` folder. Git never uploads anything from that folder except
+   its README.
 3. Ask Claude to "review the audit results in audit-results/".
 
 ## 4. Make the table for your manager
@@ -85,7 +102,13 @@ creates three things in `Results\`:
 - `fleet-summary.csv`: the same table, for Excel.
 - `fleet-reports\`: every laptop's full report.
 
-A laptop checked twice appears once, from its latest run.
+A laptop checked more than once appears once, built from all its checks: its latest finished
+check, plus anything another check found that no later check re-examined. A problem one check
+found ("the battery bulges", a failing drive) stays on the row, with the check it came from, until
+a later check that got to its end finds it fixed. So a closed window or a skipped question never
+hides a finding, and a laptop repaired and checked again to the end is shown as it is now. If a
+laptop's system board was replaced, it can appear as two rows with the same serial, each saying so:
+the row checked later is the laptop as it is now.
 
 ### The verdicts
 
@@ -134,6 +157,7 @@ Some need longer tests than a 3-minute check:
 | What you see | What to do |
 |---|---|
 | "Windows protected your PC" | Click **More info**, then **Run anyway**. Unblocking the zip in step 1 avoids this. |
+| "This laptop's clock says ..., before this kit was made", or "An earlier check of this laptop on this stick is dated ..." | The laptop's clock is wrong (its clock battery is probably flat). Set the date and time (**Settings > Time & language**) if you can. The result is kept either way, and with `Results\` kept on the stick the table still knows which check came last. |
 | The antivirus quarantines `PcHealthCheck.exe` | The app is not signed yet. Ask whoever runs the antivirus to allow it, and send the details back. |
 | Verdict CHECK AGAIN, "administrator prompt was declined" | Run it again and click **Yes**. Drive health needs administrator rights. |
 | "Cannot write to ...\Results" | The stick is full or write-protected. The result goes to that laptop's Desktop instead: copy it off, then delete it. |
