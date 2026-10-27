@@ -34,9 +34,10 @@ app is the tool, and the results are its first field test.
 - **The kit's administrator path has run for real** (2026-10-26, the T470p, build `462f176`). The owner
   started the kit at 11:11. The elevated scan finished in 68 s with all 22 checks Completed and
   `RanElevated` true. The window was then closed during the first question, at 12:16, so the kit's
-  closing step never ran: no zip and no `kit.json`. The scan survives only as
+  closing step never ran: no zip and no `kit.json`. The scan survived only as
   `Results\.work-<serial>_<computer>_2026-10-26_1111\` on the stick. That run also produced the
-  owner's photo of KIT-006.
+  owner's photo of KIT-006. The T470p is not a fleet laptop, so on 2026-10-27 the folder was copied
+  to `audit-results/not-fleet/` on the T470p (verified file by file) and removed from the stick.
 - **Still not run:** a real person answering all the questions.
 - **Closing the window early no longer loses a laptop, its answers, or anything on it (KIT-007,
   2026-10-26).** Every stage and every answer is saved to the stick as it happens. Zips are swapped
@@ -57,13 +58,16 @@ app is the tool, and the results are its first field test.
     one of them, `ScanSeconds: -316` (KIT-004). That is expected. **Do not re-run those three** —
     their verdicts were right, only the reasons were wrong, and `summarize-fleet.ps1` now reads
     the old zips correctly.
-  - **Every laptop from here on** uses the build from `d14c59b` (`1.0.0-rc.1+d14c59b…`, zip SHA-256
-    `3807B43A13FF0AFFCC269F7D30706F1090EA5A1732993EA5849BEA0174EC9324`), copied onto the stick on
-    2026-10-26 at about 12:15, from the T470p, where the stick was `E:`. Every file was verified
-    against the build, and the `Results` folder (including the unfinished run above) was
-    fingerprinted before and after: unchanged. It carries the five fixes of 2026-10-25, KIT-005 and
-    KIT-006, so its console text is UTF-8.
-  - **Earlier stick builds and what they produced.** `462f176` (zip
+  - **Every laptop from here on** uses the build from `c067e3a` (`1.0.0-rc.1+c067e3a…`, kit
+    `2026-10-26.1`, zip SHA-256 `601A0CB528E6440688F1A97CFF69F23A671129283F81C349A3832BA673679DEE`),
+    copied onto the stick on 2026-10-27 at about 09:55, from the T470p, where the stick was `E:`.
+    Every file was verified against the build, and the `Results` folder was fingerprinted before and
+    after the copy: unchanged. It carries KIT-007 on top of everything before it. Its zips record
+    `Stage`, `MachineUuid`, `SkipQuestions` and `EarlierRuns`, which the zips of every earlier build
+    lack.
+  - **Earlier stick builds and what they produced.** `d14c59b` (zip
+    `3807B43A13FF0AFFCC269F7D30706F1090EA5A1732993EA5849BEA0174EC9324`, on the stick 2026-10-26
+    12:15 to 2026-10-27 09:55) checked no laptop. `462f176` (zip
     `A9E8396710BEF6EDADCFEE5C389624B2CD21C6C3624CA319A28869AE2EFB46E7`) made only the unfinished run
     above, and no zip. `7b7d537` (zip `BF4425554EC31735B5FDD9A29BC364EDAFCAB5593CC3DD4DE2E807CDC7D0B9D1`)
     checked no laptop at all.

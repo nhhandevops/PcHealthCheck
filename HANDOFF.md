@@ -442,12 +442,14 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 
 ## Suggested next session
 
-**First (state saved 2026-10-26):** the pilot is done and was reviewed twice. The re-review on the
+**First (state saved 2026-10-27):** the pilot is done and was reviewed twice. The re-review on the
 T470p found a sixth fault (KIT-005), and the owner's photo of the kit found a seventh, the `ù` in every
-progress line (KIT-006). The owner is checking the rest of the fleet. The stick (`H:` on the dev
-desktop, `E:` on the T470p) carries `1.0.0-rc.1+d14c59b`, with all seven fixes. The kit's admin path
-has now run for real: 22 of 22 checks, elevated. Closing the kit's window before its last step no
-longer loses that laptop's scan (KIT-007). The pilot's fleet table is in `audit-results/` on the T470p only; git ignores it,
+progress line (KIT-006). The kit's admin path has run for real: 22 of 22 checks, elevated. Closing
+the kit's window, Ctrl+C or an error no longer loses or misreports a laptop (KIT-007, five review
+rounds and a confirmation round). The stick (`H:` on the dev desktop, `E:` on the T470p) carries
+`1.0.0-rc.1+c067e3a`, kit `2026-10-26.1`. The owner is checking the rest of the fleet with it, and
+must keep `Results\` on the stick until the audit is over: the summary orders each laptop's checks
+by what was on the stick, not by the laptops' clocks. The pilot's fleet table is in `audit-results/` on the T470p only; git ignores it,
 so another machine has to rebuild it from the zips.
 
 When the next zips come back, the loop is the same one that worked:
