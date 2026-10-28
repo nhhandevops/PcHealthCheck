@@ -58,13 +58,23 @@ app is the tool, and the results are its first field test.
     one of them, `ScanSeconds: -316` (KIT-004). That is expected. **Do not re-run those three** —
     their verdicts were right, only the reasons were wrong, and `summarize-fleet.ps1` now reads
     the old zips correctly.
-  - **Every laptop from here on** uses the build from `c067e3a` (`1.0.0-rc.1+c067e3a…`, kit
-    `2026-10-26.1`, zip SHA-256 `601A0CB528E6440688F1A97CFF69F23A671129283F81C349A3832BA673679DEE`),
-    copied onto the stick on 2026-10-27 at about 09:55, from the T470p, where the stick was `E:`.
-    Every file was verified against the build, and the `Results` folder was fingerprinted before and
-    after the copy: unchanged. It carries KIT-007 on top of everything before it. Its zips record
-    `Stage`, `MachineUuid`, `SkipQuestions` and `EarlierRuns`, which the zips of every earlier build
-    lack.
+  - **Every laptop from here on** uses the Step A build from `2071660`:
+    - version `1.0.0-rc.1+2071660…`, kit `2026-10-28.1`;
+    - zip SHA-256 `5B78A1A9AA86C74276A4EEB3161E26DE4F3EFEFF2C929845C7CA2983BB780500`;
+    - exe SHA-256 `93C287E2422516297BBC47AD71AA5706DE778B5DEED3F405679C272937826C12`.
+
+    It was copied onto the stick on 2026-10-28 at about 13:11, from the T470p, where the stick was
+    `H:`. All 20 files were verified against the build. The `Results` folder (the same 4 zips) was
+    fingerprinted before and after the copy: unchanged. The rules file it replaced was the unedited
+    default. **From this build on, the fleet table differs from the pilot's:**
+    - a processor Windows 11 refuses is a note, not REPLACE (decision 9);
+    - Windows 10 without ESU and Windows 10 Home are noted;
+    - disk errors on USB drives are not counted against the laptop.
+  - **The previous stick build:** `c067e3a` (kit `2026-10-26.1`, zip
+    `601A0CB528E6440688F1A97CFF69F23A671129283F81C349A3832BA673679DEE`). It was on the stick from
+    2026-10-27 09:55 to 2026-10-28 13:11 and checked no new laptop. It carries KIT-007. Its zips
+    record `Stage`, `MachineUuid`, `SkipQuestions` and `EarlierRuns`, which the zips of every
+    earlier build lack.
   - **Earlier stick builds and what they produced.** `d14c59b` (zip
     `3807B43A13FF0AFFCC269F7D30706F1090EA5A1732993EA5849BEA0174EC9324`, on the stick 2026-10-26
     12:15 to 2026-10-27 09:55) checked no laptop. `462f176` (zip

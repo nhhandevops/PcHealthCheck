@@ -486,8 +486,14 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 - **Next.** Step B (the advice engine) and Step D (intake and handover check). The golden-image
   tasks are in [docs/GOLDEN-IMAGE-PLAN.md](docs/GOLDEN-IMAGE-PLAN.md), and the owner's decisions
   A-J gate the build.
-- **The stick.** It is rebuilt from the Step A commit. The fleet rows of the three pilot laptops
-  then move from REPLACE to FIX FIRST, for their real hardware faults.
+- **The stick.** Since 2026-10-28 13:11 it carries the Step A build:
+  - `1.0.0-rc.1+2071660`, kit `2026-10-28.1`;
+  - `H:` on the T470p today;
+  - all files verified, `Results` unchanged.
+
+  From this build on, the fleet rows of the three pilot laptops move from REPLACE to FIX FIRST, for
+  their real hardware faults. CI was green on `2071660`. The daily smoke passed on the same commit
+  (781/783 + 285 kit, scan 17 done / 1 skipped).
 
 **Before that (state saved 2026-10-27, evening): the remedies plan and the owner's decisions.**
 
