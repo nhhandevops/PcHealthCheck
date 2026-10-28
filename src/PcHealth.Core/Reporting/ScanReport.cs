@@ -1,3 +1,4 @@
+using PcHealth.Core.Advice;
 using PcHealth.Core.History;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
@@ -16,7 +17,8 @@ public sealed record ModuleRunSummary(
 
 public sealed record ScanReport
 {
-    public string SchemaVersion { get; init; } = "1.0";
+    /// <summary>"1.1" added <see cref="Advice"/>. Nothing reads the version; it says which fields a reader can expect.</summary>
+    public string SchemaVersion { get; init; } = "1.1";
     public required DateTimeOffset GeneratedAt { get; init; }
     public required string MachineName { get; init; }
     public required string OsDescription { get; init; }
@@ -32,6 +34,13 @@ public sealed record ScanReport
 
     /// <summary>How much history the trends are based on, so the report can be honest about it.</summary>
     public HistoryCoverage? History { get; init; }
+
+    /// <summary>
+    /// The "What you can do" section, worked out from this report's own readings after they were
+    /// graded, and never changing a grade. Null when advice was not worked out: an older report, a
+    /// report built by hand, or an OS with no advice (Linux).
+    /// </summary>
+    public AdviceSection? Advice { get; init; }
 
     public required IReadOnlyDictionary<HealthCategory, Grade> CategoryGrades { get; init; }
     public required Grade OverallGrade { get; init; }

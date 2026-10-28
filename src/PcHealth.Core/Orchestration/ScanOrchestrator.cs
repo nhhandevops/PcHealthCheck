@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using PcHealth.Core.Advice;
 using PcHealth.Core.History;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
@@ -16,9 +17,13 @@ public sealed record ScanProgress(string ModuleId, string ModuleName, int Index,
 /// Runs consented modules and assembles the graded report. Running and reporting are
 /// separate steps so results gathered in another process (the elevated worker) can be
 /// merged in before grading — one verdict engine decides everything, in one place.
+/// <paramref name="advice"/> works out the "What you can do" section from the graded report; by
+/// default it is the built-in advice for the OS this process runs on.
 /// </summary>
-public sealed class ScanOrchestrator(VerdictEngine engine)
+public sealed class ScanOrchestrator(VerdictEngine engine, AdviceEngine? advice = null)
 {
+    private readonly AdviceEngine _advice = advice ?? AdviceEngine.ForOs(RulesLoader.CurrentOs);
+
     /// <summary>
     /// How many modules may run side by side. Several of them start a child process
     /// (PowerShell, powercfg, fsutil), so this also bounds how many of those exist at once on
@@ -166,7 +171,11 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
         }
     }
 
-    /// <summary>Grades every gathered metric and assembles the final report.</summary>
+    /// <summary>
+    /// Grades every gathered metric and assembles the final report. The advice is worked out here, after
+    /// the grades and from them, so the window, the headless scan and every export show one section:
+    /// the window and the headless scan once disagreed because each did a step of its own.
+    /// </summary>
     public ScanReport BuildReport(
         IEnumerable<ModuleResult> results,
         IEnumerable<ReceiptEntry> receipt,
@@ -202,6 +211,7 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
             categoryGrades = merged;
         }
 
+        var trendList = trends ?? [];
         return new ScanReport
         {
             GeneratedAt = DateTimeOffset.Now,
@@ -214,8 +224,9 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
             Modules = summaries,
             Verdicts = verdicts,
             Receipt = [.. receipt],
-            Trends = trends ?? [],
+            Trends = trendList,
             History = history,
+            Advice = _advice.Derive(verdicts, trendList, summaries, AdviceContext.ForThisPc(ranElevated)),
             CategoryGrades = categoryGrades,
             OverallGrade = ScanReport.Worst(categoryGrades.Values),
         };

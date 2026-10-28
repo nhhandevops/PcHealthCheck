@@ -1,0 +1,203 @@
+{
+  "advice.section.title": "What you can do",
+  "advice.section.intro": "Built only from the readings in this report. Hardware and your data come first. Each section below still has its own tips.",
+  "advice.section.empty": "Nothing to suggest from the checks that ran.",
+  "advice.section.incomplete": {
+    "one": "{count} check did not finish (listed above), so this is not an all-clear.",
+    "other": "{count} checks did not finish (listed above), so this is not an all-clear."
+  },
+  "advice.section.other-findings": {
+    "one": "{count} other reading is graded Normal or Action needed; its tips are in its section below.",
+    "other": "{count} other readings are graded Normal or Action needed; their tips are in their sections below."
+  },
+  "advice.section.more": "{count} more",
+  "advice.section.hidden": "{count} hidden",
+  "advice.section.hidden-act-now": {
+    "one": "{count} hidden, marked Act now",
+    "other": "{count} hidden, at least one of them marked Act now"
+  },
+  "advice.section.show-hidden": "Show again",
+  "advice.section.dont-show": "Don't show again",
+  "advice.section.for-it": "For IT:",
+  "advice.section.item-error": "Advice about {area} could not be worked out ({error}). The readings below are complete.",
+
+  "advice.urgency.act-now": "Act now",
+  "advice.urgency.check-again": "Check again",
+  "advice.urgency.plan": "Plan",
+  "advice.urgency.advice": "Advice",
+
+  "advice.area.drive-health": "drive health",
+  "advice.area.security": "security settings",
+  "advice.area.windows": "Windows 11 readiness",
+  "advice.area.space": "free space",
+  "advice.area.heat": "heat and processor speed",
+  "advice.area.startup": "restarting Windows",
+
+  "advice.not-measured.drive-health": "Drive health was not fully checked: {modules} did not finish, so a failing drive may not show here.",
+  "advice.not-measured.space": "Free space on {drive} was not measured: {modules} did not finish.",
+  "advice.not-measured.space.unmeasured": "Free space on the drive Windows runs from was not measured: {modules} did not finish.",
+  "advice.not-measured.heat": "The processor's temperature was not measured: {modules} did not finish, so a processor that runs hot may not show here.",
+  "advice.not-measured.heat-clock": "Whether the processor slows itself down when hot was not measured: {modules} did not finish.",
+
+  "advice.note.drive-health-not-included": "Drive health was not part of this scan: its checks need administrator rights.",
+  "advice.note.drive-health-not-selected": "Drive health was not part of this scan: its checks were not selected.",
+  "advice.note.drive-health-not-reported": "A drive in this PC did not report whether it has damaged areas or errors, so a failing drive may not show here.",
+  "advice.note.clock-not-included": "Whether the processor slows itself down when hot was not measured: the processor speed test was not part of this scan.",
+
+  "advice.h1.title.act-now.system": "Back up now: the drive Windows runs from is failing",
+  "advice.h1.title.act-now.internal": "Back up now: a drive in this PC is failing",
+  "advice.h1.title.act-now.unknown": "Back up now: a drive is failing",
+  "advice.h1.title.check-again": "Back up this drive, then scan again in 1-2 weeks",
+  "advice.h1.title.plan": "Plan to replace this drive: it is worn",
+  "advice.h1.role.system": "This is the drive Windows runs from ({drive}).",
+  "advice.h1.role.system.unmeasured": "This is the drive Windows runs from.",
+  "advice.h1.role.internal": "It holds {letters}.",
+  "advice.h1.role.unknown": "This scan could not tell whether this drive is inside the PC or plugged in over USB. If it is a USB drive, this advice is about that drive, not the PC.",
+  "advice.h1.evidence.smart.predict-failure": "Its own firmware predicts that it will fail.",
+  "advice.h1.evidence.smart.attributes-at-threshold": {
+    "one": "{count} of its health readings has reached the failure limit its maker set.",
+    "other": "{count} of its health readings have reached the failure limit its maker set."
+  },
+  "advice.h1.evidence.smart.reallocated": {
+    "one": "It has retired {count} damaged area so far.",
+    "other": "It has retired {count} damaged areas so far."
+  },
+  "advice.h1.evidence.smart.pending-sectors": {
+    "one": "{count} area is unstable, and the data in it may already be unreadable.",
+    "other": "{count} areas are unstable, and the data in them may already be unreadable."
+  },
+  "advice.h1.evidence.smart.offline-uncorrectable": {
+    "one": "Its own background check found {count} area it could not recover.",
+    "other": "Its own background check found {count} areas it could not recover."
+  },
+  "advice.h1.evidence.smart.reported-uncorrectable": {
+    "one": "It has reported {count} error it could not correct.",
+    "other": "It has reported {count} errors it could not correct."
+  },
+  "advice.h1.evidence.storage.read-errors-uncorrected": {
+    "one": "It failed to read data back {count} time.",
+    "other": "It failed to read data back {count} times."
+  },
+  "advice.h1.evidence.storage.write-errors-uncorrected": {
+    "one": "It failed to write data {count} time.",
+    "other": "It failed to write data {count} times."
+  },
+  "advice.h1.evidence.storage.wear-pct": "It has used {pct} of its rated write endurance.",
+  "advice.h1.evidence.smart.ssd-percent-consumed": "It has used {pct} of its rated write endurance.",
+  "advice.h1.growth": "The count has grown since the scan of {since}: {from} then, {to} now.",
+  "advice.h1.projection": "It was at {from} on {since}; it is at {to} now.",
+  "advice.h1.why.act-now": "Drives that start doing this fail far more often, some without further warning.",
+  "advice.h1.why.check-again": "A small count that stays the same is usually fine; a rising one is not.",
+  "advice.h1.do.copy": "First, copy your files off to an external drive or OneDrive, then open a few of the copies to check they work.",
+  "advice.h1.do.estimate": "About {usedGb} is in use on {letters}, Windows and programs included. Copying all of it to a USB 3 drive takes about {minLow} to {minHigh} minutes at a typical 50 to 100 MB/s; your own files are usually much less.",
+  "advice.h1.do.estimate.data": "About {usedGb} is in use on {letters}. Copying all of it to a USB 3 drive takes about {minLow} to {minHigh} minutes at a typical 50 to 100 MB/s.",
+  "advice.h1.do.estimate.short": "About {usedGb} is in use on {letters}. Copying all of it to a USB 3 drive takes {min} minutes or less at a typical 50 to 100 MB/s.",
+  "advice.h1.protection.onedrive": "OneDrive backs up some of this account's folders (the OneDrive folder backup row says which); anything else on this drive is not backed up.",
+  "advice.h1.protection.onedrive.folders": "OneDrive backs up some of this account's folders (the OneDrive folder backup row says which).",
+  "advice.h1.protection.file-history": "File History is on for this account, copying its files to another drive.",
+  "advice.h1.protection.none": "Nothing this scan found is backing up this account's files.",
+  "advice.h1.protection.shadow-only": "Only Windows' shadow copies were found, and they are no protection against a drive failing.",
+  "advice.h1.protection.unknown": "Whether this account's files are backed up was not established in this scan.",
+  "advice.h1.also-low.system": "{drive} is also low on space ({freePct} free). Freeing space does not fix a failing drive: copy your files off first.",
+  "advice.h1.also-low.unknown": "If this is the drive Windows runs from: {drive} is also low on space. Free space only after your files are copied.",
+  "advice.h1.lost": "If nothing is done, everything on this drive may be lost.",
+  "advice.h1.do-not.stress": "Until your files are copied, do not run defrag, a full disk check (chkdsk /r), a speed test or 'repair' tools on it: they work the drive hard.",
+  "advice.h1.check-again.rescan": "Then scan again in one to two weeks with 'Remember results to spot trends' on, so the app can tell whether the count is rising. If it has grown, replace the drive.",
+  "advice.h1.check-again.rescan.shared": "Write down the numbers above, then scan again in one to two weeks and compare them yourself: another drive this scan read is the same model, and the app's history cannot tell the two drives' readings apart. If a count has grown, replace the drive.",
+  "advice.h1.for-it.replace": "Replace it with a known-brand SSD of at least {sizeGb} (1.5 times the space in use, rounded up to a standard size), with the same connection and physical size as the old one: check the PC's manual.",
+  "advice.h1.for-it.replace.unmeasured": "Replace it with a known-brand SSD at least 1.5 times the size of the space in use, with the same connection and physical size as the old one: check the PC's manual.",
+  "advice.h1.for-it.retire": "When the drive is retired: if BitLocker was on, delete its recovery key and wipe the drive; if not, destroy it or use its maker's secure erase.",
+
+  "advice.o4.title": "Security settings are switched off",
+  "advice.o4.setting.security.firewall.enabled": "Windows Firewall is off for the {profile}.",
+  "advice.o4.setting.security.firewall.enabled.unmeasured": "Windows Firewall is off for one of its network profiles.",
+  "advice.o4.setting.security.av.registered": "No antivirus is active.",
+  "advice.o4.setting.security.defender.rtp": "Microsoft Defender real-time protection is off.",
+  "advice.o4.setting.security.defender.tamper": "Defender tamper protection is off.",
+  "advice.o4.setting.security.uac.enabled": "User Account Control is off.",
+  "advice.o4.setting.security.smartscreen": "SmartScreen is off.",
+  "advice.o4.why": "If nobody turned this off on purpose, treat it as a warning sign: malware often switches protection off first. Run a full scan.",
+  "advice.o4.do.windows-security": "Open Windows Security from the Start menu and turn them back on: Firewall & network protection, and Virus & threat protection, then Manage settings.",
+  "advice.o4.do.uac": "Type UAC in Start and set the slider back to its default level.",
+  "advice.o4.do.smartscreen": "In Windows Security, open App & browser control.",
+  "advice.o4.managed": "On a company laptop your IT team may have set this; ask them first. If another security product is in charge, check that product's settings instead.",
+
+  "advice.o1.title": "For IT: Windows 11 is blocked only by a firmware setting",
+  "advice.o1.blocker.tpm": "The TPM security chip is off or not ready: turn on Intel PTT or AMD fTPM (the TPM) in the BIOS/UEFI settings.",
+  "advice.o1.blocker.tpmversion": "The TPM security chip is older than version 2.0: switch it to 2.0 in the BIOS/UEFI settings if the setting exists, or turn on Intel PTT or AMD fTPM instead.",
+  "advice.o1.blocker.uefisecureboot": "The firmware is not set up for UEFI with Secure Boot: turn both on in the BIOS/UEFI settings if the settings exist.",
+  "advice.o1.blocker.secureboot": "Secure Boot is off or not available: turn it on in the BIOS/UEFI settings if the setting exists.",
+  "advice.o1.blocker.uefi": "This PC starts in legacy BIOS mode: Windows 11 needs UEFI.",
+  "advice.o1.now-on.tpm": "Windows' last check found no TPM 2.0 security chip turned on, but this scan reads a TPM 2.0 as on: Windows has not checked again since.",
+  "advice.o1.now-on.secureboot": "Windows' last check found Secure Boot off or not available, but this scan reads it as on: Windows has not checked again since.",
+  "advice.o1.windows11": "Windows 11 runs here, but Microsoft supports it on this PC only once these are switched on.",
+  "advice.o1.ready-after": "Probably ready for Windows 11 after the change: nothing else blocks it.",
+  "advice.o1.for-it.bitlocker": "Before any TPM or BIOS change: if BitLocker is on, suspend it and keep the recovery key.",
+  "advice.o1.for-it.mbr2gpt": "On a Windows installed in legacy BIOS mode, switching to UEFI or Secure Boot stops it starting. Back up first, then convert the disk with mbr2gpt, or reimage.",
+  "advice.o1.do.check-again": "Windows checks again by itself about once a day: leave the PC on for a day, then scan again or run the kit again.",
+
+  "advice.space.title.normal": "{drive} is getting full: {freePct} free",
+  "advice.space.title.bad": "{drive} is running out of space: {freePct} free. Under 10% free, Windows Update can fail.",
+  "advice.space.d7": "Open Disk Cleanup (Win+R, type cleanmgr, choose {drive}), then press 'Clean up system files'. Windows shows how much each kind of file frees, old update files included.",
+  "advice.space.storage-sense": "Storage Sense can do part of this on a schedule (Win+R, then ms-settings:storagesense). If its switch is greyed out, IT controls it.",
+  "advice.space.d7.dumps": "This PC has had recent blue screens or graphics resets. Leave 'System error memory dump files' and error reports unticked: they are the evidence for a repair.",
+  "advice.space.d7.repair-first": "Windows' image check says 'repairable': run that repair first (the 'Windows component store' row says how). A clean-up is not a repair.",
+  "advice.space.d7.restore-points": "Leave restore points alone: do not use 'Clean up' under System Restore and Shadow Copies.",
+  "advice.space.d5": "Leave the page file, reserved storage, and the Windows Installer and Package Cache folders alone: Windows needs them to install updates, and programs need them to repair or uninstall themselves.",
+  "advice.space.d4": "The hibernation file is not junk: it lets open work survive a flat battery, and Fast Startup uses part of it. On a laptop, keep it. On a desktop, an administrator can run 'powercfg /h /type reduced' to free about half of it and keep Fast Startup.",
+  "advice.space.d6": "If Disk Cleanup lists 'Previous Windows installation(s)': that copy lets you go back to your previous Windows. Remove it only if you will not need to go back; Windows removes it by itself after a few weeks. This app never deletes it.",
+  "advice.space.d8": "Downloads: sort it by size in File Explorer and delete what you no longer need. Deleting an installer does not uninstall the program. On a company laptop, do not switch on Storage Sense's automatic Downloads clean-up: it deletes files by age alone.",
+  "advice.space.d8.onedrive": "OneDrive's 'Free up space' keeps a file online and downloads it again when you open it, which needs the internet.",
+  "advice.space.d9": "Browser, Teams and Office caches refill within days, so clearing them frees space only for a while. If you do, use each app's own control: in a browser, 'Clear browsing data', then 'Cached images and files' only. Outlook .pst files are your mail, not a cache.",
+  "advice.space.graded": "Free space is graded Good above 20%. Freed space makes room for updates and files; it does not make the PC faster.",
+
+  "advice.o3.title": "This PC runs hot and slows itself down",
+  "advice.o3.finding": "With one core busy, the processor ran at {clockPct} of its base speed; a healthy one reaches 100% or more. Earlier in this scan it read {tempC}.",
+  "advice.o3.firmware-limit": {
+    "one": "Windows also logged {count} time in the last 30 days that the firmware held the processor back.",
+    "other": "Windows also logged {count} times in the last 30 days that the firmware held the processor back."
+  },
+  "advice.o3.why": "Usually that is dust in the fan or dried-out heat paste. A charger weaker than the laptop needs does the same.",
+  "advice.o3.why.pc": "Usually that is dust in the fan or heatsink, or dried-out heat paste.",
+  "advice.o3.do.vents": "Keep the vents clear: not on a bed, a cushion or your lap.",
+  "advice.o3.do.vents.pc": "Keep the PC's air vents clear.",
+  "advice.o3.do.charger": "Use the charger that came with the laptop; its wattage is printed on it.",
+  "advice.o3.for-it.clean": "Clean the fan and heatsink, and replace the heat paste.",
+  "advice.o3.for-it.bios": "Install the laptop maker's BIOS updates (this needs the internet). This app does not change power settings.",
+  "advice.o3.for-it.bios.pc": "Install the BIOS updates from the maker of the PC or its motherboard (this needs the internet). This app does not change power settings.",
+  "advice.o3.next-scan": "The next scan's processor speed shows whether it helped.",
+
+  "advice.s1.title": "Restart Windows once (Restart, not Shut down)",
+  "advice.s1.uptime": "Windows has not fully restarted for {days} days.",
+  "advice.s1.pending": "A restart is waiting: updates or repairs finish only after it.",
+  "advice.s1.commit": "Programs have been promised {commitPct} of what Windows can hand out; a restart clears what they built up.",
+  "advice.s1.why": "If you usually switch off with Shut down: with Fast Startup on (Windows' default), Shut down saves Windows' core to disk so the next start is faster, and that does not count as a restart.",
+  "advice.s1.do": "Save your work, then choose Start, Power, Restart. About once a week is enough. Keep Fast Startup on: it is not a fault.",
+
+  "advice.s4.failing-drive": "This will not fix a slow start: the drive Windows runs from is failing. Back it up first (see above).",
+  "advice.s4.failing-drive.unknown": "This may not fix a slow start: if the failing drive above is the one Windows runs from, back it up first.",
+  "advice.s4.hard-disk": "This will not fix a slow start: this PC runs Windows from a hard disk, which alone usually explains it. Turning off programs that start with Windows will help only a little.",
+  "advice.s4.low-memory": "This will not fix a slow start: this PC is short of memory, which alone usually explains it. Turning off programs that start with Windows will help only a little.",
+
+  "advice.m5.title": "A graphics driver fault may be filling the memory",
+  "advice.m5.finding": {
+    "one": "dwm.exe, which draws the screen, normally holds a few hundred MB. {count} time it held over {peakGb} when Windows ran short of memory.",
+    "other": "dwm.exe, which draws the screen, normally holds a few hundred MB. {count} times it held over {peakGb} when Windows ran short of memory."
+  },
+  "advice.m5.why": "That is often a graphics driver fault.",
+  "advice.m5.do.sign-out": "Signing out and back in frees it now; save your work first.",
+  "advice.m5.for-it.driver": "Update the display driver from the laptop maker. That needs the internet and administrator rights.",
+  "advice.m5.for-it.handover": "Update the display driver before handover.",
+  "advice.m6.title": "Add memory, or give this laptop a lighter role",
+  "advice.m6.finding.installed": "Its firmware reports {installedGb} of memory, in {usedSlots} of its {slots} slots.",
+  "advice.m6.finding.short": {
+    "one": "Windows ran short of memory {count} time in the {days} days it remembers.",
+    "other": "Windows ran short of memory {count} times in the {days} days it remembers."
+  },
+  "advice.m6.do.add": "A second {moduleGb} {moduleType} module doubles the memory and makes it run in dual channel.",
+  "advice.m6.do.replace": "Or replace both modules with larger ones.",
+  "advice.m6.do.full": "All its slots are full. This laptop suits a lighter role.",
+
+  "list.sep": ", ",
+  "list.and": " and "
+}

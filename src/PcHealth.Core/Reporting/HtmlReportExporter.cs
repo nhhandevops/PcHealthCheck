@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using PcHealth.Core.Advice;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Processes;
@@ -45,6 +46,11 @@ public static class HtmlReportExporter
             th { background: #eceef1; border-top: none; }
             .tips { margin: 4px 0 0; padding-left: 18px; }
             .tips li { margin: 2px 0; }
+            .rec { margin: 0 0 10px; }
+            .rec .subj { opacity: .7; font-size: .85rem; }
+            .amber { border-left: 4px solid #b8860b; padding: 2px 0 2px 10px; }
+            .muted { opacity: .7; }
+            details > summary { cursor: pointer; font-weight: 600; margin: 4px 0 10px; }
             .wrap { overflow-x: auto; }
             .footer { margin-top: 32px; font-size: .8rem; opacity: .7; }
             code { font-size: .8rem; word-break: break-all; }
@@ -91,6 +97,8 @@ public static class HtmlReportExporter
             }
             sb.Append("</ul></div>\n");
         }
+
+        AppendAdvice(sb, report);
 
         if (report.Trends.Count > 0)
         {
@@ -199,6 +207,53 @@ public static class HtmlReportExporter
             </html>
             """);
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// "What you can do", after the banner and before the trends. Every card is listed, the first
+    /// five open and the rest inside a native &lt;details&gt;, so the report stays script-free, and none
+    /// is hidden: a report sent to IT never reflects one user's "Don't show again". No section at all
+    /// when the report has no advice (an older report, a hand-built one, Linux).
+    /// </summary>
+    private static void AppendAdvice(StringBuilder sb, ScanReport report)
+    {
+        if (report.Advice is not { } section) return;
+        var view = AdvicePresentation.View(section, report.Modules, AdvicePresentation.NothingHidden);
+
+        sb.Append(CultureInfo.InvariantCulture, $"<h2>{E(view.Title)}</h2>\n");
+        if (view.Intro.Length > 0) sb.Append(CultureInfo.InvariantCulture, $"<p class=\"muted\">{E(view.Intro)}</p>\n");
+        foreach (var card in view.Shown) AppendAdviceCard(sb, card);
+        if (view.MoreHeader is { } more)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"<details><summary>{E(more)}</summary>\n");
+            foreach (var card in view.More) AppendAdviceCard(sb, card);
+            sb.Append("</details>\n");
+        }
+        foreach (var line in view.NotMeasured) sb.Append(CultureInfo.InvariantCulture, $"<p class=\"amber\">{E(line)}</p>\n");
+        foreach (var line in view.Notes) sb.Append(CultureInfo.InvariantCulture, $"<p class=\"muted\">{E(line)}</p>\n");
+        foreach (var line in view.Errors) sb.Append(CultureInfo.InvariantCulture, $"<p class=\"amber\">{E(line)}</p>\n");
+        if (view.EmptyState.Count > 0) sb.Append(CultureInfo.InvariantCulture, $"<p>{E(string.Join(" ", view.EmptyState))}</p>\n");
+        if (view.OtherFindings is { } other) sb.Append(CultureInfo.InvariantCulture, $"<p class=\"muted\">{E(other)}</p>\n");
+    }
+
+    private static void AppendAdviceCard(StringBuilder sb, AdviceCardView card)
+    {
+        sb.Append(CultureInfo.InvariantCulture,
+            $"<div class=\"card rec\"><div><span class=\"chip g-{card.Card.Severity}\">{E(card.Urgency)}</span> <strong>{E(card.Title)}</strong>");
+        if (card.Subject is { Length: > 0 } subject) sb.Append(CultureInfo.InvariantCulture, $" <span class=\"subj\">{E(subject)}</span>");
+        sb.Append("</div>");
+        if (card.Lines.Count > 0)
+        {
+            sb.Append("<ul class=\"tips\">");
+            foreach (var line in card.Lines)
+            {
+                sb.Append(line.Label is { } label
+                    ? $"<li><strong>{E(label)}</strong> {E(line.Text)}</li>"
+                    : $"<li>{E(line.Text)}</li>");
+            }
+            sb.Append("</ul>");
+        }
+        sb.Append("</div>\n");
     }
 
     private static string GradeChip(Grade grade, bool infoOnly = false)

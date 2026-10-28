@@ -5,7 +5,10 @@ using PcHealth.Modules.Windows.Support;
 
 namespace PcHealth.Modules.Windows.Modules;
 
-/// <summary>Free space and health status per fixed volume, plus TRIM state for SSDs.</summary>
+/// <summary>
+/// Free space and health status per fixed volume, plus TRIM state for SSDs, and, for information,
+/// where each attached disk is and the space in use on it.
+/// </summary>
 internal sealed partial class VolumesModule : WindowsModuleBase
 {
     public override ModuleManifest Manifest { get; } = new()
@@ -38,6 +41,7 @@ internal sealed partial class VolumesModule : WindowsModuleBase
         var volumes = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
             "SELECT DriveLetter, FileSystemLabel, DriveType, HealthStatus, Size, SizeRemaining FROM MSFT_Volume",
             out var msftError);
+        var measured = new List<(string Letter, ulong Size, ulong Free)>();
 
         if (msftError is null && volumes.Count > 0)
         {
@@ -54,6 +58,7 @@ internal sealed partial class VolumesModule : WindowsModuleBase
                 var remaining = Wmi.Get<ulong>(vol, "SizeRemaining");
                 if (size is > 0 && remaining is not null)
                 {
+                    measured.Add((letterRaw, size.Value, remaining.Value));
                     AddFreeSpaceMetric(metrics, subject, size.Value, remaining.Value, map?.ExternalBusOf(letterRaw));
                 }
 
@@ -89,7 +94,11 @@ internal sealed partial class VolumesModule : WindowsModuleBase
                 var subject = Wmi.GetString(disk, "DeviceID") ?? "?";
                 var size = Wmi.Get<ulong>(disk, "Size");
                 var free = Wmi.Get<ulong>(disk, "FreeSpace");
-                if (size is > 0 && free is not null) AddFreeSpaceMetric(metrics, subject, size.Value, free.Value, map?.ExternalBusOf(subject));
+                if (size is > 0 && free is not null)
+                {
+                    measured.Add((subject, size.Value, free.Value));
+                    AddFreeSpaceMetric(metrics, subject, size.Value, free.Value, map?.ExternalBusOf(subject));
+                }
                 if (ldError is not null) { notes.Add($"LogicalDisk query: {ldError}"); failures++; break; }
             }
         }
@@ -109,8 +118,7 @@ internal sealed partial class VolumesModule : WindowsModuleBase
             failures += await AddTrimStateAsync(context, metrics, notes, ct).ConfigureAwait(false);
         }
 
-        if (metrics.Count == 0) return ModuleStatus.Failed;
-        return failures == 0 ? ModuleStatus.Completed : ModuleStatus.PartiallyCompleted;
+        return DiskRoles.AddAfterStatus(metrics, failures, map, measured);
     }
 
     /// <summary>TRIM state, from a read-only fsutil query. Returns 1 when the read broke, 0 otherwise.</summary>

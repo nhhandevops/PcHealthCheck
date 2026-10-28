@@ -91,11 +91,33 @@ app is the tool, and the results are its first field test.
     The app tells an unenrolled Windows 10 the truth (OS-001). The kit version is `2026-10-28.1`.
     **Fleet rows change once the stick carries this build:** the three pilot laptops move from
     REPLACE to FIX FIRST, for their real hardware faults. Next in the plan:
-    - Step B, the advice engine;
+    - Step B, the advice engine (built since, see the next bullet);
     - Step D, the intake and handover check;
     - the golden-image tasks in [docs/GOLDEN-IMAGE-PLAN.md](docs/GOLDEN-IMAGE-PLAN.md), which wait
       on the owner's decisions A-J;
     - REP-002 (decimal commas in report details), still open.
+  - **Remedies plan: Phase 1 Step B is built (2026-10-28, evening). It is not committed or released
+    yet.**
+    - **What it adds.** A "What you can do" section in the JSON, the HTML report, the window and the
+      headless console, built from [docs/STEP-B-SPEC.md](docs/STEP-B-SPEC.md). It has at most 5
+      cards, then "N more", and "Don't show again" works in the window only.
+    - **What it changes.** Nothing on the PC. Grades, the kit's verdicts and the fleet table do not
+      move. The stick still carries `2071660`.
+    - **What proves it so far:**
+      - the healthy and freshly reimaged fixtures give zero cards;
+      - the pilot replay (`PilotReplayTests`, here on the T470p) gives one card, "Back up now" for
+        the T470p's SSD, and nothing about the auditor's USB drive;
+      - an unelevated scan of this T470p gives no card.
+
+      HANDOFF's "Suggested next session" has the details.
+    - **Needs a person, before the commit:**
+      1. one elevated scan on the T470p, to check that every drive row's disk number matches its
+         new role row;
+      2. ACCEPTANCE section K (K1-K12, two of them blocking) in the window on the T470p;
+      3. both dev PCs scanned, one of them elevated, with no unexpected card. On the dev desktop
+         use `--headless-scan --skip-benchmarks`, because its smoke skips the scan (DiskSpd);
+      4. before Phase 2, one headless scan on the Windows 11 dev desktop.
+    - **Then:** commit, build the release, and re-copy the stick only if shipping.
   - **The stick's own health (2026-10-27).** The stick is a 1 TB laptop hard disk in a USB case.
     The T470p's event log had 7 disk errors against it in 90 days, and it carries a `FOUND.000`
     folder dated 21 October. The pilot's Silicon-Power drive also reported uncorrected read

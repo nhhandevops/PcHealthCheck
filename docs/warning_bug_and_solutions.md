@@ -10,6 +10,661 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## ADV-011 — "Show again" said the cards would hide again "after a restart"; it is the next scan
+
+**Symptom.** Found by the review round of 2026-10-28, by reading the code. Nothing shipped with it.
+When **Show again** cannot delete `dismissed-advice.json`, the window shows the cards and says
+"…could not be deleted (…), so they may hide again after a restart." A read-only file does this:
+deleting it fails, and reading it does not. No restart is needed. `PresentAdvice` reads the file
+each time a scan's results are shown, so the next scan hides the cards again. The failure line of
+**Don't show again** already said "after the next scan".
+
+**Root cause.** The sentence named the wrong moment. The window reads the list after every scan,
+not once when the app starts.
+
+**Fix (2026-10-28).** The line ends "so they will hide again after the next scan."
+
+**Not changed: hiding a card replaces the scan's status line.** The review also found that "Card
+hidden…" overwrites "Scan finished … overall: X." and, after a declined UAC prompt, the reason the
+admin checks are missing. That line is a passing status: saving a report, **Delete history** and
+the reputation check overwrite it the same way. The reason stays in the receipt ("Administrator
+checks: …") and in the amber "Some checks could not finish" box, which names each declined check.
+
+**How to verify.** `DismissedAdviceTests.A_list_Show_again_could_not_delete_hides_its_cards_again_at_the_next_scan_and_the_window_says_so`
+makes the file read-only, checks that deleting it fails and that the next load still hides the
+card, then reads the window's two failure lines. It failed on the old wording (checked on
+2026-10-28). That a choice which could not be saved is gone at the next scan is
+`An_unreadable_file_hides_nothing_and_a_failed_save_is_reported_to_the_caller`.
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-010 — Two drives of one model share a history series, and H1 made "Back up now" of it
+
+**Symptom.** Found by the review round of 2026-10-28, by reading the code. Nothing shipped with it.
+Take a desktop with two SSDs of one model and size: C:'s at 2 retired areas (graded Normal), D:'s at
+none, with history on. The last scan stored 2 and 0 under one series. This scan compared C:'s 2 with
+D:'s 0, the last sample stored, and made a growth trend "0 then, 2 now". Nothing grew. H1 took the
+trend as C:'s and made the card Act now: "Back up now: the drive Windows runs from is failing", and
+"The count has grown since the scan of <date>: 0 then, 2 now.", on every scan from then on. The
+Check again card the count alone gives says the opposite. With both drives at 5, the trend went to
+a group of its own, and H1 made a third card saying the scan "could not tell whether this drive is
+inside the PC or plugged in over USB", about two drives the role rows place inside. A wear forecast
+could quote the other drive's first sample as "It was at 20% on <date>".
+
+**The wrong first guess.** That the disk number keeps the drives apart. It does for readings, and
+the trend join then broke the tie by the trend's current value. But the trend itself was made from
+both drives' samples, so no tie-break can give it to the right drive: the "from" is wrong whichever
+drive it lands on.
+
+**Root cause.** `HistoryStore.RecordScan` stores a sample under (metric id, Subject) only, and a
+drive's Subject is its model and size. `TrendAnalyzer` compares with `series[^1]` for counters and
+`series[0]` for projections. This predates Step B; Step B is what turned it into an Act now card.
+
+**How to verify.** `AdviceEngineTests.A_trend_on_a_series_two_drives_write_to_joins_neither_and_makes_no_group_of_its_own`
+(a count that differs, one both drives hold, a projection) and
+`Two_identical_drives_only_one_failing_give_one_card_on_the_right_disk`. In `AdviceItemTests`:
+`A_count_two_drives_of_one_model_share_a_history_of_is_never_said_to_have_grown` (Check again, and
+the other direction: with D: another model the growth is trusted, Act now),
+`Two_drives_of_one_model_at_the_same_count_get_a_card_each_and_none_for_a_drive_the_scan_could_not_place`
+and `A_worn_drive_s_forecast_is_left_out_when_another_drive_of_its_model_shares_its_history`. All
+of them failed on the code before the fix (checked on 2026-10-28); the other direction passed.
+
+**Fix (2026-10-28), in the advice only.**
+- `AdviceFacts` joins a trend to a drive only when no other drive in the scan has a reading with
+  its id and Subject. Otherwise it joins none and makes no group: it is left to its own row and
+  counted in OtherFindings. So a trend that cannot be tied to exactly one drive never makes a card
+  Act now; the drive's own reading grades it.
+- Such a drive's group has `SharesHistory`. A Check again card on it does not say "the app can tell
+  whether the count is rising", which no later scan could: `advice.h1.check-again.rescan.shared`
+  asks the reader to write down the numbers and compare them.
+
+**Not fixed: the trend rows.** The report's own trend rows still compare one drive with the other,
+still grade "This is new..." Bad, and still count toward the Storage and overall grades. Keying
+history by disk number would fix them, and would start every existing user's drive series again
+from empty, since old samples have no disk number. That belongs to a history change, not to Step B.
+History keys are unchanged here, so existing history is read as before.
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-009 — The drive-health section read as "no failing drive" when a drive was never read
+
+**Symptom.** Found by the review round of 2026-10-28, by reading the code. Nothing shipped with it.
+Two ways:
+- **Nothing broke, and the drive gave no damage counters.** An elevated scan of an NVMe laptop has
+  the SMART check Skipped (no ATA drive) and the reliability check Completed. In pilot zip #1 the
+  internal NVMe's record had wear 0 and a temperature, but no read or write error counter. An
+  empty placeholder record has no reading at all: the reliability check writes a Note and moves
+  on. No card can come from that, nothing broke, and the grey note needed both drive checks out
+  of the scan. So the section said "Nothing to suggest from the checks that ran." The same
+  report's disk benchmark refused that drive as unread (`FailingDrives.HealthWasRead`). For the
+  empty record, the kit printed "No drive inside this laptop reported its own health, so drive
+  health was NOT checked".
+- **A card on one drive hid another drive's broken check.** Take an NVMe system disk and an
+  internal SATA SSD at 75% endurance used. `disk.reliability` fails because the association route
+  times out, so the NVMe's counters are never read. SMART reads the SATA drive and grades the 75%
+  Normal, so H1 makes a Plan card for it. `DriveHealthGaps` returned as soon as any H1 card existed,
+  so nothing said the system drive was not read.
+
+**The wrong first guess.** That a module's status says whether a drive was read. Spec 3.5 already
+says it does not for free space ("module status alone does not decide"). The drive-health row was
+still written on status alone. Its "H1 fired on no disk" also took a card about one drive as a word
+about all of them.
+
+**Root cause.** `AdviceEngine.DriveHealthGaps` looked at the drive checks' status and at whether any
+H1 card existed. It never asked which drives had damage readings, which is the benchmark's
+question.
+
+**Fix (2026-10-28).**
+- A drive check that broke keeps its amber line unless H1 made an ActNow card on every disk that is
+  not external. A Plan or CheckAgain card, or a card on another disk, no longer hides it: a worn
+  drive may be failing as well, and a small count may be worse in the counters that were not read.
+- The checks ran, none broke, and either a disk that is not external has no `DriveDamage` reading
+  on its number, or no disk inside the PC has one at all. That gets a grey note,
+  `advice.note.drive-health-not-reported`: "A drive in this PC did not report whether it has
+  damaged areas or errors, so a failing drive may not show here." It is grey because nothing broke:
+  a drive with no counters to give is a fact about the hardware (rule 2). It changes no status and
+  no banner.
+
+**How to verify.** In `AdviceItemTests`:
+- `A_drive_inside_the_PC_that_reported_no_damage_counters_gets_a_grey_note` covers wear only, an
+  empty record, and no drive known at all.
+- The other direction is `An_NVMe_laptop_whose_error_counters_were_read_gets_no_line_and_no_note`
+  and `Every_drive_inside_the_PC_must_report_its_counters_but_a_USB_drive_need_not`.
+- `A_card_on_one_drive_does_not_hide_that_the_check_for_another_broke`.
+- `A_broken_drive_check_goes_unsaid_only_when_every_drive_inside_already_says_back_up_now`: ActNow
+  gives no line; CheckAgain and Plan give the line.
+
+Each of them was run on a copy of the tree with this review round's code fixes undone. The fixed
+direction failed there and the other direction passed. The healthy, unelevated and reimaged
+fixtures still get no note, and the pilot replay is unchanged.
+
+**Not verified.** No live scan: the dev T470p's internal drive is SATA and answers SMART. Which
+fleet laptops get the note depends on whether their NVMe drives report the uncorrected counters.
+Pilot zip #1 says at least one does not. A mounted VHD or a Storage Spaces disk also counts as
+inside the PC and has no counters, so it gets the note too.
+
+**Date.** 2026-10-28.
+
+---
+
+## TEST-002 — The pilot replay re-grades old readings; it is not a replay of today's build
+
+**Symptom.** Found on 2026-10-28 while building the pilot replay (Step B work group 5), by reading
+the re-graded pilot reports. The replay prints "other findings 13", "7" and "20" for the three
+pilots. Those counts are not what today's build would say about the same laptops:
+- **A USB volume at 18% free is still a graded Normal.** The af47a36 volume check wrote it as a
+  graded reading. Since STOR-001, today's check writes a USB volume's free space as information
+  only.
+- **The T470p's SSD temperature keeps its old id.** It is `smart.temperature_c`, still graded on
+  hard-disk bands: 40 °C reads Normal. Today's SMART check writes `smart.ssd_temperature_c` for an
+  SSD (SMART-002), where 40 °C is Good.
+- **The old build wrote no disk numbers and no disk role rows.** The harness supplies those.
+
+**The wrong first guess.** That "re-grade `Verdicts[].Metric` with the current VerdictEngine"
+(STEP-B-SPEC section 7) makes the replay show what today's build says about the pilots. Only the
+rules are today's. Whether a reading is information only, and which id it has, are the module's
+choices, and af47a36 made them on 2026-10-23.
+
+**Root cause.** `InfoOnly` and the metric id are fields of the `Metric`, which the replay reads
+from the zip. `VerdictEngine.EvaluateOne` grades an information-only metric Unknown before it looks
+for a rule, and grades every other metric by its id.
+
+**What the replay proves, and what it does not.**
+- **It proves:**
+  - the advice items against real pilot readings;
+  - the harness's disk join;
+  - that the advice stays silent without the module-side fixes. The space card stays silent
+    although the USB volume is still graded Normal, because it reads only the drive Windows runs
+    from. `PilotReplayTests.No_pilot_gets_a_card_about_the_auditors_USB_drive_…` asserts both
+    halves.
+- **It does not prove** Step A's module-side fixes (STOR-001, STOR-002, SEC-001, SMART-002). Their
+  own tests and the live scans on the T470p prove those.
+- **Its other-findings counts** are not the fleet's. Do not quote them as facts about the laptops.
+
+**How to verify.** In the replay of the T470p's zip, the re-graded `smart.temperature_c` is Normal
+at 40, and a `storage.volume.free_pct` that is not C: is a graded Normal at 18.
+
+**Fix.** Nothing in the code, since the replay does what it is for. The test's comments and HANDOFF
+say what it proves. Prove an advice change with the replay, and a module change with a live scan.
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-008 — The spec's replay harness checked "external" before "system"; the app checks system first
+
+**Symptom.** Found by reading while building the pilot replay (Step B work group 5). Nothing
+shipped with it.
+- **What the spec says.** STEP-B-SPEC section 7 tags a pilot drive in this order:
+  1. `external` when `disks.json` lists it on USB, 1394, SD or MMC;
+  2. `system` when it matches `machine.json`'s SystemDiskModel;
+  3. otherwise `internal`.
+- **What the app does.** The volume check's own `DiskRoles.From` (work group 2, spec 2.4) does the
+  opposite. The disk Windows runs from is `system` whatever its connection: "external … unless the
+  disk is system" (REMEDIES-PLAN D1).
+- **What follows.** Take a laptop that runs Windows from a USB SSD, such as a portable install. The
+  spec's order tags its system disk external, and H1 never speaks about the drive Windows runs
+  from. The replay would show a silence the app would not.
+
+None of the three pilots runs Windows from USB, so their replay gives the same result in either
+order.
+
+**The wrong first guess.** That the harness should copy the kit's `Test-ExternalDrive` as it is,
+because the spec says "matched as `audit-common.ps1:197-205` does". The kit has no system-disk rule
+at all: it only filters names off its drive-health list. The harness exists to supply the role rows
+the app would have written. So it takes the app's order, and only its name matching is the kit's:
+- the name itself;
+- or the name followed by " —".
+
+A drive called "MODEL-X Pro" is therefore not "MODEL-X".
+
+**Fix (2026-10-28).** `PilotReplay.RoleOf` in `tests/PcHealth.Tests/PilotReplayTests.cs` tests the
+system disk model first, then the external names.
+
+**How to verify.**
+- `PilotReplayTests.The_harness_puts_the_drive_Windows_runs_from_first_even_on_USB_as_the_volume_check_does`
+  runs everywhere, zips or not. Swapping `RoleOf` to external-first fails that test and only that
+  test; the three pilot replays still pass.
+- `The_harness_matches_drive_names_as_the_kit_does_so_a_longer_model_name_is_another_drive` holds
+  the name rule.
+
+**Also in the spec.** Its work group 5 asks for the O3 band to be "added to the baseline list", but
+REMEDIES-PLAN had no such list. It now has one, under "The fresh-image baseline".
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-006 — The surfaces would have crashed the scan on the one failure the engine survives
+
+**Symptom.** Found by reading, while building the surfaces (Step B work group 4). Nothing shipped
+with it. `AdviceEngine.Derive` catches a broken catalog (`en.json` missing, unparsable, a key
+gone) and returns a section with one English item-error line, so the scan still finishes (spec
+3.7: "the scan never fails because of advice"). The spec then has the HTML report, the GUI and the
+console render the section's own words (title, intro, "N more", urgency, "For IT:") from that same
+catalog. With a broken catalog, `HtmlReportExporter.ToHtml` would throw. The headless scan writes
+its HTML before it prints its summary, so it would exit 1 with no report at all. The window would
+say "Scan failed".
+
+**The wrong first guess.** That the section's own strings cannot fail because their keys are
+fixed. They come from the same lazily loaded catalog, and a failed load is exactly the case the
+engine's fallback exists for.
+
+**Fix (2026-10-28).** One place lays the section out for every surface:
+`AdvicePresentation.View`. It never throws. A section it cannot put into words comes back as one
+English line, "This section could not be put into words (KeyNotFoundException). The readings below
+are complete.", with the error's type only.
+
+**How to verify.**
+- `AdvicePresentationTests.A_catalog_that_cannot_word_the_section_gives_one_line_instead_of_failing_the_scan`
+  passes an empty catalog.
+- `Sentences_are_rendered_from_their_key_and_arguments_so_another_catalog_can_word_them` is the
+  other direction: a working catalog words everything, and the JSON `Text` stays English.
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-007 — "Listed above" is below in the console, and the console's empty state was an all-clear
+
+**Symptom.** Found by reading, while building the headless block (Step B work group 4).
+- The catalog's empty-state line reads "{count} checks did not finish (listed above), so this is
+  not an all-clear". In the HTML and the window that is true, because the banner sits above the
+  section.
+- The console prints the section before its per-module lines. Its own "Some checks could not
+  finish" list comes after them, below.
+- The spec's console layout (section 6) had no incomplete line at all. A declined UAC prompt
+  therefore printed "What you can do: nothing to suggest from the checks that ran." with nothing
+  after it but the not-measured line. That is CLAUDE.md rule 1 in the one surface the kit shows on
+  the laptop's screen.
+
+**Root cause.** The sentence was written for the two surfaces where the banner sits above the
+section. The console has its banner in a different place.
+
+**Fix (2026-10-28).** `AdvicePresentation.ConsoleLines` prints its own English line after the
+empty state: "1 check did not finish (listed below), so this is not an all-clear." The console is
+English data (decision 6), so no catalog key was added for it.
+
+**How to verify.**
+- `AdvicePresentationTests.The_console_says_nothing_to_suggest_and_names_what_was_not_measured_and_not_included`.
+- The other direction is `A_clean_console_block_is_one_line`. A check Skipped on purpose does not
+  add the line either (`A_check_skipped_on_purpose_does_not_make_the_empty_section_incomplete`).
+
+**Review round, 2026-10-28: the docs said the console lists every card.** PRIVACY.md and README.md
+said "Exported reports, the JSON and the headless console always list every card." The console
+prints the first five titles and "… and N more in the report.", as the spec's console layout asks.
+So the docs changed, not the console. They now say that the HTML and the JSON list every card, the
+console prints the first five and how many more, and none of them hides a card. So does the comment
+on `AdvicePresentation`. `AdvicePresentationTests.The_privacy_page_and_the_readme_say_what_the_console_prints`
+checks the console's count and both pages. It failed on the old wording (checked on 2026-10-28).
+
+**Date.** 2026-10-28.
+
+---
+
+## ACC-001 — The acceptance sign-off counted 19 blocking rows; there were 17
+
+**Symptom.** Found on 2026-10-28 while adding section K (Step B work group 4). `ACCEPTANCE.md`'s
+sign-off reads "Blocking rows (🔴) passed ___ / 19", and HANDOFF.md says "19 blocking rows". The
+file had 19 red markers, but only 17 of them were on rows. The other two are the legend ("Rows
+marked 🔴 are blocking") and the sign-off line itself. A tester who passed every row would have
+written 17 / 19, and that reads as two failures.
+
+**The wrong first guess.** That Git Bash's `grep -c` was right when it found no marker at all
+(TOOL-007).
+
+**Root cause.** The total was most likely taken as a count of the marker, not of the rows.
+
+**Fix (2026-10-28).** Section K adds two blocking rows (K2: a declined UAC prompt never reads as
+"nothing to suggest", and K7: a hidden card is still in the exported reports). That makes 19 rows,
+so "/ 19" is now true. HANDOFF.md says so.
+
+**How to verify.** Count rows, not markers: lines that start with `| <letter><digit> |` and
+contain U+1F534. Windows PowerShell, reading the file as UTF-8, finds A6, B1, B4, C1, C2, C3, C6,
+D3, D4, E1, E3, G3, G6, H5, I5, J1, J3, K2 and K7.
+
+**Review round, 2026-10-28: K2 could fail on correct behaviour.** K2 said "Tick an admin check,
+scan, and decline the UAC prompt" and expected the amber "Drive health was not fully checked" line.
+Only a drive check that broke gives that line. A tester who ticked Temperatures & fans or Platform
+security and declined gets the grey "not part of this scan" note instead, which is right. The
+blocking row would then have failed, or been written N/A without the drive path ever being tried.
+K2 now names **Drive SMART health**, and says another admin check alone gives K3's grey note.
+`HealthyPcAdviceTests.Acceptance_row_K2_ticks_the_admin_check_whose_declined_prompt_gives_the_amber_drive_health_line`
+reads the row and finds the one admin check it names. Declining that check must give K2's lines,
+and declining any other admin check the grey note. It failed on the old row (checked on 2026-10-28).
+
+**Date.** 2026-10-28.
+
+---
+
+## TOOL-007 — Git Bash's `grep` finds no emoji in a file full of them
+
+**Symptom.** On 2026-10-28, `grep -c '🔴' ACCEPTANCE.md` in Git Bash printed 0, on a file whose
+legend line begins "Rows marked 🔴". `grep -cF` printed 0 too, and so did the bytes written out,
+`grep -c $'\xf0\x9f\x94\xb4'`. The bytes are in the file: `od` shows `f0 9f 94 b4` on that line.
+
+**The wrong first guess.** That the shell was mangling the character on its way to `grep`. It was
+not: `printf '%s' '🔴' | od` gives the same four bytes.
+
+**Root cause.** Git Bash's GNU grep 3.0, in its default `LANG=en_US.UTF-8`, matches nothing on a
+character outside the Basic Multilingual Plane, that is, any 4-byte UTF-8 sequence. Not proven,
+but likely: Windows' 16-bit `wchar_t` cannot hold U+1F534 as one character. The same command with
+`LC_ALL=C`, which compares bytes, finds every line.
+
+**How to verify.** In Git Bash, in this repository:
+- `grep -c '🔴' ACCEPTANCE.md` gives 0;
+- `LC_ALL=C grep -c $'\xf0\x9f\x94\xb4' ACCEPTANCE.md` gives 21 (19 rows, the legend and the
+  sign-off).
+
+**Fix.** None in the tool. For an emoji or any other non-BMP character, use `LC_ALL=C grep`, or
+count in PowerShell with `[IO.File]::ReadAllText($p, [Text.Encoding]::UTF8)` and
+`[char]::ConvertFromUtf32(0x1F534)`. A count of 0 from Git Bash on such a character means nothing.
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-003 — The spec treated a worn drive as a failing one in three places
+
+**Symptom.** Found by reading STEP-B-SPEC while building H1, SPACE and S1 (Step B work group 3).
+Nothing shipped with it. A system SSD at 70-90% endurance used gets H1's "Plan" card. Taken
+literally, the spec then:
+- **dropped the space card.** Section 3.4 drops SPACE "when H1 fires (any urgency)" on the system
+  disk, and moves the low-space warning onto H1's also-low line. But section 5 adds that line only
+  at ActNow and CheckAgain. On a worn SSD with C: at 8% free, the D4-D9 advice disappeared from
+  every card. The free-space reading then counted only as one of the "other readings";
+- **said "If nothing is done, everything on this drive may be lost"** and "do not run a speed test"
+  on a card whose only finding is 75% endurance used. That is a false alarm, against the H1 rule's
+  own tip for wear: "Start planning a replacement; keep backups current".
+
+**The wrong first guess.** That "any urgency" was deliberate, to keep SPACE and S4 consistent. It
+is not consistent: S4 already limits itself to ActNow and CheckAgain (spec 3.4, last bullet).
+
+**Root cause.** Principle 3 (REMEDIES-PLAN) is about a *failing* drive: cleaning up works the
+drive, so copying the files off comes first. A worn SSD is not failing, freeing space on it is
+harmless, and an SSD that is nearly full wears faster.
+
+**Fix (2026-10-28).** "Failing" means ActNow or CheckAgain everywhere:
+`DriveHealthItem.FailingDriveRole` returns a role only for those two. SPACE steps aside, S1 adds
+S4's label, and H1 adds the also-low, "may be lost" and "do not" lines only then.
+
+**How to verify.**
+- `AdviceItemTests.A_worn_system_drive_is_not_failing_and_leaves_the_space_card` covers the space card.
+- `Endurance_mostly_used_plans_a_replacement` checks that the worn card has no "lost" and no "do not" line.
+- `A_restart_card_says_it_will_not_fix_a_slow_start_when_the_Windows_drive_is_failing` has a
+  `storage.wear_pct` 80 row that must get no label.
+- In the other direction, `A_failing_system_drive_takes_the_space_card_s_place` still passes.
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-004 — Two spec sentences said more than the readings show
+
+**Symptom.** Found by reading, while writing `en.json` (Step B work group 3).
+- **O3:** "A healthy one goes above 100%." The clock rule grades Good at `gte 100`, so a processor
+  at exactly 100% is healthy and does not go "above" it.
+- **S4:** one sentence, "the drive Windows runs from is failing", for both the `system` and the
+  `unknown` role. With role `unknown` the scan could not tell whether the failing drive is the
+  laptop's or a USB drive (spec risk 2). H1's own card says so; the label on S1 would have asserted
+  the opposite.
+
+**Root cause.** Both were written from the plan's examples rather than from the rule file and the
+role a card can have.
+
+**Fix (2026-10-28).**
+- O3 now says "a healthy one reaches 100% or more".
+- `unknown` gets `advice.s4.failing-drive.unknown`: "This may not fix a slow start: if the failing
+  drive above is the one Windows runs from, back it up first."
+- `AdviceItemTests.The_numbers_written_into_sentences_are_the_ones_the_code_and_the_rules_use`
+  reads the clock and free-space bands from the rule files and fails if the sentences drift from
+  them. It also checks the 1.5x and 50-100 MB/s figures against `AdviceThresholds`.
+
+**Review round, 2026-10-28: three more.** Found by reading. None had reached a laptop.
+- **H1's backup lines assumed the failing drive holds the account's files and shadow copies.**
+  - On a failing data drive D:, with File History and OneDrive off and System Restore on, the card
+    said "Only Windows' shadow copies were found, and they are on this same drive, so they would be
+    lost with it". System Restore's copies are of C:, on C:. The scan counts shadow copies and does
+    not know which drive holds them. The sentence is now true for any drive: "Only Windows' shadow
+    copies were found, and they are no protection against a drive failing."
+  - With OneDrive and File History both on, "OneDrive backs up some of this account's folders...;
+    anything else on this drive is not backed up" came just before "File History is on for this
+    account". File History backs up folders OneDrive does not. The clause is now said only when
+    File History was read as off. When File History is on or was not read, the card prints
+    `advice.h1.protection.onedrive.folders`, without the clause.
+  - Tested by `AdviceItemTests.The_card_says_what_already_protects_this_account_s_files`, with two
+    new rows, and by `Shadow_copies_are_never_said_to_be_on_the_failing_drive_because_the_scan_does_not_know_where_they_are`.
+- **O3 told a desktop owner to use "the charger that came with the laptop".**
+  - The speed test grades a PC with no battery as on mains, so a hot, dusty desktop gets the card.
+    It also said to keep the PC off "your lap" and to install "the laptop maker's" BIOS updates.
+  - The charger, lap and laptop-maker lines now need a `battery.*` reading, which only a PC with a
+    battery has. Without one the card reads the `.pc` lines: dust in the fan or heatsink, keep the
+    air vents clear, the BIOS updates from the maker of the PC or its motherboard. A laptop whose
+    battery was not read loses only the charger line, which is the safe direction.
+  - Tested by `AdviceItemTests.Heat_advice_speaks_of_a_charger_and_a_lap_only_where_a_battery_was_read`.
+- **"1.5 times the space in use" was not true of the size it printed.**
+  - `storage.disk.used_gb` is in 1024^3 bytes. The sizes 128 to 4000 are the box's, in 10^9 bytes.
+    `ReplacementSizeGb` compared the two directly. With 165 GB in use it picked "256 GB", which
+    holds 238.4 GB as Windows counts them: 1.44 times. The top 7% of every size band was short by
+    up to 7%.
+  - The space in use is now turned into the box's GB first. The edges moved to 79.4/79.5,
+    158.9/159.0, 620.8/620.9 and 2483.5/2483.6.
+  - `AdviceEngineTests.The_size_picked_holds_one_and_a_half_times_the_space_in_use_counted_in_bytes`
+    checks it in bytes. It failed before the fix at 165 and 341 GB.
+  - The copy time stays as it is. Windows' copy dialog shows MB/s in 1024^2 bytes too, and the rate
+    is a typical range, rounded up to 5 minutes.
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-005 — A key prefix quoted in a comment hides unused catalog keys from the coverage test
+
+**Symptom.** Found by reading, while writing the items (Step B work group 3). Nothing was hidden.
+`AdviceCatalogTests.KeysNamedInCode` collects every `"advice.…"` string in the advice sources,
+**comments included**. It treats one that ends in a dot as a prefix the code builds keys from, and
+a prefix counts every catalog key under it as used. A doc comment I had written read `The key is
+"advice.h1.evidence." and the reading's id`. That alone would have made every `advice.h1.evidence.*`
+key pass as used, even one no code path prints.
+
+**Root cause.** The scan cannot tell code from prose. Group 1's own `"advice.area." + area` is a real
+prefix, so prefixes have to be allowed.
+
+**Fix (2026-10-28).**
+- The two comments now use `<c>…</c>` without quotes.
+- Every item key is written out whole in the code, never built by concatenation.
+- `AdviceItemTests.Every_item_sentence_in_the_catalog_is_printed_by_some_fixture_with_every_value_it_names`
+  closes the gap from the other side: fixtures must actually print every item key, prefix or not.
+  It is what proves "every catalog key is used" for the items.
+
+**How to verify.** Checked on 2026-10-28:
+- add `// "advice.h1."` to an item file;
+- add a key `advice.h1.unused-probe` to `en.json` that no code prints.
+
+`Every_key_the_code_names_exists_and_every_key_in_the_catalog_is_used_or_reserved` still passed. The
+new test failed with "No fixture prints: advice.h1.unused-probe".
+
+**Date.** 2026-10-28.
+
+---
+
+## TOOL-005 — "Build succeeded" on code that had just failed `-warnaserror`
+
+**Symptom.** Found on 2026-10-28 while building Step B work group 1. A new test file had a CA1861
+warning (a constant array passed as an argument). One `dotnet build PcHealthCheck.slnx -c Release
+-warnaserror` failed on it, but its output was lost to a broken pipe. The next identical build
+printed "0 Error(s)", and the tests ran. The warning came back only when a later edit forced the
+test project to recompile.
+
+**The wrong first guess.** That the analyzer was flaky and reported CA1861 on some builds only.
+
+**Root cause.** `-warnaserror` on `dotnet build` is MSBuild's switch, not the compiler's. MSBuild
+logs the warning as an error and fails the build, but the compiler still treats it as a warning,
+so it writes the assembly. The next build finds every output up to date and skips the compile. The
+warning is never emitted again, and the build succeeds. The locale analyzers are not affected:
+`.editorconfig` makes CA1305, CA1304 and CA1310 compiler errors, and then no assembly is written.
+
+**How to verify.** Reproduced on 2026-10-28. Add
+`private static int Probe() => Enumerable.Range(0, 3).Sum(i => new[] { 1, 2 }.Count(x => x > i));`
+to a test class, then build twice with `-warnaserror` and change nothing in between:
+- the first build is FAILED with CA1861, yet `PcHealth.Tests.dll` is rewritten at that minute;
+- the second build says "Build succeeded."
+
+**Where it matters.** CI builds a fresh clone, so it still fails there. `daily-smoke.ps1` builds
+incrementally (`daily-smoke.ps1:128`). On a dev PC where a failed build has already run, the
+smoke's Build row can therefore read PASS while the code still has the warning.
+
+**Fix.** Not changed yet: the smoke script was outside work group 1. Two possible fixes:
+- give the smoke's build `--no-incremental`;
+- or pass `-p:TreatWarningsAsErrors=true`, which makes the compiler fail and write nothing.
+
+Until then, after any failed `-warnaserror` build, rebuild with `--no-incremental` before trusting
+"0 Error(s)". The CA1861 itself was fixed: the array is now a static field.
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-001 — The spec's whole-number percentages would print 9.9% free as "10%"
+
+**Symptom.** Found by reading, while writing the advice formatter (Step B work group 1). Nothing
+printed it, because no item existed yet. STEP-B-SPEC section 4 formats Percent as "0", a whole
+number:
+- free space is graded Bad under 10%, and the SPACE title says "Under 10% free, Windows Update can
+  fail". A 9.9% reading would have printed "9.9% free" as "10% free" in that sentence;
+- the processor clock is graded Normal under 100%, and O3 says "A healthy one goes above 100%". A
+  99.6% reading would have printed as "100%".
+
+**Root cause.** Rounding to a whole number crosses the band edge the same sentence names.
+
+**Fix (2026-10-28).** Percent is written "0.#": "9.9%", "86%". The readings are already rounded to
+0.1 where they are made (`VolumeReadings.FreeSpace`), so the printed value is the graded value.
+`AdviceCatalogTests.Every_unit_is_written_the_same_under_every_regional_format` covers it, with the
+case "percent under a band edge". Gb rounds before it chooses its format, so 9.96 GB prints "10 GB",
+never "10.0 GB".
+
+**Left as the spec says.** Days is a whole number. Uptime 7.1 days prints "7 days" where S1 fires
+above 7, which still reads true. Temperatures fire at 80 °C and up, so their rounding never crosses
+a band edge.
+
+**Review round, 2026-10-28: "about 5 to 5 minutes".**
+- *Symptom.* Found by reading. Both ends of H1's copy time are rounded up to 5 minutes, and the
+  slow end is twice the fast one before rounding. On a drive with up to about 14.6 GB in use, both
+  round to 5, and the card read "takes about 5 to 5 minutes". Only a data drive is that empty:
+  Windows alone is more.
+- *Fix.* When the two ends are equal, the card prints `advice.h1.do.estimate.short`: "About 15 GB
+  is in use on D:. Copying all of it to a USB 3 drive takes 5 minutes or less at a typical 50 to
+  100 MB/s." The rounded value is never below the estimate, so "or less" always holds.
+- *How to verify.* `AdviceItemTests.A_copy_time_whose_two_ends_round_to_the_same_minutes_is_not_written_as_a_range`
+  checks both sides: 14.6 GB gives the short form, and 14.7 GB gives "5 to 10".
+
+**Date.** 2026-10-28.
+
+---
+
+## STOR-003 — The new disk rows would have made a volume check that measured nothing read "Completed"
+
+**Symptom.** Found by reading on 2026-10-28, while adding the `storage.disk.role` and
+`storage.disk.used_gb` rows (Step B work group 2). Nothing shipped with it. `VolumesModule` decides
+Failed with `if (metrics.Count == 0)`. Disk rows added anywhere before that line would count as
+measured rows, so a scan where MSFT_Volume and Win32_LogicalDisk both returned nothing, but the
+drive map answered, would have gone from Failed to Completed. That is rule 1's bug: a check that
+could not run reading as healthy. `HealthModuleBase` has the same trap: an exception after any row
+was added gives PartiallyCompleted, not Failed.
+
+**The wrong first guess.** That STEP-B-SPEC 2.4 had covered the status, since it says "the module
+status does not change". It says so only for an unreadable drive map, the case where no disk row is
+written at all.
+
+**Root cause.** The volume check uses its row count as its measure of "did anything work". Rows that
+come from another read, the drive map, would have answered that question for it.
+
+**How to verify.** `UsbAndDriveKindTests.Disk_rows_never_make_a_volume_check_that_measured_nothing_read_as_finished`:
+
+- no volume row, the map read, gives Failed, with the three disk rows kept;
+- `Without_the_drive_map_there_are_no_disk_rows_and_the_status_is_unchanged` is the other direction.
+
+Moving the `AddRange` above the status line makes the first test fail (checked on 2026-10-28).
+
+**Fix.** `DiskRoles.AddAfterStatus` decides the status from the rows the check measured, and only then
+adds the disk rows. It is the module's last statement, so an exception before it leaves no disk row
+behind. The disk rows are kept on a Failed check: they come from the map, which did answer, and
+without them the advice could not tell the audit drive from the laptop's own (STEP-B-SPEC risk 2).
+
+**Date.** 2026-10-28.
+
+---
+
+## ADV-002 — The spec expected a "space in use" row on every USB disk; a USB flash stick gets none
+
+**Symptom.** The unelevated live scan of 2026-10-28 on the dev T470p showed four disks. Each had a
+`storage.disk.role` row, with C:'s disk `system` and the three USB disks `external`. Disk 2, a USB
+flash stick, had no `storage.disk.used_gb` row. STEP-B-SPEC section 8 (work group 2, "Done when")
+expects `used_gb` "on each".
+
+**The wrong first guess.** That the disk rows were matching letters badly, since MSFT_Volume names a
+volume "E" and the drive map "E:". It was not that: the other three disks got their rows, and
+`DiskRoles.From` normalizes both through `DriveMap.NormalizeLetter`.
+
+**Root cause.** The spec is wrong here, not the code. A flash stick reports its volume as removable,
+MSFT_Volume DriveType 2. `VolumesModule` measures fixed volumes only (DriveType 3), so E: has no
+free-space row and its size was never read. The rule in STEP-B-SPEC 2.4 is that `used_gb` is written
+only when every lettered drive on the disk was measured: "a partial sum must never read as a small
+number". With nothing measured, the sum is unknown, not 0 GB.
+
+**How to verify.** In PowerShell:
+`Get-CimInstance -Namespace root\Microsoft\Windows\Storage -ClassName MSFT_Volume | ? DriveLetter | % { "$($_.DriveLetter): $($_.DriveType)" }`.
+E: shows 2. `UsbAndDriveKindTests.The_space_in_use_is_left_out_rather_than_added_up_over_part_of_a_disk`
+holds the rule.
+
+**Fix.** None needed. Only H1 reads `used_gb`, and H1 never speaks about an external disk. An internal
+disk whose volume reads as removable (some eMMC laptops) also gets no `used_gb`. H1 then uses the
+"at least 1.5 times the space in use" wording, with no GB figure, which the spec already provides.
+
+**Date.** 2026-10-28.
+
+**Review round, 2026-10-28: the row said Windows was on the USB drive.** Every `used_gb` row's
+detail read "Added up over this disk's drives (K:), Windows and programs included.", and the HTML
+report prints the detail, so the auditor's USB drive and every data disk were said to hold Windows.
+H1's copy estimate said the same about a failing data drive D:, with "your own files are usually
+much less". The wrong first guess was that only H1 reads the row, so its wording did not matter: the
+report shows it too (ACCEPTANCE E5). `VolumeReadings.DiskUsed` now takes `holdsWindows`, true for
+the `system` disk only; other disks read "Added up over this disk's drives (F:).". H1 uses
+`advice.h1.do.estimate.data` on any drive but the system one. Verified by
+`UsbAndDriveKindTests.Only_the_disk_Windows_runs_from_is_said_to_hold_Windows_and_programs` and
+`AdviceItemTests.Only_the_drive_Windows_runs_from_is_said_to_hold_Windows_and_programs`, both
+directions; the data-disk side failed before the fix. The kit fixture's F: row matches.
+
+---
+
+## TOOL-006 — An empty list returned from a PowerShell function has no `.Count` under strict mode
+
+**Symptom.** The new kit check (STEP-B-SPEC 2.3) failed on its first run, on 2026-10-28, with "The
+property 'Count' cannot be found on this object". The check compares seven columns of two rows, and
+`Get-StepBMoved` returns the columns that differ: none, when the check is passing.
+
+**The misleading reading.** The message looks like the failure this check exists to catch: the kit
+reading a field that a real report row does not carry. Strict mode fails on exactly that.
+
+**Root cause.** A function's output is unrolled. An empty array comes back as nothing (`$null`), and
+`Set-StrictMode -Version 2.0`, which `kit-tests.ps1` uses, makes `.Count` on `$null` an error. With
+one differing column it comes back as a bare string, and `.Count` on that throws the same way.
+
+**How to verify.** Checked in `powershell.exe` on 2026-10-28:
+`Set-StrictMode -Version 2.0; function F { @() }; (F).Count` throws, and so does `(G).Count` for
+`function G { @('Verdict') }`, while `@(F).Count` is 0.
+
+**Fix.** The caller wraps the call: `@(Get-StepBMoved ...).Count`. This is the same habit the kit's own
+code follows with `@($x | Where-Object ...)`.
+
+**Date.** 2026-10-28.
+
+---
+
 ## PRIV-003 — A drive the SMART check could not match was named by its device path
 
 **Symptom.** Found by the Step A gate on 2026-10-28, by reading the code. No report has been seen
@@ -708,7 +1363,12 @@ details for a digit, a comma and a digit.
 a number into report text goes through `string.Create(CultureInfo.InvariantCulture, ...)`, with a
 test that runs a module's formatting under a comma culture. *2026-10-28: the `stability.index`
 range line was rewritten for HIST-001 and is invariant now ("4.5–10.0" in the live scan); the rest
-of the class is still open.*
+of the class is still open.* *2026-10-28, Step B work group 1 live scan: the headless console's
+per-module lines print "license: Completed (7,0s)" on the dev T470p, from
+`{m.Elapsed.TotalSeconds:0.0}` in the per-module loop of `HeadlessScan.cs` (line 222 then, 231
+after work group 4 put the advice block above it). Nothing parses those lines today, but the
+console is meant to be English data (STEP-B-SPEC invariant 6). The advice code has a source scan
+against this pattern (`AdviceCatalogTests.No_advice_code_formats_a_number_with_the_current_culture`).*
 
 **Date.** 2026-10-27.
 
@@ -1561,6 +2221,21 @@ weaken the verdict in the kit.
 admin module and may already be running elevated, in which case both halves of that sentence were
 false and a genuinely broken query read as a deliberate deferral. It now asks before it says.
 
+**Review round, 2026-10-28: the advice section's note made the same claim.**
+- *Symptom.* A scan without the drive checks got the grey note "Drive health was not part of this
+  scan: its checks need administrator rights." The elevated ones got it too:
+  - a window started with Run as administrator, with both drive checks unticked;
+  - the headless scan from an elevated console without `--include-admin`, which drops every admin
+    check. The console header above the note said "(elevated scan)".
+- *Root cause.* The same as above: a cause stated and never checked. The advice engine could not
+  check it, because `AdviceContext` carried only the system drive, while `BuildReport` had
+  `ranElevated` to hand.
+- *Fix.* `AdviceContext.RanElevated`, which `BuildReport` passes. On an elevated scan the note reads
+  "Drive health was not part of this scan: its checks were not selected." ACCEPTANCE K3 says so.
+- *How to verify.* `AdviceItemTests.Drive_health_left_out_blames_administrator_rights_only_on_a_scan_that_had_none`
+  covers both directions. `HealthyPcAdviceTests.A_healthy_PC_scanned_as_administrator_with_the_drive_checks_left_out_is_not_told_it_lacked_the_rights`
+  goes through `BuildReport`. Both failed on their elevated case before the fix.
+
 **Date.** 2026-10-25.
 
 ---
@@ -1704,6 +2379,27 @@ not on Microsoft's supported list", and "a processor block cannot be fixed by an
 Lesson: test data copied through PowerShell's display is not the data .NET receives; a live run
 on a real machine is part of the test.
 
+**Review round, 2026-10-28: O1 could send IT back to switch on a setting the same report reads as
+on.** The reviewer marked it uncertain. The code confirms it.
+- *Symptom.* Windows' verdict (`RedReason`) is refreshed about once a day. IT switches on Intel PTT
+  or Secure Boot as the O1 card says, and runs the kit again straight away. The platform check now
+  reads `security.tpm_ready` or `security.secure_boot` as on. The verdict still names `Tpm` or
+  `SecureBoot`, so the card again said "The TPM security chip is off or not ready: turn on Intel PTT
+  or AMD fTPM". The card's last line said to check again in a day, but nothing said the change was
+  already seen.
+- *Root cause.* `Windows11SwitchItem` read only Windows' verdict, never the readings beside it.
+- *Fix.* When this scan reads the setting as on, the code's line is replaced by one that says so:
+  - `Tpm` or `TpmVersion`, with the TPM ready and its version 2.x;
+  - `SecureBoot` or `UefiSecureBoot`, with Secure Boot on.
+
+  A TPM that is ready but not read as 2.0 keeps the blocker line, because the code is "no TPM 2.0
+  security chip is turned on". `Uefi` has no reading of its own. Without the platform readings, as
+  on a standard user's scan, every code keeps its line. The card still rests on Windows' verdict
+  and still ends with "check again".
+- *How to verify.* `AdviceItemTests.A_setting_this_scan_reads_as_on_is_not_sent_back_to_be_switched_on`,
+  11 rows in both directions, and `A_TPM_switched_on_since_Windows_last_checked_reads_in_full`.
+- *Not changed.* The kit's own fleet row reads the same stale code (`audit-common.ps1`).
+
 **Date.** 2026-10-23.
 
 ---
@@ -1814,6 +2510,14 @@ the Windows path `src\\PcHealth.Modules.Linux\\bin\\Release\\net10.0\\…` arriv
 which became a backspace byte and a line break. The control-byte scan of every changed file
 (any byte below 32 other than tab, LF and CR) caught it before anything ran. The line was rebuilt
 from `bytes([92])`. The rule stands: **no backslash in any script text that passes through a heredoc**.
+
+**Recurred on 2026-10-28, through the editor tool this time** (Step B work group 2). A kit check
+wrote the JSON escape for an em dash, backslash-u-2014, so that `kit-tests.ps1` stays ASCII. The
+editor tool and a Python heredoc both wrote the real em dash instead. The ASCII scan caught it
+(`LC_ALL=C grep -nP '[^\x00-\x7F]' tests/audit-kit/kit-tests.ps1 audit-kit/*.ps1`), and the escape
+was rebuilt from `chr(92) + 'u2014'`. So "use an editor tool" above is not a safe way past this
+either: a `\u` escape is decoded before it reaches the file. Run the ASCII scan after every edit to
+the kit, whichever tool made it.
 
 **Date.** 2026-10-23.
 

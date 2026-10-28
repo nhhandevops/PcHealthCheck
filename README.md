@@ -18,7 +18,7 @@ Built with C# / .NET 10 + Avalonia. Windows 10/11 first. Linux checks are in dev
 | Module | What it finds |
 |---|---|
 | System overview | Windows edition, build & support status (Windows 10: whether Extended Security Updates are active; Windows 11: version end date and unsupported hardware), uptime, pending reboot |
-| Volumes & free space | Free-space bands per volume, file-system health, TRIM state |
+| Volumes & free space | Free-space bands per volume, file-system health, TRIM state; and, for information, each disk's role (the system disk, inside the PC, or external) and the space in use on its drives |
 | Security posture | Antivirus active & current (any vendor), Defender signature age & tamper protection, exclusion audit, firewall per profile, UAC, SmartScreen |
 | Startup programs | Everything that starts with Windows (items switched off in Task Manager left out), each item's signer, offline Authenticode verification including Windows' own catalog-signed files (unsigned / **broken** signatures; one that could not be verified is never counted as verified), Winlogon persistence check |
 | Windows license | Activation state, genuine check (local API), license channel, localhost-KMS crack detection |
@@ -64,6 +64,15 @@ Some readings need an extra tool (today: the PawnIO sensor driver). The app mana
 
 Every metric is graded **Good / Normal / Bad** by data-driven rules (`src/PcHealth.Core/Rules/*.json`) with concrete fix tips and a failure forecast where relevant.
 
+### What you can do — advice built from the grades
+
+Above the results, a short **"What you can do"** section joins readings into advice, hardware and your data first. Example: "Back up now: the drive Windows runs from is failing", with what to copy first and what not to run on that drive.
+- **Built only from this report's grades.** A card exists only because a reading is graded Normal or Bad, so a healthy PC shows none. The section never changes a grade.
+- **A check that broke says so.** It shows a "not measured" line, never an empty section that reads as an all-clear. A check that was not part of the scan, or a drive inside the PC that did not report whether it has damaged areas or errors, gets a grey note instead.
+- **At most five cards, then "N more".** In the window, **Don't show again** hides a card until it gets worse. Exported reports and the JSON list every card, and the headless console prints the first five and how many more the report holds; none of them hides a card.
+- **Advice only.** Nothing on the PC changes, and the section reads nothing of its own. Today it covers a failing or worn drive, security settings that are switched off, a Windows 11 block that a firmware switch removes, a nearly full system drive, a hot processor that slows itself down, and when to restart.
+- **English for now.** Every sentence is a key in `src/PcHealth.Core/Text/en.json`, ready for Vietnamese.
+
 ### Trends — what a single scan cannot tell you
 
 A snapshot cannot distinguish a drive that has had 2 bad sectors for two years from one that grew 2 bad sectors this week. The second is an emergency. So each scan records its numbers to a local SQLite file (`%LOCALAPPDATA%\PcHealthCheck\history.db`) and the next scan reports what moved:
@@ -107,6 +116,10 @@ Requires the .NET 10 SDK.
 - **M3** — sensors (LibreHardwareMonitorLib + signed PawnIO driver, consent-gated install) and benchmarks (Microsoft DiskSpd read-only profile, 7-Zip CPU bench) with personal baselines.
 - **M4 (part 1 done)** — malware history & defences, network/hosts/proxy integrity. Remaining: on-demand Defender scan orchestration, ClamAV second opinion (offered via the dependency manager), opt-in VirusTotal hash lookups, packaging & code signing.
 - **M5** — browser-extension audit, multi-user startup coverage, localization, Linux module provider (phase 1, unelevated readings and tests, done 2026-10-23; a Linux command-line build is next).
+- **Remedies, phase 1: advice only** ([docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md)):
+  - Step A (false alarms removed, the truth about Windows 10 support) is done.
+  - Step B (the "What you can do" section) is built, and not yet released.
+  - New read-only readings, the laptop audit's intake and handover check, and Vietnamese follow.
 
 ## License
 

@@ -37,6 +37,38 @@
           </StackPanel>
         </Border>
       </DataTemplate>
+
+      <!-- One "What you can do" card, shared by the first five and the ones under "N more". -->
+      <DataTemplate x:Key="AdviceCard" x:DataType="vm:AdviceCardViewModel">
+        <Border BorderBrush="#40808080" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+          <StackPanel Spacing="4">
+            <WrapPanel ItemSpacing="8" LineSpacing="4">
+              <Border Background="{Binding UrgencyBrush}" CornerRadius="6" Padding="6,2" VerticalAlignment="Center">
+                <TextBlock Text="{Binding UrgencyLabel}" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+              </Border>
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" MaxWidth="600" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding Subject}" IsVisible="{Binding HasSubject}" Opacity="0.65" VerticalAlignment="Center" />
+            </WrapPanel>
+            <ItemsControl ItemsSource="{Binding Lines}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:AdviceLineViewModel">
+                  <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,1,0,0">
+                    <TextBlock Text="•" Opacity="0.8" />
+                    <!-- A line for IT says so, so an employee knows to pass it on. -->
+                    <Border IsVisible="{Binding IsForIt}" Background="#455a64" CornerRadius="4" Padding="5,1" VerticalAlignment="Top">
+                      <TextBlock Text="{Binding ForItLabel}" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+                    </Border>
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" MaxWidth="580" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <HyperlinkButton Content="{Binding DontShowLabel}" IsVisible="{Binding CanDismiss}"
+                             Command="{Binding DismissCommand}" CommandParameter="{Binding}"
+                             FontSize="11" Padding="0" Margin="8,2,0,0" HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+      </DataTemplate>
   </Window.Resources>
 
 
@@ -176,6 +208,36 @@
               <StackPanel Spacing="4">
                 <TextBlock Text="Some checks could not finish" FontWeight="SemiBold" FontSize="13" />
                 <TextBlock Text="{Binding IncompleteChecksText}" TextWrapping="Wrap" FontSize="12" Opacity="0.85" />
+              </StackPanel>
+            </Border>
+
+            <!-- What you can do: built from this scan's graded readings, hardware and data first,
+                 five cards and then "N more". The same section as the exported report, except
+                 that only here can a card be hidden; the report always lists every one. -->
+            <Border IsVisible="{Binding HasAdvice}" BorderBrush="#40808080" BorderThickness="1"
+                    CornerRadius="10" Padding="14,10" Margin="0,0,6,0">
+              <StackPanel Spacing="8">
+                <TextBlock Text="{Binding AdviceTitle}" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding AdviceIntro}" TextWrapping="Wrap" Opacity="0.75" FontSize="12" />
+                <ItemsControl ItemsSource="{Binding AdviceCards}" ItemTemplate="{StaticResource AdviceCard}" />
+                <Expander Header="{Binding MoreAdviceHeader}" IsVisible="{Binding HasMoreAdvice}" HorizontalAlignment="Stretch">
+                  <ItemsControl ItemsSource="{Binding MoreAdviceCards}" ItemTemplate="{StaticResource AdviceCard}" Margin="0,6,0,0" />
+                </Expander>
+                <!-- Amber: a check that tried and did not finish, so advice may be missing. -->
+                <Border IsVisible="{Binding HasNotMeasured}" Background="#20b8860b" BorderBrush="#80b8860b"
+                        BorderThickness="1" CornerRadius="6" Padding="10,6">
+                  <TextBlock Text="{Binding NotMeasuredText}" TextWrapping="Wrap" FontSize="12" />
+                </Border>
+                <!-- Grey: deliberately not part of this scan, which never degrades it. -->
+                <TextBlock Text="{Binding NotesText}" IsVisible="{Binding HasNotes}" TextWrapping="Wrap" FontSize="12" Opacity="0.6" />
+                <WrapPanel IsVisible="{Binding HasHiddenAdvice}" ItemSpacing="6">
+                  <TextBlock Text="{Binding HiddenAdviceText}" FontSize="12" Opacity="0.75" VerticalAlignment="Center" />
+                  <TextBlock Text="—" FontSize="12" Opacity="0.75" VerticalAlignment="Center" />
+                  <HyperlinkButton Content="{Binding ShowHiddenAdviceLabel}" Command="{Binding ShowHiddenAdviceCommand}"
+                                   FontSize="12" Padding="0" VerticalAlignment="Center" />
+                </WrapPanel>
+                <TextBlock Text="{Binding AdviceEmptyText}" IsVisible="{Binding HasAdviceEmptyText}" TextWrapping="Wrap" FontSize="12" />
+                <TextBlock Text="{Binding OtherFindingsText}" IsVisible="{Binding HasOtherFindings}" TextWrapping="Wrap" FontSize="12" Opacity="0.75" />
               </StackPanel>
             </Border>
 

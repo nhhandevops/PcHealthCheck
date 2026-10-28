@@ -169,6 +169,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         HasResults = false;
         CategoryCards.Clear();
         ReceiptLines.Clear();
+        ClearAdvice();
         _elevationNote = null;
         _scanCts = new CancellationTokenSource();
 
@@ -322,6 +323,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             : "These results are missing, which is not the same as being healthy — " +
               string.Join("; ", incomplete.Select(m =>
                   $"{m.ModuleName}: {m.Error ?? (m.Notes.Count > 0 ? m.Notes[0] : "no reason given")}"));
+
+        PresentAdvice(report);
 
         Trends.Clear();
         foreach (var trend in report.Trends.OrderBy(t => t.Grade switch { Grade.Bad => 0, Grade.Normal => 1, _ => 2 }))

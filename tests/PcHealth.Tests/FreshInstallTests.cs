@@ -1,5 +1,6 @@
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
+using PcHealth.Core.Text;
 using PcHealth.Core.Verdicts;
 using PcHealth.Modules.Windows.Security;
 using PcHealth.Modules.Windows.Support;
@@ -176,6 +177,18 @@ public sealed class FreshInstallTests
         {
             foreach (var path in OneVersionOnly)
                 Assert.DoesNotContain(path, tip, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void No_advice_sentence_names_a_menu_path_that_only_one_Windows_version_has()
+    {
+        // The "What you can do" sentences live in Text/en.json, not in the rule files.
+        var catalog = AdviceCatalog.English;
+        foreach (var sentence in catalog.Keys.SelectMany(catalog.Templates))
+        {
+            foreach (var path in OneVersionOnly)
+                Assert.DoesNotContain(path, sentence, StringComparison.OrdinalIgnoreCase);
         }
     }
 

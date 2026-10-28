@@ -1,7 +1,12 @@
+using System.Globalization;
+using System.Text.Json;
+using PcHealth.Core.Advice;
 using PcHealth.Core.History;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
+using PcHealth.Core.Orchestration;
 using PcHealth.Core.Reporting;
+using PcHealth.Core.Text;
 using PcHealth.Core.Verdicts;
 using Xunit;
 
@@ -194,6 +199,241 @@ public class ReportExportTests
         Assert.Contains("\"Text\": \"never run\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("e+308", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("1.7976931348623157", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_json_carries_the_advice_section_with_its_typed_arguments()
+    {
+        // What Step D's kit will read: Item, Urgency, Key and the argument names, as .Args.count.Number.
+        var item = new TestAdviceItem("T", "drive-health", (facts, _) =>
+        [
+            new AdviceCard("T:disk0", "T", "drive-health", AdviceUrgency.ActNow, 10) { Subject = "MODEL-A — 240 GB", DiskNumber = 0 }
+                .Title("advice.section.title")
+                .Line(AdviceLineRole.Finding, "advice.section.other-findings", ("count", AdviceArg.Count(4)))
+                .Because(facts.First("smart.reallocated")!, countInFingerprint: true)
+                .Build(),
+        ]);
+        var rules = new VerdictEngine([new Rule
+        {
+            Id = "r", MetricId = "smart.reallocated", Bands = [new Band { Grade = "Good", Lte = 0 }, new Band { Grade = "Bad", Always = true }],
+        }]);
+        ModuleResult[] results =
+        [
+            new()
+            {
+                ModuleId = "disk.smart", Status = ModuleStatus.Completed,
+                Metrics = [new Metric("smart.reallocated", "Reallocated sectors", 5, HealthCategory.Storage, Subject: "MODEL-A — 240 GB", DiskNumber: 0)],
+            },
+        ];
+
+        var json = JsonReportExporter.ToJson(new ScanOrchestrator(rules, new AdviceEngine([item])).BuildReport(results, [], false));
+
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal("1.1", document.RootElement.GetProperty("SchemaVersion").GetString());
+        var advice = document.RootElement.GetProperty("Advice");
+        var card = Assert.Single(advice.GetProperty("Recommendations").EnumerateArray());
+        Assert.Equal(("T:disk0", "T", "drive-health", "ActNow", "Bad", 10, 0),
+            (card.GetProperty("Id").GetString(), card.GetProperty("Item").GetString(), card.GetProperty("Area").GetString(),
+             card.GetProperty("Urgency").GetString(), card.GetProperty("Severity").GetString(),
+             card.GetProperty("Rank").GetInt32(), card.GetProperty("DiskNumber").GetInt32()));
+        Assert.Equal("advice.section.title", card.GetProperty("Title").GetProperty("Key").GetString());
+        var line = Assert.Single(card.GetProperty("Lines").EnumerateArray());
+        Assert.Equal("Finding", line.GetProperty("Role").GetString());
+        Assert.Equal("advice.section.other-findings", line.GetProperty("Key").GetString());
+        var count = line.GetProperty("Args").GetProperty("count");
+        Assert.Equal(4, count.GetProperty("Number").GetDouble());
+        Assert.Equal("Count", count.GetProperty("Unit").GetString());
+        Assert.False(count.TryGetProperty("Text", out _));
+        var evidence = Assert.Single(card.GetProperty("Evidence").EnumerateArray());
+        Assert.Equal(("smart.reallocated", 0, "Bad"),
+            (evidence.GetProperty("MetricId").GetString(), evidence.GetProperty("DiskNumber").GetInt32(), evidence.GetProperty("Grade").GetString()));
+        Assert.Equal(0, advice.GetProperty("OtherFindings").GetInt32());
+        foreach (var list in new[] { "NotMeasured", "Notes", "ItemErrors" })
+            Assert.Equal(JsonValueKind.Array, advice.GetProperty(list).ValueKind);
+        Assert.DoesNotContain("Fingerprint", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_report_whose_advice_was_not_worked_out_has_none_in_its_json() =>
+        // Hand-built reports, older reports and Linux reports: no section, rather than an empty one.
+        Assert.DoesNotContain("\"Advice\"", JsonReportExporter.ToJson(Report()), StringComparison.Ordinal);
+
+    // --- "What you can do" in the HTML report (STEP-B-SPEC 6) -----------------------------------------
+
+    private const string AdviceHeading = "<h2>What you can do</h2>";
+
+    private static int Count(string text, string part) =>
+        text.Split(part).Length - 1;
+
+    [Fact]
+    public void The_html_shows_five_cards_and_the_rest_inside_a_details_element()
+    {
+        var html = HtmlReportExporter.ToHtml(Report() with { Advice = AdvicePresentationTests.Cards(7) });
+
+        Assert.Equal(7, Count(html, "<div class=\"card rec\">"));
+        var more = html.IndexOf("<details><summary>2 more</summary>", StringComparison.Ordinal);
+        Assert.True(more > 0);
+        var end = html.IndexOf("</details>", more, StringComparison.Ordinal);
+        Assert.Equal(5, Count(html[..more], "<div class=\"card rec\">"));
+        Assert.Equal(2, Count(html[more..end], "<div class=\"card rec\">"));
+        // Native HTML, so the report stays script-free and offline.
+        Assert.DoesNotContain("<script", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("http://", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("https://", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Five_cards_need_no_details_element()
+    {
+        var html = HtmlReportExporter.ToHtml(Report() with { Advice = AdvicePresentationTests.Cards(5) });
+
+        Assert.Equal(5, Count(html, "<div class=\"card rec\">"));
+        Assert.DoesNotContain("<details>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_section_comes_after_the_banner_and_before_the_trends()
+    {
+        var trend = new TrendFinding(TrendKind.CounterGrowth, "smart.pending_sectors", "ST2000 — 2000 GB", "Pending sectors",
+            Grade.Bad, "New.", 0, 3, DateTimeOffset.Now.AddDays(-7), []);
+        var report = Report([trend]) with
+        {
+            Modules = [new ModuleRunSummary("disk.smart", "Drive SMART health", ModuleStatus.Failed, TimeSpan.Zero, "Declined.", [])],
+            Advice = AdvicePresentationTests.Cards(1),
+        };
+
+        var html = HtmlReportExporter.ToHtml(report);
+
+        var banner = html.IndexOf("Some checks could not finish", StringComparison.Ordinal);
+        var advice = html.IndexOf(AdviceHeading, StringComparison.Ordinal);
+        var trends = html.IndexOf("What changed since your last scan", StringComparison.Ordinal);
+        Assert.True(banner > 0 && banner < advice && advice < trends, $"banner {banner}, advice {advice}, trends {trends}");
+    }
+
+    [Fact]
+    public void A_card_shows_its_urgency_title_subject_and_lines_with_those_for_IT_marked()
+    {
+        var html = HtmlReportExporter.ToHtml(Report() with { Advice = AdvicePresentationTests.Cards(1, 1) });
+
+        Assert.Contains("<span class=\"chip g-Bad\">Act now</span> <strong>What you can do</strong> <span class=\"subj\">MODEL-1 — 240 GB</span>",
+            html, StringComparison.Ordinal);
+        Assert.Contains("<li>First, copy your files off", html, StringComparison.Ordinal);
+        Assert.Contains("<li><strong>For IT:</strong> When the drive is retired", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_card_s_words_are_escaped_like_everything_else_in_the_report()
+    {
+        var card = AdvicePresentationTests.Cards(1).Recommendations[0] with { Subject = "<b>MODEL</b> & \"co\"" };
+
+        var html = HtmlReportExporter.ToHtml(Report() with { Advice = new AdviceSection([card], [], [], 0, []) });
+
+        Assert.Contains("<span class=\"subj\">&lt;b&gt;MODEL&lt;/b&gt; &amp; &quot;co&quot;</span>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<b>MODEL</b>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_clean_scan_says_there_is_nothing_to_suggest_without_any_alarm()
+    {
+        var report = AdvicePc.AllGood().Report(ranElevated: true);
+
+        var html = HtmlReportExporter.ToHtml(report);
+
+        Assert.NotNull(report.Advice);
+        Assert.Empty(report.Advice.ItemErrors);
+        Assert.Contains(AdviceHeading, html, StringComparison.Ordinal);
+        Assert.Contains("<p>Nothing to suggest from the checks that ran.</p>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("not an all-clear", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("INCOMPLETE", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Some checks could not finish", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("not the same as being healthy", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("http://", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("https://", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void An_incomplete_scan_with_nothing_to_suggest_says_it_is_not_an_all_clear()
+    {
+        // The drive checks tried and failed: an empty section must not read as "no failing drive".
+        var report = new AdvicePc().Module("disk.smart", ModuleStatus.Failed).Report(ranElevated: true);
+
+        var html = HtmlReportExporter.ToHtml(report);
+
+        Assert.Contains("<p class=\"amber\">Drive health was not fully checked: Drive SMART health did not finish", html, StringComparison.Ordinal);
+        Assert.Contains("<p>Nothing to suggest from the checks that ran. 1 check did not finish (listed above), so this is not an all-clear.</p>",
+            html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_standard_scan_gets_a_grey_note_about_drive_health_and_no_amber_line()
+    {
+        // CLAUDE.md rule 2: checks deliberately left out of a scan without admin rights are a note.
+        var report = AdvicePc.AllGood().Unelevated().Report(ranElevated: false);
+
+        var html = HtmlReportExporter.ToHtml(report);
+
+        Assert.Contains("<p class=\"muted\">Drive health was not part of this scan: its checks need administrator rights.</p>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("class=\"amber\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("not an all-clear", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_html_names_other_findings_and_item_errors()
+    {
+        var error = AdviceCatalog.English.Text(AdviceLineRole.Finding, "advice.section.item-error",
+            ("area", AdviceArg.Words("drive health")), ("error", AdviceArg.Words("FormatException")))!;
+        var html = HtmlReportExporter.ToHtml(Report() with { Advice = new AdviceSection([], [], [], 3, [error]) });
+
+        Assert.Contains("<p class=\"amber\">Advice about drive health could not be worked out (FormatException). The readings below are complete.</p>",
+            html, StringComparison.Ordinal);
+        Assert.Contains("<p class=\"muted\">3 other readings are graded Normal or Action needed; their tips are in their sections below.</p>",
+            html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_report_whose_advice_was_not_worked_out_has_no_section_in_its_html() =>
+        Assert.DoesNotContain("What you can do", HtmlReportExporter.ToHtml(Report()), StringComparison.Ordinal);
+
+    [Theory]
+    [InlineData("vi-VN")]
+    [InlineData("de-DE")]
+    public void The_html_section_reads_the_same_whatever_the_PC_s_regional_format(string culture)
+    {
+        var report = Report() with { Advice = AdvicePresentationTests.Cards(7, 2) with { OtherFindings = 1234 } };
+        string Section()
+        {
+            var html = HtmlReportExporter.ToHtml(report);
+            var start = html.IndexOf(AdviceHeading, StringComparison.Ordinal);
+            return html[start..html.IndexOf("<h2>", start + AdviceHeading.Length, StringComparison.Ordinal)];
+        }
+
+        var (saved, savedUi) = (CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
+        string invariant, local;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
+            invariant = Section();
+            CultureInfo.CurrentCulture = CultureInfo.CurrentUICulture = new CultureInfo(culture);
+            local = Section();
+        }
+        finally
+        {
+            (CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture) = (saved, savedUi);
+        }
+
+        Assert.Equal(invariant, local);
+        Assert.Contains("1234 other readings", local, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_json_lists_every_card_whatever_was_hidden_in_the_window()
+    {
+        // The JSON is the full section: no cap, and no "Don't show again".
+        var json = JsonReportExporter.ToJson(Report() with { Advice = AdvicePresentationTests.Cards(7) });
+
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(7, document.RootElement.GetProperty("Advice").GetProperty("Recommendations").GetArrayLength());
     }
 
     [Fact]

@@ -1,7 +1,9 @@
 <!-- Written 2026-10-27 by a multi-agent review (a code survey, five brainstormers, a skeptic and a
      planner), then revised the same day after the owner's answers by four more agents, each checked
      by a skeptic. It is a plan, not a commitment. Phase 1 Step A (rows 1-13) was built and reviewed
-     on 2026-10-27/28; everything after Step A is still a plan. The owner's decisions
+     on 2026-10-27/28. Step B, the advice engine, was built on 2026-10-28 from
+     docs/STEP-B-SPEC.md; it is not yet committed or released. Everything after Step B is still a
+     plan. The owner's decisions
      are in section 6; what they change, and what is still open, is in the first section below. -->
 
 # Plan: from "what is wrong" to "what to do about it"
@@ -231,6 +233,14 @@ signature could not be checked is never allowlisted.
   3. each scanned before updates, after updates, and after the Lenovo drivers.
 
   Expected: nothing but real prep items.
+- **The baseline list: the bands these scans set** (principle 14). Each reading stays information
+  only until its band is set from these scans, both dev PCs and the three pilot reports:
+  - **O3's throttle events** (`events.cpu_speed_limited_30d`, Windows' firmware speed-limit
+    events), for O3's "OR throttle events" branch. A healthy laptop logs a few at start-up, so the
+    band must sit above what a healthy, freshly restored laptop logs. Added by Step B, which shows
+    the count and never triggers on it.
+  - Step C's new readings add their own bands here as they are built (M2's memory bands, S2's
+    memory floor).
 - **Privacy.** Those scans carry UUIDs, serials and names, so they are never committed unscrubbed.
 
 ### What decision 3 removes
@@ -639,6 +649,10 @@ Each remedy lists: what the user sees, what the app checks, the advice, the opti
 - **Action and undo:** None.
 - **Estimate shown:** None, on purpose.
 - **Success:** Tests in both directions. On a healthy SSD, startup advice still appears.
+- *As built in Step B (2026-10-28):* the failing-drive label is live. It is S1's first line when H1
+  says "act now" or "check again" about the drive Windows runs from. The hard-disk label moved to
+  Step C row 3, with the reading it needs (H4); the low-memory label waits for M2 and M3 (Step C
+  rows 1 and 7). Both are catalog text only until then.
 
 **S5. Start-up time measured by Windows** (Phase 3, admin, read-only)
 - **User sees:** "Your last 7 starts took a median of 74 s from power-on to a usable desktop. These are Windows' own timings; the time spent at the password screen is not counted. Windows said <program> slowed 2 of them."
@@ -795,12 +809,24 @@ Each remedy lists: what the user sees, what the app checks, the advice, the opti
 - **Action and undo:** None. There are no power-plan changes.
 - **Estimate shown:** None.
 - **Success:** The CPU benchmark against the machine's history, and the throttle count over 30 days.
+- *As built in Step B (2026-10-28):* only the "high temperature AND low clock under load" branch.
+  - The throttle-event count (`events.cpu_speed_limited_30d`) is shown in the card's text and
+    never triggers it. A healthy laptop logs a few such events at start-up, and there is no band
+    for them yet.
+  - The band is on the baseline list ("The fresh-image baseline", at the top).
+  - The kit never runs the benchmark, so a hot laptop there gets a grey note instead.
 
 **O4. Security settings switched off (advice plus a button)**
 - **User sees:** "Windows Firewall is off for Public networks." Then "Open Windows Security". On a managed laptop: "This may be set by your IT team; ask them first."
 - **App checks:** The existing security readings, plus whether the laptop is company-managed (domain, MDM, policy keys).
 - **Action and undo:** The button only. The app never toggles security settings and never removes Defender exclusions.
 - **Success:** The next scan grades it Good.
+- *As built in Step B (2026-10-28):* the existing readings only, with no button (Phase 2).
+  - The managed-laptop reads moved to Step C row 10. Until then, no reading shows whether a laptop
+    is managed, so the "ask your IT team first" line is always shown, worded as a possibility.
+  - O4 inherits today's firewall grading. A third-party firewall, or a Domain profile off on a
+    workgroup PC, grades Bad and makes the card. That fix belongs to the reading, in the same Step C
+    row.
 
 **O5. Is the clock right?** (a new reading that the other remedies depend on)
 - **Why:** Today's time check reads only whether the time service runs. On the probe PC the service was not started, and Windows logged one 14-hour correction.
@@ -847,19 +873,64 @@ today.
 - What it carries: S1, S4, H1, O1, O3, O4 and the advice text of D4-D9, M5 and M6.
 - How it is tested: a healthy example gives zero recommendations, and a failed module gives "not measured". Then the three pilot reports are replayed.
 
+*As built (2026-10-28), not yet committed or released.* The build spec is
+[STEP-B-SPEC.md](STEP-B-SPEC.md). The owner accepted its three defaults (its section 11):
+- an employee may hide H1 with "Don't show again", and it comes back when the drive gets worse;
+- no cards for the other "Action needed" readings;
+- Step C row 3 is not pulled in.
+
+What it shipped:
+- **One section on every surface.** It is worked out once, in `ScanOrchestrator.BuildReport`,
+  after grading, and it never changes a grade. The JSON, the HTML report, the window and the
+  headless console all show it. The section is null on Linux.
+- **Live cards:** H1 (three urgencies), O4, O1, one low-space card for the system drive carrying
+  D4-D9, O3 (hot *and* slow), and S1, with S4's "will not fix a slow start" line when the system
+  drive is failing.
+- **Catalog text only:** M5, M6, and S4's hard-disk and low-memory labels.
+- **Text as data:** every sentence is a key and typed arguments in `src/PcHealth.Core/Text/en.json`,
+  ready for Step E.
+- **New readings:** two information-only rows per disk from the volume check, its role (system,
+  internal or external) and the space in use. H1 needs them to tell the laptop's SSD from the
+  auditor's USB drive.
+
+What moved out of Step B:
+- S4's hard-disk label moved to Step C row 3.
+- O4's managed-laptop reads moved to Step C row 10.
+- O3's "OR throttle events" branch waits for its band ("The fresh-image baseline", above).
+
+How it was proven:
+- **The healthy, unelevated and freshly reimaged fixtures give zero cards**
+  (`HealthyPcAdviceTests`).
+- **The pilot replay** (`PilotReplayTests`) reads the three af47a36 zips in place, on the dev T470p
+  only. It is skipped where they are absent. It finds:
+  - one H1 "Back up now" card, on the T470p's own SSD (5 retired sectors);
+  - "Drive health was not fully checked" on the elevated T470s, whose SMART check failed;
+  - drive-health and heat "not measured" lines on the standard-user T470s;
+  - no card about the auditor's USB drive, although its read errors are still graded Bad on two of
+    the three.
+
+  Without the disk role row, that drive would get a "Back up now" card; a test pins that direction
+  too.
+- The faults found while building it are ADV-001 to ADV-008, STOR-003, ACC-001, TEST-002 and
+  TOOL-005 to TOOL-007 in `docs/warning_bug_and_solutions.md`.
+- **What the replay cannot prove.** It re-grades with today's rules, but a reading's
+  information-only flag and its id are the 2026-10-23 build's (TEST-002). It proves the advice, not
+  Step A's module-side fixes.
+
 **Step C: new read-only measurements**, each with Notes, all information only at first.
 
 | # | Item | Effort |
 |---|---|---|
 | 1 | Low-memory culprits from Windows' records (M3) | small |
 | 2 | Fast Startup state and starts since the last restart (S1) | small |
-| 3 | System drive type: hard disk or SSD (H4) | small |
+| 3 | System drive type: hard disk or SSD (H4), and S4's "runs Windows from a hard disk" label, moved here from Step B | small |
 | 4 | Clock health (O5) and profile count and age (O2) | small |
 | 5 | Browser memory by name, plus policy keys (M4) | small |
 | 6 | Old Windows copy, lowest free this week, optimisation state (D6, H5, H6) | small |
 | 7 | Memory shortage against cache readings (M2) | medium |
 | 8 | Startup cost per item, tasks and services (S2, S3) | medium |
 | 9 | "What is using space" breakdown, run only when C: is low (D2) | medium |
+| 10 | Whether the laptop is company-managed, for O4: domain join and the security policy keys (moved here from Step B). The plan's O4 also names MDM enrolment. With them, a Domain-profile firewall is graded only on a domain-joined PC | small |
 
 **Step D: the kit, intake and handover** (rewritten 27 October, see "The handover check" at the top).
 Effort: **medium to large**. It has three parts:
@@ -882,7 +953,11 @@ bilingual questions ship with Step D.
 **Before moving to Phase 2:**
 - The pilot replay changes only the rows we expect.
 - There are no recommendations on healthy examples, and none on the pilot laptops apart from the hardware ones.
-- Both dev PCs have been scanned, one of them elevated, to set the new bands.
+  *Step B (2026-10-28): met in tests.* The healthy and reimaged fixtures give none. The pilot replay
+  gives one, the T470p's failing SSD.
+- Both dev PCs have been scanned, one of them elevated, to set the new bands (the baseline list,
+  under "The fresh-image baseline" at the top). *Not done yet: it needs a person and the dev
+  desktop.*
 - PRIVACY.md, the README, the main-window header and the report line are updated for each new reading, in the same commit.
 - The probes have been repeated on one Windows 11 machine. Every probe so far ran on Windows 10 22H2.
 - All tests, kit tests and the daily smoke are green.

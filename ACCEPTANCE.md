@@ -57,7 +57,7 @@ than merely wrong.
 | C1 | 🔴 Run a full scan with a network monitor open (Wireshark, GlassWire, or Resource Monitor's Network tab) | **Zero** connections from PcHealthCheck.exe | |
 | C2 | 🔴 Open the receipt after the scan | Lists every external program run with its full command line, and states 0 network connections | |
 | C3 | 🔴 Without ticking Disk speed, check every drive root and your Documents folder | No file created or modified by the app anywhere | |
-| C4 | Note the app's own folder locations | Only `%APPDATA%\PcHealthCheck` (consent) and `%LOCALAPPDATA%\PcHealthCheck` (history) | |
+| C4 | Note the app's own folder locations | Only `%APPDATA%\PcHealthCheck` (consent, and cards hidden with "Don't show again") and `%LOCALAPPDATA%\PcHealthCheck` (history) | |
 | C5 | Press Delete history, then look at the folder | History file gone | |
 | C6 | 🔴 Export an HTML report and read it end to end | No passwords, no product keys, no BitLocker keys, no file contents | |
 | C7 | Open the exported HTML with no internet connection | Renders fully — no external fonts, scripts or images | |
@@ -138,6 +138,29 @@ The row most likely to be skipped, and the one that catches packaging faults.
 | J2 | Run on a laptop | Battery check reports wear; on a desktop it says Skipped, no battery | |
 | J3 | 🔴 Run on a non-English Windows (Vietnamese if you have one) | All numbers correct — no speed or temperature off by a factor of 1000 from decimal-comma parsing | |
 | J4 | Run as a Windows user without administrator rights at all | Non-admin checks work; admin ones say plainly they cannot run | |
+
+## K. What you can do
+
+The section is worked out from the scan's own grades, and its rules have unit tests. The window,
+"Don't show again" and the wording against a real Windows do not, so they are checked here.
+K5-K10 need a card on demand: on a **test PC** (not anyone's work laptop, and not on a public
+network), switch off Windows Firewall for the Public network in Windows Security, then scan. That
+gives the "Security settings are switched off" card. Turn it back on at the end (K10).
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| K1 | Run a full scan with every check ticked | "What you can do" appears below the amber box (if there is one) and above "What changed since your last scan". A healthy PC shows no card, only "Nothing to suggest from the checks that ran." | |
+| K2 | 🔴 Tick **Drive SMART health** (an admin check), scan, and decline the UAC prompt. Not another admin check alone: that leaves drive health out of the scan, which is K3's grey note | The section shows an amber "Drive health was not fully checked: … did not finish" line. With no card, "Nothing to suggest" is followed by "… did not finish (listed above), so this is not an all-clear." It never says "Nothing to suggest" alone | |
+| K3 | Scan with only the checks that need no administrator | A grey "Drive health was not part of this scan: its checks need administrator rights." and **no** amber text in the section. (In a window started with Run as administrator, the grey line ends "its checks were not selected." instead.) | |
+| K4 | If a scan shows more than five cards, press "N more" (otherwise write N/A and why) | It expands to the rest; the first five do not move | |
+| K5 | With the firewall card showing, press "Don't show again" on it | The card goes; "1 hidden — Show again" appears; the status line says it comes back if it gets worse | |
+| K6 | Close and reopen the app, then scan again with nothing changed | The card stays hidden, and "1 hidden" is still shown. `%APPDATA%\PcHealthCheck\dismissed-advice.json` holds only 16-character codes and dates | |
+| K7 | 🔴 With the card hidden, export the HTML report and the JSON | Both still list "Security settings are switched off" | |
+| K8 | Switch off the firewall for a second network too (Private), then scan | The card is back by itself, listing both networks | |
+| K9 | Hide it again, then press "Show again" | Every hidden card is back, and `dismissed-advice.json` is gone | |
+| K10 | Follow the card's own steps to turn both firewalls back on, then scan | The steps match this Windows (Windows Security, "Firewall & network protection"), and the card is gone | |
+| K11 | Read a card that has lines for IT: a failing or worn drive, a hot and slow processor, or the Windows 11 card (if no PC shows one, write N/A) | Those lines carry a **FOR IT** badge; the HTML report writes "For IT:" before them | |
+| K12 | Start the app with "Run as administrator" and scan | Cards show without a "Don't show again" link, and no `dismissed-advice.json` is written | |
 
 ---
 

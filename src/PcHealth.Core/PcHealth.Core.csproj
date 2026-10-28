@@ -8,6 +8,12 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Rules\*.json" />
+    <!--
+      The advice catalog, one file per language (en.json; Step E adds vi.json). WithCulture="false"
+      keeps every one in this assembly: MSBuild otherwise reads a culture-looking name segment as a
+      satellite resource and moves the file out of it (STEP-B-SPEC 4, risk 3).
+    -->
+    <EmbeddedResource Include="Text\*.json" WithCulture="false" />
   </ItemGroup>
 
   <ItemGroup>

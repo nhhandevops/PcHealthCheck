@@ -1,7 +1,10 @@
+using PcHealth.Core.Advice;
+using PcHealth.Core.History;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Orchestration;
 using PcHealth.Core.Processes;
+using PcHealth.Core.Reporting;
 using PcHealth.Core.Verdicts;
 using Xunit;
 
@@ -301,6 +304,81 @@ public sealed class ScanOrchestratorTests
     [Fact]
     public void A_build_without_any_version_says_dev() =>
         Assert.Equal("dev", ScanOrchestrator.DescribeVersion(null, null));
+
+    // --- The advice section (STEP-B-SPEC 3.1): worked out once, after the grades ----------------------
+
+    private const string ModelA = "MODEL-A — 240 GB", ModelB = "MODEL-B — 1000 GB";
+
+    private static readonly VerdictEngine ReallocatedRule = new([new Rule
+    {
+        Id = "r", MetricId = "smart.reallocated",
+        Bands = [new Band { Grade = "Good", Lte = 0 }, new Band { Grade = "Bad", Always = true }],
+    }]);
+
+    private static ScanReport Build(AdviceEngine? advice, double reallocatedOnA, IReadOnlyList<TrendFinding>? trends = null)
+    {
+        IReadOnlyList<ModuleResult> results =
+        [
+            new ModuleResult
+            {
+                ModuleId = "disk.smart", Status = ModuleStatus.Completed,
+                Metrics =
+                [
+                    new Metric("smart.reallocated", "Reallocated sectors", reallocatedOnA, HealthCategory.Storage, Subject: ModelA, DiskNumber: 0),
+                    new Metric("smart.reallocated", "Reallocated sectors", 0, HealthCategory.Storage, Subject: ModelB, DiskNumber: 1),
+                ],
+            },
+            new ModuleResult
+            {
+                ModuleId = "sys.overview", Status = ModuleStatus.Completed,
+                Metrics = [new Metric("os.uptime_days", "Time since last restart", 3.2, HealthCategory.SoftwareOs, Unit: "days")],
+            },
+        ];
+        return new ScanOrchestrator(ReallocatedRule, advice).BuildReport(results, [], ranElevated: false, trends: trends);
+    }
+
+    [Fact]
+    public void A_report_carries_an_advice_section_and_its_schema_version_says_so()
+    {
+        // A healthy drive and every module complete: whatever items exist, there is nothing to suggest.
+        var report = Build(advice: null, reallocatedOnA: 0);
+
+        Assert.Equal("1.1", report.SchemaVersion);
+        Assert.NotNull(report.Advice);
+        Assert.Empty(report.Advice.Recommendations);
+        Assert.Empty(report.Advice.NotMeasured);
+        Assert.Equal(0, report.Advice.OtherFindings);
+        Assert.Empty(report.Advice.ItemErrors);
+    }
+
+    [Fact]
+    public void Advice_never_changes_a_grade_or_a_module_status()
+    {
+        IReadOnlyList<TrendFinding> trends =
+            [new TrendFinding(TrendKind.CounterGrowth, "smart.reallocated", ModelA, "Reallocated sectors", Grade.Bad, "grew", 3, 5,
+                DateTimeOffset.Now.AddDays(-7), [])];
+        var throwing = new TestAdviceItem("B", "security", (_, _) => throw new InvalidOperationException());
+
+        var without = Build(AdviceEngine.None, 5, trends);
+        var builtIn = Build(advice: null, 5, trends);
+        var busy = Build(new AdviceEngine([TestAdviceItem.CardPerFailingDrive(), throwing]), 5, trends);
+
+        Assert.Null(without.Advice);
+        Assert.Single(busy.Advice!.Recommendations);
+        Assert.Single(busy.Advice.ItemErrors);
+        foreach (var report in new[] { builtIn, busy })
+        {
+            Assert.Equal(without.Verdicts.Select(v => (v.Metric.Id, v.Metric.Subject, v.Grade)), report.Verdicts.Select(v => (v.Metric.Id, v.Metric.Subject, v.Grade)));
+            Assert.Equal(without.CategoryGrades.OrderBy(kv => kv.Key), report.CategoryGrades.OrderBy(kv => kv.Key));
+            Assert.Equal(Grade.Bad, report.OverallGrade);
+            Assert.Equal(without.OverallGrade, report.OverallGrade);
+            Assert.Equal(without.Modules.Select(m => (m.ModuleId, m.Status)), report.Modules.Select(m => (m.ModuleId, m.Status)));
+        }
+    }
+
+    [Fact]
+    public void A_report_on_an_OS_with_no_advice_has_no_section() =>
+        Assert.Null(Build(AdviceEngine.ForOs("linux"), 5).Advice);
 
     /// <summary>Progress&lt;T&gt; posts to the thread pool, so a test reading it could miss reports.</summary>
     private sealed class SyncProgress(Action<ScanProgress> report) : IProgress<ScanProgress>

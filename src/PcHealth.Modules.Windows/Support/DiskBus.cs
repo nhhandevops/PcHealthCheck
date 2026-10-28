@@ -1,4 +1,6 @@
 using System.Globalization;
+using PcHealth.Core.Metrics;
+using PcHealth.Core.Modules;
 
 namespace PcHealth.Modules.Windows.Support;
 
@@ -63,6 +65,17 @@ public sealed class DriveMap(
     public IReadOnlyDictionary<int, AttachedDisk> Disks { get; } =
         disks.GroupBy(d => d.Number).ToDictionary(g => g.Key, g => g.First());
 
+    /// <summary>The drive Windows runs from, as "C:", or null when it was not known.</summary>
+    public string? SystemDrive => _systemDrive;
+
+    /// <summary>The number of the disk a drive letter is on, or null when no lettered partition puts it on one.</summary>
+    public int? DiskOf(string? driveLetter) =>
+        NormalizeLetter(driveLetter) is { } letter && _diskByLetter.TryGetValue(letter, out var number) ? number : null;
+
+    /// <summary>The drive letters on one disk, in order ("C:", "D:"); empty when it has none.</summary>
+    public IReadOnlyList<string> LettersOn(int diskNumber) =>
+        [.. _diskByLetter.Where(p => p.Value == diskNumber && p.Key.Length > 0).Select(p => p.Key).Order(StringComparer.Ordinal)];
+
     /// <summary>
     /// The external bus a lettered volume sits on, or null when it counts as this PC's own: it is
     /// on an internal or unknown bus, it is the drive Windows runs from or on that drive's disk,
@@ -73,7 +86,7 @@ public sealed class DriveMap(
     {
         var letter = NormalizeLetter(driveLetter);
         if (letter is null || string.Equals(letter, _systemDrive, StringComparison.OrdinalIgnoreCase)) return null;
-        if (!_diskByLetter.TryGetValue(letter, out var number) || !Disks.TryGetValue(number, out var disk)) return null;
+        if (DiskOf(letter) is not { } number || !Disks.TryGetValue(number, out var disk)) return null;
         if (disk.IsBoot || !DiskBus.IsExternal(disk.BusType)) return null;
         return disk.BusType;
     }
@@ -118,5 +131,82 @@ public sealed class DriveMap(
         if (string.IsNullOrWhiteSpace(raw)) return null;
         var letter = raw.Trim().TrimEnd(':', '\\', '\0');
         return letter.Length == 1 && char.IsLetter(letter[0]) ? letter.ToUpper(CultureInfo.InvariantCulture) + ":" : null;
+    }
+}
+
+/// <summary>
+/// Two information-only rows per attached disk (STEP-B-SPEC 2.4): where it is, and the space in use
+/// on its lettered drives. The advice needs them to tell the laptop's own drive from the auditor's USB
+/// drive, whose read errors are still graded Bad. Built from the drive map and the volume sizes the
+/// volume check has already read, so no query is added, and tested without WMI.
+///
+/// A disk is named by its drive letters, or "Disk N" when it has none, never by a volume label, which
+/// can be personal. The roles follow <see cref="DriveMap.ExternalBusOf"/>: the disk Windows runs from
+/// is the PC's own whatever its connection (REMEDIES-PLAN D1), and an unknown bus counts as inside the
+/// PC (KIT-003).
+/// </summary>
+public static class DiskRoles
+{
+    public const string SystemRole = "system", InternalRole = "internal", ExternalRole = "external";
+
+    /// <summary>
+    /// The volume check's last step: its status from the rows it measured, and only then the rows
+    /// about the disks. Information-only rows must never make a check that measured no volume read
+    /// as finished. Without a drive map there are no disk rows, and the status is the same: the
+    /// check's note already says the map could not be read.
+    /// </summary>
+    public static ModuleStatus AddAfterStatus(
+        List<Metric> metrics, int failures, DriveMap? map, IReadOnlyCollection<(string Letter, ulong Size, ulong Free)> measuredVolumes)
+    {
+        var status = metrics.Count == 0 ? ModuleStatus.Failed
+            : failures == 0 ? ModuleStatus.Completed
+            : ModuleStatus.PartiallyCompleted;
+        if (map is not null) metrics.AddRange(From(map, measuredVolumes));
+        return status;
+    }
+
+    /// <param name="map">The disks attached now, and the disk each letter is on.</param>
+    /// <param name="measuredVolumes">Each lettered volume whose size and free space were read.</param>
+    public static IReadOnlyList<Metric> From(DriveMap map, IReadOnlyCollection<(string Letter, ulong Size, ulong Free)> measuredVolumes)
+    {
+        var measured = new Dictionary<string, (ulong Size, ulong Free)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (raw, size, free) in measuredVolumes)
+        {
+            if (DriveMap.NormalizeLetter(raw) is { } letter) measured.TryAdd(letter, (size, free));
+        }
+
+        var systemDisk = map.DiskOf(map.SystemDrive);
+        var rows = new List<Metric>();
+        foreach (var disk in map.Disks.Values.OrderBy(d => d.Number))
+        {
+            var letters = map.LettersOn(disk.Number);
+            var role = disk.IsBoot || disk.Number == systemDisk ? SystemRole
+                : DiskBus.IsExternal(disk.BusType) ? ExternalRole
+                : InternalRole;
+            var subject = letters.Count > 0
+                ? string.Join(", ", letters)
+                : "Disk " + disk.Number.ToString(CultureInfo.InvariantCulture);
+
+            rows.Add(VolumeReadings.DiskRole(disk, subject, role, letters));
+            if (UsedBytes(letters, measured) is { } used) rows.Add(VolumeReadings.DiskUsed(disk.Number, subject, used, holdsWindows: role == SystemRole));
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// The bytes in use over a disk's lettered drives, or null unless every one of them was measured.
+    /// A sum with a drive missing would read as a small number, and a disk with no lettered drive has
+    /// nothing this check measured, which is not the same as nothing in use.
+    /// </summary>
+    private static ulong? UsedBytes(IReadOnlyList<string> letters, Dictionary<string, (ulong Size, ulong Free)> measured)
+    {
+        if (letters.Count == 0) return null;
+        ulong used = 0;
+        foreach (var letter in letters)
+        {
+            if (!measured.TryGetValue(letter, out var volume) || volume.Size == 0 || volume.Free > volume.Size) return null;
+            used += volume.Size - volume.Free;
+        }
+        return used;
     }
 }

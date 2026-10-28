@@ -20,16 +20,10 @@ namespace PcHealth.Modules.Windows.Support;
 public static class FailingDrives
 {
     /// <summary>
-    /// Readings of damaged storage. Each one's Good band is "none at all" (or, for the drive's own
-    /// failure flag, "not predicting failure"), so a counter that grew since an earlier scan is
-    /// already graded Normal or Bad here, and the history need not be read separately.
+    /// Readings of damaged storage, shared with the advice that tells the owner to back the drive up
+    /// (<see cref="DriveDamage"/>), so the two never disagree about which drive is failing.
     /// </summary>
-    private static readonly HashSet<string> DamageReadings = new(StringComparer.Ordinal)
-    {
-        "smart.predict_failure", "smart.attributes_at_threshold", "smart.reallocated", "smart.pending_sectors",
-        "smart.offline_uncorrectable", "smart.reported_uncorrectable",
-        "storage.read_errors_uncorrected", "storage.write_errors_uncorrected",
-    };
+    private static readonly IReadOnlySet<string> DamageReadings = DriveDamage.MetricIds;
 
     /// <summary>
     /// Why each drive should be left alone, by disk number: a damage reading graded Normal or Bad,

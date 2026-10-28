@@ -1,4 +1,6 @@
+using PcHealth.Core.Advice;
 using PcHealth.Core.Metrics;
+using PcHealth.Core.Modules;
 using PcHealth.Core.Verdicts;
 using PcHealth.Modules.Windows;
 using PcHealth.Modules.Windows.Benchmarks;
@@ -13,7 +15,8 @@ namespace PcHealth.Tests;
 /// own drives, not on the USB drives plugged into it (D1, H3, row 11); an SSD's temperature is
 /// graded as an SSD's and TRIM only where an SSD is (H7); and the disk benchmark never writes to
 /// a drive this scan already calls failing (H2). Each is held in both directions: the false alarm
-/// is gone, and the real finding on the PC's own drive still stands.
+/// is gone, and the real finding on the PC's own drive still stands. Step B adds the rows that tell
+/// the advice which disk is which (STEP-B-SPEC 2.4) and the one list of damage readings (2.5).
 /// </summary>
 public sealed class UsbAndDriveKindTests
 {
@@ -483,5 +486,235 @@ public sealed class UsbAndDriveKindTests
         Assert.Empty(FailingDrives.Find(findings, [], [], []));
         Assert.True(FailingDrives.HealthWasRead(findings, 0));
         Assert.False(FailingDrives.HealthWasRead(findings, 1));
+    }
+
+    /// <summary>
+    /// STEP-B-SPEC 2.5: the benchmark's "leave this drive alone" and the advice's "back this drive
+    /// up" read one list, so they cannot disagree about which drive is failing.
+    /// </summary>
+    [Fact]
+    public void The_benchmark_and_the_advice_read_one_list_of_damage_readings()
+    {
+        Assert.Equal(
+            ["smart.attributes_at_threshold", "smart.offline_uncorrectable", "smart.pending_sectors", "smart.predict_failure",
+             "smart.reallocated", "smart.reported_uncorrectable", "storage.read_errors_uncorrected", "storage.write_errors_uncorrected"],
+            DriveDamage.MetricIds.Order(StringComparer.Ordinal));
+
+        foreach (var id in DriveDamage.MetricIds)
+        {
+            var damaged = new Verdict(new Metric(id, id, 1, HealthCategory.Storage, DiskNumber: 3), Grade.Bad, null, [], null);
+            Assert.True(FailingDrives.Find([damaged], [], [], []).ContainsKey(3), id);
+        }
+
+        // The advice also gathers the two wear readings, which the benchmark does not refuse.
+        Assert.True(DriveDamage.MetricIds.IsSubsetOf(AdviceFacts.DriveReadingIds));
+        Assert.Equal(["smart.ssd_percent_consumed", "storage.wear_pct"],
+            AdviceFacts.DriveReadingIds.Except(DriveDamage.MetricIds).Order(StringComparer.Ordinal));
+    }
+
+    // --- STEP-B-SPEC 2.4: where each disk is, so advice can tell this PC's drive from a USB drive ---
+
+    private const ulong Gib = 1UL << 30;
+
+    private static (string Letter, ulong Size, ulong Free) Measured(string letter, double sizeGb, double freeGb) =>
+        (letter, (ulong)(sizeGb * Gib), (ulong)(freeGb * Gib));
+
+    private static Metric RoleRow(IReadOnlyList<Metric> rows, int disk) =>
+        Assert.Single(rows, r => r.Id == "storage.disk.role" && r.DiskNumber == disk);
+
+    private static Metric? UsedRow(IReadOnlyList<Metric> rows, int disk) =>
+        rows.SingleOrDefault(r => r.Id == "storage.disk.used_gb" && r.DiskNumber == disk);
+
+    [Fact]
+    public void Every_attached_disk_gets_a_role_and_a_usb_disk_is_external()
+    {
+        // The T470p: C: on the internal SSD (disk 0), E: on a USB caddy, F: on the audit drive.
+        var rows = DiskRoles.From(T470pMap(), [Measured("C", 237, 120), Measured("E:", 931, 500), Measured("F:", 900, 161.7)]);
+
+        Assert.Equal(["system", "external", "external"], Enumerable.Range(0, 3).Select(d => RoleRow(rows, d).Value.Text));
+        Assert.Equal(["C:", "E:", "F:"], Enumerable.Range(0, 3).Select(d => RoleRow(rows, d).Subject));
+        Assert.All(rows, r =>
+        {
+            Assert.True(r.InfoOnly);
+            Assert.Equal(Grade.Unknown, GradeOf(r));
+            Assert.Equal(HealthCategory.Storage, r.Category);
+        });
+        Assert.Equal("The disk Windows runs from. It holds C:.", RoleRow(rows, 0).Detail);
+        Assert.Equal("Plugged in from outside this PC: a USB drive. It holds F:.", RoleRow(rows, 2).Detail);
+        Assert.Equal("Disk role", RoleRow(rows, 0).Label);
+    }
+
+    [Theory]
+    [InlineData(true, null)]       // MSFT_Disk says Windows started from it, and the Windows folder was not read
+    [InlineData(false, @"C:\")]    // it did not say so, but it holds the drive Windows runs from
+    public void The_disk_windows_runs_from_is_the_system_disk_even_on_usb(bool isBoot, string? systemDrive)
+    {
+        var map = new DriveMap([new AttachedDisk(3, DiskBus.Usb, isBoot), new AttachedDisk(4, DiskBus.Usb, false)],
+            [KeyValuePair.Create("C:", 3), KeyValuePair.Create("D:", 3), KeyValuePair.Create("E:", 4)], systemDrive);
+
+        var rows = DiskRoles.From(map, []);
+
+        Assert.Equal("system", RoleRow(rows, 3).Value.Text);
+        Assert.Equal("C:, D:", RoleRow(rows, 3).Subject);
+        Assert.Equal("The disk Windows runs from. It is a USB drive, and counts as this PC's own. It holds C:, D:.", RoleRow(rows, 3).Detail);
+        Assert.Equal("external", RoleRow(rows, 4).Value.Text);
+    }
+
+    [Theory]
+    [InlineData((ushort)0, "Counted as inside this PC: Windows did not say how it is connected.")]
+    [InlineData(null, "Counted as inside this PC: Windows did not say how it is connected.")]
+    [InlineData((ushort)8, "Inside this PC.")]     // RAID
+    [InlineData((ushort)17, "Inside this PC.")]    // NVMe
+    [InlineData((ushort)11, "Inside this PC.")]    // SATA
+    public void An_unknown_raid_or_nvme_bus_is_internal(ushort? bus, string where)
+    {
+        var map = new DriveMap([new AttachedDisk(0, DiskBus.Nvme, true), new AttachedDisk(1, bus, false)],
+            [KeyValuePair.Create("C:", 0), KeyValuePair.Create("D:", 1)], "C:");
+
+        var row = RoleRow(DiskRoles.From(map, []), 1);
+
+        Assert.Equal("internal", row.Value.Text);
+        Assert.Equal($"{where} It holds D:.", row.Detail);
+    }
+
+    [Theory]
+    [InlineData(DiskBus.Sd)]
+    [InlineData(DiskBus.Mmc)]
+    [InlineData(DiskBus.Firewire)]
+    public void The_kits_other_external_buses_give_an_external_disk(ushort bus)
+    {
+        var map = new DriveMap([new AttachedDisk(0, 11, true), new AttachedDisk(1, bus, false)], [KeyValuePair.Create("D:", 1)], "C:");
+
+        Assert.Equal("external", RoleRow(DiskRoles.From(map, []), 1).Value.Text);
+    }
+
+    [Fact]
+    public void A_disk_with_no_drive_letter_is_named_by_its_number_and_has_no_space_in_use()
+    {
+        // A blank disk, or one holding only another system's partitions: nothing this check measured,
+        // which is not the same as nothing in use.
+        var map = new DriveMap([new AttachedDisk(0, 11, true), new AttachedDisk(2, 11, false)], [KeyValuePair.Create("C:", 0)], "C:");
+
+        var rows = DiskRoles.From(map, [Measured("C:", 237, 120)]);
+
+        Assert.Equal("Disk 2", RoleRow(rows, 2).Subject);
+        Assert.Equal("Inside this PC. It has no drive letter.", RoleRow(rows, 2).Detail);
+        Assert.Null(UsedRow(rows, 2));
+        Assert.NotNull(UsedRow(rows, 0));
+    }
+
+    [Fact]
+    public void The_space_in_use_is_added_up_over_the_disks_lettered_drives()
+    {
+        var map = new DriveMap([new AttachedDisk(0, 11, true), new AttachedDisk(1, DiskBus.Usb, false)],
+            [KeyValuePair.Create("D:", 0), KeyValuePair.Create("C:", 0), KeyValuePair.Create("F:", 1)], "C:");
+
+        var rows = DiskRoles.From(map, [Measured("c", 237, 120.5), Measured(@"D:\", 100, 40), Measured("F:", 900, 161.7)]);
+
+        var used = UsedRow(rows, 0)!;
+        Assert.Equal(176.5, used.Value.Number);   // 116.5 GB on C: and 60 GB on D:
+        Assert.Equal("GB", used.Unit);
+        Assert.Equal("C:, D:", used.Subject);
+        Assert.True(used.InfoOnly);
+        Assert.Equal(Grade.Unknown, GradeOf(used));
+        Assert.Equal("Space in use", used.Label);
+        Assert.Equal(738.3, UsedRow(rows, 1)!.Value.Number);
+    }
+
+    [Fact]
+    public void Only_the_disk_Windows_runs_from_is_said_to_hold_Windows_and_programs()
+    {
+        // The HTML report prints every row's detail: "Windows and programs included" on the auditor's
+        // USB drive, or on a data disk, would say Windows is on it.
+        var map = new DriveMap([new AttachedDisk(0, 11, true), new AttachedDisk(1, 11, false), new AttachedDisk(2, DiskBus.Usb, false)],
+            [KeyValuePair.Create("C:", 0), KeyValuePair.Create("D:", 1), KeyValuePair.Create("F:", 2)], "C:");
+
+        var rows = DiskRoles.From(map, [Measured("C:", 237, 120), Measured("D:", 100, 40), Measured("F:", 900, 161.7)]);
+
+        Assert.Equal("Added up over this disk's drives (C:), Windows and programs included.", UsedRow(rows, 0)!.Detail);
+        Assert.Equal("Added up over this disk's drives (D:).", UsedRow(rows, 1)!.Detail);
+        Assert.Equal("Added up over this disk's drives (F:).", UsedRow(rows, 2)!.Detail);
+    }
+
+    [Fact]
+    public void The_space_in_use_is_left_out_rather_than_added_up_over_part_of_a_disk()
+    {
+        // D: was not measured (its volume did not answer, or it is a removable volume this check
+        // skips): 116.5 GB would read as the whole disk's use.
+        var map = new DriveMap([new AttachedDisk(0, 11, true)], [KeyValuePair.Create("C:", 0), KeyValuePair.Create("D:", 0)], "C:");
+
+        Assert.Null(UsedRow(DiskRoles.From(map, [Measured("C:", 237, 120.5)]), 0));
+        Assert.Null(UsedRow(DiskRoles.From(map, [Measured("C:", 237, 120.5), ("D:", 0, 0)]), 0));          // a size of zero
+        Assert.Null(UsedRow(DiskRoles.From(map, [Measured("C:", 237, 120.5), Measured("D:", 100, 101)]), 0)); // more free than its size
+        Assert.NotNull(RoleRow(DiskRoles.From(map, []), 0));
+    }
+
+    [Fact]
+    public void A_disk_row_never_carries_a_volume_label()
+    {
+        // The volume rows are named "D: (label)", and a label can be a person's name. The disk rows
+        // take their letters from the drive map, which has none.
+        var map = new DriveMap([new AttachedDisk(0, 11, true), new AttachedDisk(1, DiskBus.Usb, false), new AttachedDisk(5, 0, false)],
+            [KeyValuePair.Create("C:", 0), KeyValuePair.Create("D:", 0), KeyValuePair.Create("F:", 1)], "C:");
+        var label = VolumeReadings.FreeSpace("D: (Holiday photos)", 100 * Gib, 40 * Gib, null).Subject!;
+
+        var rows = DiskRoles.From(map, [Measured("C:", 237, 120), Measured("D:", 100, 40), Measured("F:", 900, 161.7)]);
+
+        Assert.Equal(5, rows.Count);
+        Assert.All(rows, r =>
+        {
+            Assert.Matches(@"^([A-Z]:(, [A-Z]:)*|Disk [0-9]+)$", r.Subject);
+            Assert.DoesNotContain("Holiday", r.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("(", r.Subject, StringComparison.Ordinal);
+        });
+        Assert.Contains("Holiday", label, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Without_the_drive_map_there_are_no_disk_rows_and_the_status_is_unchanged()
+    {
+        List<Metric> metrics = [VolumeReadings.FreeSpace("C:", 237 * Gib, 120 * Gib, null)];
+
+        Assert.Equal(ModuleStatus.Completed, DiskRoles.AddAfterStatus(metrics, failures: 0, map: null, [Measured("C:", 237, 120)]));
+        Assert.Single(metrics);
+        Assert.Equal(ModuleStatus.PartiallyCompleted, DiskRoles.AddAfterStatus(metrics, failures: 1, map: null, []));
+        Assert.Single(metrics);
+    }
+
+    [Fact]
+    public void Disk_rows_never_make_a_volume_check_that_measured_nothing_read_as_finished()
+    {
+        // The other direction: the drive map answered, but no volume did. The check still failed,
+        // and the rows about the disks are kept, so advice still knows the audit drive is external.
+        List<Metric> metrics = [];
+
+        var status = DiskRoles.AddAfterStatus(metrics, failures: 1, T470pMap(), []);
+
+        Assert.Equal(ModuleStatus.Failed, status);
+        Assert.Equal(3, metrics.Count);
+        Assert.All(metrics, m => Assert.Equal("storage.disk.role", m.Id));
+        Assert.Equal(ModuleStatus.Failed, DiskRoles.AddAfterStatus([], failures: 0, T470pMap(), []));
+    }
+
+    [Fact]
+    public void The_advice_reads_the_disk_rows_back_as_the_same_disks()
+    {
+        // The contract with AdviceFacts (STEP-B-SPEC 3.3): the role's Text and the letters in the
+        // Subject are what the advice joins drive readings on.
+        var map = new DriveMap([new AttachedDisk(0, 11, true), new AttachedDisk(1, 11, false), new AttachedDisk(2, DiskBus.Usb, false)],
+            [KeyValuePair.Create("C:", 0), KeyValuePair.Create("D:", 1), KeyValuePair.Create("E:", 1), KeyValuePair.Create("F:", 2)], "C:");
+        var rows = DiskRoles.From(map, [Measured("C:", 237, 120.5), Measured("D:", 100, 40), Measured("E:", 100, 50)]);
+
+        var facts = AdviceFacts.Build(Engine.Evaluate(rows), [], [], new AdviceContext("C:"));
+
+        var groups = facts.DiskGroups.ToDictionary(g => g.DiskNumber!.Value);
+        Assert.Equal(DiskRole.System, groups[0].Role);
+        Assert.Equal(DiskRole.Internal, groups[1].Role);
+        Assert.Equal(DiskRole.External, groups[2].Role);
+        Assert.Equal("C:", groups[0].Letters);
+        Assert.Equal("D:, E:", groups[1].Letters);
+        Assert.Equal(116.5, groups[0].UsedGb);
+        Assert.Equal(110.0, groups[1].UsedGb);
+        Assert.Null(groups[2].UsedGb);   // F:, the audit drive, was not measured here
     }
 }

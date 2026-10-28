@@ -1345,6 +1345,80 @@ try {
     Remove-Item -LiteralPath $fleetDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- The report's advice section and disk rows move no kit column (STEP-B-SPEC 2.3) -----------------
+# Step B adds an Advice object to the report, and two information-only rows per attached disk, the
+# audit drive's own disk included. The kit reads verdicts by exact id, so neither may move a column.
+# Held in both directions: a laptop whose own drive is failing still gets its reason, and a healthy
+# laptop gains none. The added rows are parsed from JSON in the shape the app writes (nulls left out,
+# a Text value with no Number), and put first, because strict mode fails on any field the kit reads
+# that a real row does not carry, and a lookup that takes the first row with Subject "C:" would take
+# one of them.
+
+Write-Host 'The advice section and the disk rows leave every kit column as it was'
+
+$stepBAdded = @'
+{
+  "FailingAdvice": {
+    "Recommendations": [ {
+      "Id": "H1:disk0", "Item": "H1", "Area": "drive-health", "Urgency": "ActNow", "Severity": "Bad", "Rank": 10,
+      "Subject": "Internal SATA SSD \u2014 240 GB", "DiskNumber": 0,
+      "Title": { "Role": "Title", "Key": "advice.h1.title.act-now.system", "Args": {}, "Text": "Back up now: the drive Windows runs from is failing" },
+      "Lines": [ { "Role": "Finding", "Key": "advice.h1.evidence.smart.reallocated", "Args": { "count": { "Number": 5, "Unit": "Count" } },
+                   "Text": "It has retired 5 damaged areas so far." } ],
+      "Evidence": [ { "MetricId": "smart.reallocated", "Subject": "Internal SATA SSD \u2014 240 GB", "DiskNumber": 0, "Grade": "Bad" } ]
+    } ],
+    "NotMeasured": [], "Notes": [], "OtherFindings": 1, "ItemErrors": []
+  },
+  "HealthyAdvice": { "Recommendations": [], "NotMeasured": [], "Notes": [], "OtherFindings": 0, "ItemErrors": [] },
+  "Verdicts": [
+    { "Metric": { "Id": "storage.disk.role", "Label": "Disk role", "Value": { "Text": "system" }, "Category": "Storage",
+                  "Detail": "The disk Windows runs from. It holds C:.", "Subject": "C:", "InfoOnly": true, "DiskNumber": 0 },
+      "Grade": "Unknown", "Tips": [] },
+    { "Metric": { "Id": "storage.disk.used_gb", "Label": "Space in use", "Value": { "Number": 104.4 }, "Category": "Storage", "Unit": "GB",
+                  "Detail": "Added up over this disk's drives (C:), Windows and programs included.", "Subject": "C:", "InfoOnly": true, "DiskNumber": 0 },
+      "Grade": "Unknown", "Tips": [] },
+    { "Metric": { "Id": "storage.disk.role", "Label": "Disk role", "Value": { "Text": "external" }, "Category": "Storage",
+                  "Detail": "Plugged in from outside this PC: a USB drive. It holds E:.", "Subject": "E:", "InfoOnly": true, "DiskNumber": 1 },
+      "Grade": "Unknown", "Tips": [] },
+    { "Metric": { "Id": "storage.disk.role", "Label": "Disk role", "Value": { "Text": "external" }, "Category": "Storage",
+                  "Detail": "Plugged in from outside this PC: a USB drive. It holds F:.", "Subject": "F:", "InfoOnly": true, "DiskNumber": 2 },
+      "Grade": "Unknown", "Tips": [] },
+    { "Metric": { "Id": "storage.disk.used_gb", "Label": "Space in use", "Value": { "Number": 738.3 }, "Category": "Storage", "Unit": "GB",
+                  "Detail": "Added up over this disk's drives (F:).", "Subject": "F:", "InfoOnly": true, "DiskNumber": 2 },
+      "Grade": "Unknown", "Tips": [] }
+  ]
+}
+'@ | ConvertFrom-Json
+
+function New-StepBBundle([bool]$Failing, [bool]$WithStepB) {
+    $reallocated = if ($Failing) { New-Verdict 'smart.reallocated' 'Bad' 5 (Subject-For 'Internal SATA SSD' 240) 'Reallocated sectors' } else { $internalSmart }
+    $free = if ($Failing) { New-Verdict 'storage.volume.free_pct' 'Normal' 12.5 'C:' 'Free space' } else { New-Verdict 'storage.volume.free_pct' 'Good' 70.2 'C:' 'Free space' }
+    $verdicts = @($battery95, $reallocated, $free,
+        (New-Verdict 'storage.read_errors_uncorrected' 'Bad' 2 (Subject-For 'Audit drive' 1000) 'Uncorrected read errors'),
+        (New-FlagVerdict 'os.win11_ready' 'Normal' $false), (New-TextVerdict 'os.win11_blockers' 'CpuFms'))
+    $b = Set-Answers (New-Bundle $verdicts $t470pDisks) @($flat)
+    if ($WithStepB) {
+        $advice = if ($Failing) { $stepBAdded.FailingAdvice } else { $stepBAdded.HealthyAdvice }
+        $b.Report | Add-Member -NotePropertyName Advice -NotePropertyValue $advice
+        $b.Report.SchemaVersion = '1.1'
+        $b.Report.Verdicts = @($stepBAdded.Verdicts) + @($b.Report.Verdicts)
+    }
+    return $b
+}
+function Get-StepBMoved($Before, $After) {
+    @('Verdict', 'Reasons', 'Notes', 'DriveHealth', 'DriveRead', 'SystemDriveFree', 'Windows11' |
+        Where-Object { [string]$Before.$_ -cne [string]$After.$_ })
+}
+
+$failingBefore = Get-AuditRow (New-StepBBundle $true $false) $rules
+$healthyBefore = Get-AuditRow (New-StepBBundle $false $false) $rules
+Check 'the advice section and the disk rows (the audit drive''s included) move no column: the failing drive still lands, the healthy laptop gains nothing' {
+    $failingBefore.Verdict -eq 'FIX FIRST' -and $failingBefore.Reasons -match 'Replace the drive' -and $failingBefore.Reasons -match 'Free up space on C:' -and
+    $failingBefore.Notes -match 'Audit drive' -and $healthyBefore.Verdict -eq 'READY' -and $healthyBefore.Reasons -eq '' -and
+    @(Get-StepBMoved $failingBefore (Get-AuditRow (New-StepBBundle $true $true) $rules)).Count -eq 0 -and
+    @(Get-StepBMoved $healthyBefore (Get-AuditRow (New-StepBBundle $false $true) $rules)).Count -eq 0
+}
+
 # --- Result -----------------------------------------------------------------
 
 Write-Host ''

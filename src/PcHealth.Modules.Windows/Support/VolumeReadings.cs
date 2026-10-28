@@ -4,7 +4,7 @@ using PcHealth.Core.Metrics;
 namespace PcHealth.Modules.Windows.Support;
 
 /// <summary>
-/// Rows about one lettered volume. A volume on a drive outside the PC (see
+/// Rows about one lettered volume, and about the disk it is on. A volume on a drive outside the PC (see
 /// <see cref="DriveMap.ExternalBusOf"/>) is shown for information and not graded: on the pilot,
 /// the only "disk nearly full" on three laptops was the auditor's USB drive, and every USB volume
 /// was graded "not encrypted" against the laptop (REMEDIES-PLAN D1 and Step A row 11). An
@@ -28,6 +28,40 @@ public static class VolumeReadings
                 Unit: "%", Subject: subject,
                 Detail: $"{space} SSDs slow down and wear faster when nearly full.");
     }
+
+    /// <summary>
+    /// Where one attached disk is (<see cref="DiskRoles"/>). Information only: it grades nothing, and
+    /// says only what the drive map read. Windows reports "unknown" for some buses, and such a disk
+    /// counts as inside the PC, so the detail says it was counted that way rather than that it is.
+    /// </summary>
+    public static Metric DiskRole(AttachedDisk disk, string subject, string role, IReadOnlyList<string> letters)
+    {
+        var where = (role, disk.BusType) switch
+        {
+            (DiskRoles.SystemRole, { } bus) when DiskBus.IsExternal(bus) =>
+                $"The disk Windows runs from. It is {DiskBus.Describe(bus)}, and counts as this PC's own.",
+            (DiskRoles.SystemRole, _) => "The disk Windows runs from.",
+            (DiskRoles.ExternalRole, { } bus) => $"Plugged in from outside this PC: {DiskBus.Describe(bus)}.",
+            (_, null or 0) => "Counted as inside this PC: Windows did not say how it is connected.",
+            _ => "Inside this PC.",
+        };
+        var holds = letters.Count > 0 ? $" It holds {string.Join(", ", letters)}." : " It has no drive letter.";
+        return new Metric("storage.disk.role", "Disk role", role, HealthCategory.Storage,
+            Subject: subject, InfoOnly: true, DiskNumber: disk.Number, Detail: where + holds);
+    }
+
+    /// <summary>
+    /// The space in use over one disk's lettered drives, in GB as <see cref="FreeSpace"/> counts it
+    /// (1 GB = 1024³ bytes), rounded to 0.1. Information only. Only the disk Windows runs from is
+    /// said to hold Windows and programs: the report prints the detail, and the auditor's USB drive
+    /// holds neither.
+    /// </summary>
+    public static Metric DiskUsed(int diskNumber, string subject, ulong usedBytes, bool holdsWindows) =>
+        new("storage.disk.used_gb", "Space in use", Math.Round(usedBytes / 1073741824.0, 1), HealthCategory.Storage,
+            Unit: "GB", Subject: subject, InfoOnly: true, DiskNumber: diskNumber,
+            Detail: holdsWindows
+                ? $"Added up over this disk's drives ({subject}), Windows and programs included."
+                : $"Added up over this disk's drives ({subject}).");
 
     /// <summary>
     /// One volume's encryption, from Win32_EncryptableVolume. ProtectionStatus: 0 off, 1 on, 2

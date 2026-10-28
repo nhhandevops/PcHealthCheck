@@ -1,5 +1,6 @@
 using System.Text;
 using PcHealth.App.Worker;
+using PcHealth.Core.Advice;
 using PcHealth.Core.History;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Orchestration;
@@ -218,6 +219,14 @@ internal static class HeadlessScan
         foreach (var (category, grade) in report.CategoryGrades.OrderBy(kv => kv.Key))
             Console.WriteLine($"  {category}: {grade}");
         Console.WriteLine();
+        // The same section as the report, in English and never hidden by a choice made in the window.
+        // Above the list of checks, so the last lines a script keeps (collect-results.ps1 shows the
+        // last twelve) are the ones they were before.
+        if (report.Advice is { } advice)
+        {
+            foreach (var line in AdvicePresentation.ConsoleLines(advice, report.Modules)) Console.WriteLine(line);
+            Console.WriteLine();
+        }
         foreach (var m in report.Modules)
             Console.WriteLine($"  {m.ModuleId}: {m.Status} ({m.Elapsed.TotalSeconds:0.0}s){(m.Error is null ? "" : $" — {m.Error}")}");
         Console.WriteLine();

@@ -1,6 +1,22 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-28** (781 tests passing: 715 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 285 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed, and the owner is checking the rest. **Engineering:** the remedies plan, [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md). Phase 1 Step A (rows 1-13) was built, reviewed and fixed on 2026-10-27/28; Step B and Step D are next. Start at "Suggested next session" at the bottom, then the top of NEXT-STEPS.
+Snapshot for continuing work on another machine. Last updated: **2026-10-28, evening**.
+- **Tests:** 1205 passing: 1139 Windows and 66 Linux fixture tests. Two live Linux tests run only in
+  CI's `linux` job. Six of the Windows tests replay the pilot zips, so on a machine without
+  `audit-results/` zips they are skipped (PilotReplayTests).
+- **Plus 286 audit-kit checks in PowerShell that `dotnet test` cannot see** (see Shipping).
+- Release builds clean with `-warnaserror`.
+
+**Current job:** the company laptop audit. Three laptops are checked and reviewed, and the owner is
+checking the rest.
+
+**Engineering:** the remedies plan, [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md).
+- Phase 1 Step A (rows 1-13) was built, reviewed and fixed on 2026-10-27/28. It is committed and on
+  the stick.
+- **Step B, the advice engine, was built on 2026-10-28.** It is not yet committed or released.
+- Step D is next.
+
+Start at "Suggested next session" at the bottom, then the top of NEXT-STEPS.
 
 ## What this is
 
@@ -18,8 +34,8 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 git clone https://github.com/nhhandevops/PcHealthCheck   # public, no login needed
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 783 tests (2 Linux-only, skipped on Windows); WorkerProtocolTests launch the real exe
-powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 285 more: the audit kit is PowerShell, dotnet test cannot see it
+dotnet test  PcHealthCheck.slnx               # 1207 tests (2 Linux-only, skipped on Windows; 6 pilot-replay ones skipped without the audit zips); WorkerProtocolTests launch the real exe
+powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 286 more: the audit kit is PowerShell, dotnet test cannot see it
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] [--skip-benchmarks] [--temp-dir <dir>] --out <dir>   # automation mode
@@ -55,7 +71,7 @@ The rebuilt exe is stamped with that machine's commit (`+d98a609…` or later), 
 | Windows 11 readiness (`os.win11_ready`, from Windows' own appraiser verdict) and the laptop audit kit with `AUDIT-GUIDE.md` | ✅ 2026-10-23 · kit tested unelevated on the T470p; its admin path awaits the owner's pilot |
 | Company laptop audit — pilot on 3 laptops, zips reviewed, 5 faults found and fixed, a 6th on re-review | ✅ 2026-10-25, 2026-10-26 · see "The first fleet audit" below |
 | **Company laptop audit — the rest of the fleet** | ⬜ now, owner first; the stick is ready |
-| **Remedies plan, `docs/REMEDIES-PLAN.md`: advice, guided actions, the handover check, Vietnamese** | ✅ Step A (rows 1-13) built 2026-10-27/28 by 6 agents. A five-lens review with skeptics confirmed 22 faults, all fixed, and a gate re-ran everything. ⬜ Step B (advice engine), Step C, Step D (intake + handover check), Step E (Vietnamese) |
+| **Remedies plan, `docs/REMEDIES-PLAN.md`: advice, guided actions, the handover check, Vietnamese** | ✅ Step A (rows 1-13) built 2026-10-27/28 by 6 agents. A five-lens review with skeptics confirmed 22 faults, all fixed, and a gate re-ran everything. 🟡 Step B (the "What you can do" advice engine) built 2026-10-28 from `docs/STEP-B-SPEC.md` by five work groups in turn. It is not committed, and its person-run checks are open (see "Suggested next session"). ⬜ Step C, Step D (intake + handover check), Step E (Vietnamese) |
 | **OS-001: an unenrolled Windows 10 company laptop graded "supported until 2027-10-12"** | ✅ fixed 2026-10-27 (Step A rows 8-9, not committed yet): ESU licence or build decides, one dated table in `Support/WindowsSupport.cs`, update age from the release. The kit's `requireWindows11Ready` is off (decision 9) |
 | **M5 remainder — Linux phase 2 (`PcHealth.Cli`), Vietnamese localization** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
@@ -90,7 +106,7 @@ dangerous failure: a verdict gets sanity-checked by a human, a reason gets acted
 
 Four things worth carrying forward, more than the fixes themselves:
 
-1. **The audit kit had no tests at all.** It has 285 now (`tests/audit-kit/kit-tests.ps1`), run by
+1. **The audit kit had no tests at all.** It has 286 now (`tests/audit-kit/kit-tests.ps1`), run by
    `build-release.ps1` and by CI's `Audit kit tests` step. The kit decides what a manager is told
    to replace; it had less coverage than any other part of this project.
 2. **A filter that hides readings is one edit away from hiding a failure.** The USB fix had to add
@@ -120,7 +136,7 @@ expected and recorded in NEXT-STEPS; `summarize-fleet.ps1` reads them correctly 
 
 ## Architecture in brief
 
-- `PcHealth.Core` — module contracts (+capability hash for re-consent), verdict engine driven by `src/PcHealth.Core/Rules/*.json`, trend history (`History/`), dependency ledger (`Dependencies/`), report exporters. **No OS or network code.**
+- `PcHealth.Core` — module contracts (+capability hash for re-consent), verdict engine driven by `src/PcHealth.Core/Rules/*.json`, trend history (`History/`), dependency ledger (`Dependencies/`), report exporters, and since Step B the advice engine (`Advice/`: one small C# class per item, its sentences as keys in `Text/en.json`). **No OS or network code.**
 - `PcHealth.Modules.Windows` — all Windows modules (WMI/CIM, EventLogReader, registry, P/Invoke). Locale-proof parsing only: provider+event-id, exit codes, typed objects — never localized strings.
 - `PcHealth.App` — Avalonia UI (`asInvoker`, never self-elevates) + `--worker` elevated helper. Trust boundary: the worker only runs `NeedsAdmin` modules from its own compiled-in registry; write/driver actions get the worker's own confirmation dialog.
 - `PcHealth.Modules.Linux` (net10.0, since 2026-10-23): five modules reading only `/proc`, `/sys` and `/etc/os-release`, behind `LinuxModuleProvider`. No root, no programs, no writes. Not referenced by the Windows app; phase 2 gives it a host. Its base class `HealthModuleBase` and `ModuleFailures` now live in Core, shared with the Windows modules.
@@ -141,6 +157,19 @@ expected and recorded in NEXT-STEPS; `summarize-fleet.ps1` reads them correctly 
 10. **A cap must say what it dropped.** The VirusTotal lookup is capped at 20 files for the free tier, and the consent dialog states how many were left unchecked. Silent truncation reads as "everything was checked".
 11. **Checks run side by side; anything that measures runs alone.** Since 2026-10-21, `ScanOrchestrator.RunModulesAsync` runs up to 4 modules at once, wrapping each in `Task.Run`, because most modules do synchronous WMI work before their first await. Results come back in list order. A module that measures speed or temperature sets `RunsAlone = true` in its manifest (today: `bench.disk`, `bench.cpu`, `sensors`) and runs afterwards with nothing beside it. **A new benchmark or sensor check that forgets this flag will measure the scan instead of the PC.** On the T470p the unelevated scan went from 19.8 s to 8.4–10.4 s, with peak memory 63 → 76 MB and identical results. Locked by `ScanOrchestratorTests`, which were checked against a forced one-at-a-time cap: 4 of 7 fail. The elevated helper (`WorkerHost`) still runs its own modules one at a time, but since 2026-10-23 both scan entry points **start it first, beside the normal checks**. `RunModulesAsync(..., beforeRunsAlone:)` awaits it before the RunsAlone phase, so the benchmarks never overlap the admin checks, and sensors no longer reads a processor the CPU benchmark has just heated. The UAC prompt now appears at the start of the scan. On the T470p an elevated scan dropped from ~125 s to 103 s. Starting the helper blocks on the UAC prompt, so it is wrapped in `Task.Run`.
 12. **One metric id, one rule per OS where the advice differs.** Since 2026-10-23 a rule can carry `"os": "windows"` or `"os": "linux"`, and `RulesLoader.LoadEmbedded()` keeps only the current OS's rules plus the OS-neutral ones. Free space, memory used, commit and the ACPI zone have one rule each per OS; their bands match, and only the tips differ. **A new Linux reading that reuses a Windows id inherits Windows advice unless it gets a Linux rule.** `RuleTests.Every_graded_linux_reading_has_a_rule_with_linux_advice` fails on any Windows tool name in a Linux tip; it was checked by planting "Task Manager" in one. Linux commit is graded only under `vm.overcommit_memory = 2`: under the default, going past `CommitLimit` is normal.
+13. **Advice rests on grades and never changes one (Step B, 2026-10-28).** The "What you can do"
+    section is worked out once, in `ScanOrchestrator.BuildReport`, after the grades. The JSON, the
+    HTML, the window and the console all show that one section. A card needs at least one reading
+    graded Normal or Bad; an information-only row never counts, and the engine refuses such a card
+    as an item error.
+    - A healthy or freshly reimaged PC gets **zero** cards (`HealthyPcAdviceTests`).
+    - A drive check that broke is an amber "not measured" line; one deliberately left out is a grey
+      note.
+    - The sentences are keys in `Text/en.json`, and their numbers are formatted in code with the
+      invariant culture. A card never quotes a reading's Detail or a trend's Message.
+    - After any rule or advice change, run the pilot replay (`PilotReplayTests`, on the machine
+      with the pilot zips) and check it still gives exactly one card, H1 "Back up now" on the T470p.
+      It re-grades old readings with today's rules only (TEST-002).
 
 ## The sixth time, and the structural fix (2026-08-26)
 
@@ -399,6 +428,11 @@ holds the rows a desktop cannot.
 - **Build the release AFTER committing, never before.** The exe is stamped `1.0.0-rc.1+<HEAD>`, so a zip built on a dirty tree names a commit that does not contain the code inside it. Caught on 2026-10-25 only because the stick was checked after copying.
 - **`build-release.ps1` can fail to package right after running the kit tests** — `Compress-Archive` hits a sharing violation on a `.ps1` it just copied, because running a PowerShell suite leaves Windows' script scanning warm. It retries five times and says so out loud (PKG-004). It is not a flake and not an input problem; `-SkipTests` packaging cleanly is what proves which it is.
 - **The audit kit must stay ASCII and Windows PowerShell 5.1.** `audit-common.ps1` says so in its header: 5.1 reads a BOM-less script in the ANSI code page, so a literal em dash is garbled on some laptops. Build one by code point (`[char]0x2014`) when matching the app's drive subjects.
+- **The pilot replay is not a replay of today's build (TEST-002).** It grades the 2026-10-23 readings
+  with today's rules. Whether a reading is information only, and its id, are still the old
+  module's: a USB volume at 18% is still a graded Normal there. Use it to prove advice and rule
+  changes, never a module fix, and never quote its "other findings" counts as fleet facts. It reads
+  `audit-results/*.zip` in place, prints no names, and is skipped where the zips are absent.
 - **Scripted edits from bash mangle backslashes.** Writing `tests\audit-kit\kit-tests.ps1` through a heredoc produced a real TAB and a real BEL byte, because `\t` and `\a` were interpreted. It happened twice on 2026-10-25, the second time in the very line documenting the first. Use forward slashes in PowerShell paths - they work - or read the file back after writing it (TOOL-001).
 - CI (`.github/workflows/build.yml`) runs on every push: `-warnaserror` build, tests, the System.Net gate, a single-file publish with SHA-256 checksums. When it goes red, check **which step** first (`gh run view <id> --json jobs`): on 2026-10-21 a red run was the artifact quota, not the code (CI-001). On a reinstalled machine `gh` needs `gh auth login` even when `git push` already works.
 
@@ -411,9 +445,10 @@ holds the rows a desktop cannot.
 ## Shipping
 
 - `build-release.ps1` — tests, privacy gate, self-contained publish, zip, SHA-256. One command.
-- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's PowerShell checks, 285 since Step A (2026-10-28)** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
+- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's PowerShell checks, 286 since Step B (2026-10-28)** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
 - `USER-GUIDE.md` — for the person running it, not for whoever builds it. Ships inside the zip.
-- `ACCEPTANCE.md` — 19 blocking rows out of ~60. Run before giving the app to anyone.
+- `ACCEPTANCE.md` — 19 blocking rows out of ~70. Run before giving the app to anyone. Until Step B
+  added section K (two of them blocking) the sign-off said "/ 19" over 17 blocking rows (ACC-001).
 - `RELEASING.md` — the steps a script cannot do: SignPath application (needs a **public** repo, takes weeks), GitHub release, SmartScreen submission, winget manifest.
 
 Deliberately not done: no installer (nothing in Program Files or the registry — the packaging keeps the same promise the app makes about the machine), no auto-update (it would mean a connection nobody asked for), no MSIX until signing exists (an unsigned MSIX cannot be installed at all).
@@ -458,7 +493,98 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 
 ## Suggested next session
 
-**Newest (state saved 2026-10-28): Phase 1 Step A is built.**
+**Start here next week (state saved 2026-10-28, end of the week).** The week's summary for the owner
+and the manager is in [docs/WEEKLY-REPORT-2026-10-28.md](docs/WEEKLY-REPORT-2026-10-28.md).
+
+**Where things stand:**
+- **Step B is committed and pushed, but not released.** It was built, reviewed (12 findings
+  confirmed plus 1 uncertain, all fixed) and gated. The daily smoke has not been run on it; the
+  gate ran the build, all tests and the kit checks.
+- **The audit stick still carries Step A, `2071660`, kit `2026-10-28.1`.** Its `Results` holds 3
+  pilot zips and 1 test zip.
+- **The week ended because of the owner's weekly usage limit (87%).** Prefer single-agent work
+  until it resets.
+
+**In order:**
+1. **The release.** `daily-smoke.ps1`, then `build-release.ps1` (after the commit, so the exe is
+   stamped with HEAD).
+2. **An elevated scan of the new build.** It needs the owner's UAC click. Check that every `smart.*`
+   and `storage.*` drive row has the same `DiskNumber` as the `storage.disk.role` row for that
+   drive. If not, a healthy laptop gets the grey "a drive did not report" note (ADV-009) and H1
+   cards land on the wrong disk.
+3. **The stick.** Copy the release onto it, keeping `Results`: fingerprint `Results` before and
+   after, and verify every file. Record the build in NEXT-STEPS. Ask the owner first: the stick
+   may be in use.
+4. **The owner's checks:**
+   - ACCEPTANCE K1-K12 in the window; K2 and K7 are blocking;
+   - a headless scan on the Windows 11 desktop;
+   - golden-image decisions A-J;
+   - the commercial ESU question.
+5. **Then:**
+   - REP-002 (decimal commas, about 30 lines, as one class);
+   - the `disk.reliability` timeout with several USB devices attached;
+   - TOOL-005's smoke fix;
+   - then Step C or Step D (multi-agent, after the limit resets).
+
+**Newest (state saved 2026-10-28, evening): Phase 1 Step B is built, and not committed.**
+- **What was built.** The "What you can do" section, from [docs/STEP-B-SPEC.md](docs/STEP-B-SPEC.md).
+  Five work groups built it in turn:
+  1. **The advice core:** the model, the catalog (`src/PcHealth.Core/Text/en.json`), the formatter,
+     the engine, and the report wiring (`ScanReport.Advice`, SchemaVersion "1.1").
+  2. **Two disk rows and a shared damage list.** The volume check writes two information-only rows
+     per disk, `storage.disk.role` and `storage.disk.used_gb`. `DriveDamage` moved to Core, so H1
+     and the benchmark gate share one list.
+  3. **The items:**
+     - live: H1, O4, O1, the low-space card (D4-D9), O3, and S1 with S4's label;
+     - text only: M5, M6 and S4's other labels.
+  4. **The surfaces:**
+     - the HTML report, the headless console and the window;
+     - the cap of 5, then "N more";
+     - "Don't show again", in `%APPDATA%\PcHealthCheck\dismissed-advice.json`;
+     - ACCEPTANCE section K.
+  5. **The pilot replay** (`PilotReplayTests`) and these records.
+- **The owner's defaults** (the spec's section 11):
+  - H1 may be hidden, and it comes back when the drive gets worse;
+  - no cards for the other "Action needed" readings;
+  - Step C row 3 is not pulled in.
+- **Grades, the kit's verdicts and the fleet table do not move.** A new kit check proves that the
+  advice section and the disk rows change no column.
+- **Proof so far:**
+  - 1205 tests pass (1139 Windows and 66 Linux fixture tests), and so do the 286 kit checks. The
+    Release build is clean with `-warnaserror`.
+  - The healthy, unelevated and freshly reimaged fixtures give zero cards.
+  - **The pilot replay** gives:
+    - one H1 "Back up now" card, on the T470p's own SSD;
+    - "not measured" lines on the two T470s;
+    - nothing about the auditor's USB drive.
+  - **A live unelevated scan of the Release exe on this T470p** (2026-10-28 18:41, built from the
+    working tree):
+    - 16 checks Completed, **no card**, the grey drive-health note, 10 other findings, and no item
+      error;
+    - disk 0 is `system`, with 118.3 GB in use; the three USB disks are `external`;
+    - its commit charge is 82% (Normal) at 5.4 days up, so S1 will rightly appear once it has been
+      up more than 7 days.
+- **Faults logged:** ADV-001 to ADV-011 (ADV-009 to ADV-011 from the review round: 12 findings confirmed by skeptics, all fixed, plus one uncertain one fixed; a gate re-ran everything), STOR-003, ACC-001, TEST-002, and TOOL-005 to TOOL-007.
+  REP-002 also gained the console's "(7,0s)".
+- **Needs a person before the commit.** No agent can claim these:
+  1. **The elevated scan on the T470p** (one UAC click; the spec's section 9). Every SMART and
+     reliability row's `DiskNumber` must equal the role row's `DiskNumber` for the same drive.
+  2. **ACCEPTANCE section K, rows K1-K12, in the window on the T470p.** K2 and K7 are blocking.
+  3. **Both dev PCs scanned, one of them elevated, with no unexpected card.** This is work group
+     5's "done when" and a Phase 2 gate. The dev desktop has DiskSpd, so its smoke reports
+     `Scan: SKIP`. Use `--headless-scan --skip-benchmarks` there.
+  4. **Before Phase 2:** one headless `--skip-benchmarks` scan on the Windows 11 dev desktop.
+- **Then, in this order:**
+  1. commit, with the privacy grep first;
+  2. `build-release.ps1`, since the exe is stamped with HEAD;
+  3. re-copy the stick only if shipping. It still carries `2071660` (Step A).
+- **Next:**
+  - Step D, the intake and handover check.
+  - Step C's readings. Its row 3 now carries S4's hard-disk label, and row 10 carries O4's
+    managed-laptop reads.
+  - O3's throttle-event band waits on the plan's baseline list.
+
+**Before that (state saved 2026-10-28, afternoon): Phase 1 Step A is built.**
 - **What was built.** Rows 1-13 of the plan's Step A:
   - Windows support truth: OS-001, the ESU licence, editions, and update age counted from the
     release;
@@ -483,9 +609,23 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
   - everything on Windows 11, where nothing was run live.
 
   The plan's "fresh-image baseline" (VM, then a restored spare laptop) is where those get proven.
-- **Next.** Step B (the advice engine) and Step D (intake and handover check). The golden-image
-  tasks are in [docs/GOLDEN-IMAGE-PLAN.md](docs/GOLDEN-IMAGE-PLAN.md), and the owner's decisions
-  A-J gate the build.
+- **First elevated run of the Step A build (2026-10-28 13:51).** The release exe ran
+  `--include-admin`, and the owner approved UAC. This PC had four USB volumes attached.
+  - 22 of 23 modules Completed. These were as designed:
+    - `smart.ssd_temperature_c` 37 °C Good, on SSD bands;
+    - USB encryption and free-space rows information only;
+    - `backup.any_protection` Good from the helper's shadow-copy count;
+    - `startup.other_accounts` "Yours is the only user account".
+  - **`disk.reliability` was PartiallyCompleted:** "Reliability counters via the storage
+    association: the query timed out" (the 60 s PowerShell fallback). Step A did not change that
+    query, only disk numbers and wording, so it most likely comes from the four USB devices
+    attached (NVMe enclosure, flash stick, HDD caddy, Google Drive). The kit run of 2026-10-26, with
+    one USB drive attached, completed it. **Not yet investigated:** check whether one USB bridge
+    hangs `Get-StorageReliabilityCounter`.
+  - REP-002 showed live: "About 0,8 years" in `smart.power_on_hours`.
+- **Next.** Step B (the advice engine; built since, see above) and Step D (intake and handover
+  check). The golden-image tasks are in [docs/GOLDEN-IMAGE-PLAN.md](docs/GOLDEN-IMAGE-PLAN.md), and
+  the owner's decisions A-J gate the build.
 - **The stick.** Since 2026-10-28 13:11 it carries the Step A build:
   - `1.0.0-rc.1+2071660`, kit `2026-10-28.1`;
   - `H:` on the T470p today;
