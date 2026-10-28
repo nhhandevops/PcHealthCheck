@@ -9,7 +9,7 @@
       ],
       "tips": {
         "Bad": [
-          "No active antivirus is registered. Turn Windows Defender back on: Settings > Privacy & security > Windows Security > Virus & threat protection."
+          "No active antivirus is registered. Turn Microsoft Defender back on: open Windows Security from the Start menu, then Virus & threat protection."
         ]
       }
     },
@@ -145,7 +145,7 @@
       "tips": {
         "Normal": [
           "Some startup programs have no publisher signature. That alone is not malware — many small tools are unsigned — but make sure you recognize each one listed in the details.",
-          "Unknown items: disable them in Task Manager > Startup apps first (reversible), then scan the file in Windows Security."
+          "Unknown items: turn them off first on the Startup page in Settings (Win+R, then ms-settings:startupapps), which can be undone, then scan the file in Windows Security."
         ]
       }
     },
@@ -159,7 +159,7 @@
       "tips": {
         "Bad": [
           "A startup item's digital signature FAILS verification — the file may have been tampered with. Do not ignore this.",
-          "Disable the item in Task Manager > Startup apps and run a full antivirus scan now."
+          "Turn the item off on the Startup page in Settings (Win+R, then ms-settings:startupapps) and run a full antivirus scan now."
         ]
       }
     }

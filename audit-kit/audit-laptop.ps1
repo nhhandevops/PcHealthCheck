@@ -16,8 +16,10 @@
     its startup programs with their paths, its browser extensions and the programs using the most
     memory), the app's console output, this laptop's serial number, hardware UUID (a fixed ID its
     firmware reports), model, BIOS version, memory, disks and Windows version, your answers to the
-    questions, and short fingerprints (not the names) of the results already on the stick. It
-    contains no passwords, no product keys and no file contents: the app never reads them.
+    questions, and short fingerprints (not the names) of the results already on the stick. The
+    kit's own log (audit-transcript.txt) is in it too, and Windows PowerShell starts that log with
+    the computer name and the Windows user name the kit ran under. It contains no passwords, no
+    product keys and no file contents: the app never reads them.
 
     WHAT IS LEFT ON THE LAPTOP: nothing of the kit's or the app's. All work happens on the USB
     stick, the app's temporary files included, and the app's own folder in %LOCALAPPDATA% is

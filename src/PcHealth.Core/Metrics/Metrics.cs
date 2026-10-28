@@ -46,6 +46,9 @@ public readonly record struct MetricValue
 /// One measured fact, e.g. ("storage.volume.free_pct", 12.4, Subject "C:").
 /// <see cref="Id"/> is the key the verdict rules select on; the same Id may occur
 /// once per <see cref="Subject"/> (per volume, per disk, per AV product...).
+/// <see cref="DiskNumber"/> is Windows' number for the physical drive a drive-health reading
+/// came from (the N in \\.\PhysicalDriveN), so another check can find the same drive by its
+/// number. The subject is a model name, and two identical drives share one.
 /// </summary>
 public sealed record Metric(
     string Id,
@@ -55,4 +58,5 @@ public sealed record Metric(
     string? Unit = null,
     string? Detail = null,
     string? Subject = null,
-    bool InfoOnly = false);
+    bool InfoOnly = false,
+    int? DiskNumber = null);

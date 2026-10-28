@@ -427,7 +427,9 @@ foreach ($r in $sorted) {
         "<td>$(Html $r.Battery)</td><td>$(Html $r.Windows11)</td><td>$why</td><td><small>$note</small></td><td>$link</td></tr>")
 }
 [void]$sb.AppendLine('</tbody></table>')
-[void]$sb.AppendLine('<p><small>READY: nothing found that stops a new employee using it. FIX FIRST: usable after the repair or upgrade listed. ' +
+[void]$sb.AppendLine('<p><small>READY: nothing found that stops a new employee using it. It does not mean Windows 11 supports the laptop: ' +
+    'the Windows 11 column and the notes say that, and it counts against a laptop only when the rules above include "able to run Windows 11". ' +
+    'FIX FIRST: usable after the repair or upgrade listed. ' +
     'REPLACE: cannot meet the rules at any repair cost. CHECK AGAIN: something important was not checked, so no verdict would be honest.</small></p>')
 [void]$sb.AppendLine('</body></html>')
 $html = Join-Path $ResultsDir 'fleet-summary.html'

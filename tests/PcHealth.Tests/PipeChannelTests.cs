@@ -22,6 +22,17 @@ public class PipeChannelTests
         var result = await RoundTripAsync(new RunModulesRequest(["disk.smart", "backup.posture"]));
         var request = Assert.IsType<RunModulesRequest>(result);
         Assert.Equal(["disk.smart", "backup.posture"], request.ModuleIds);
+        Assert.Null(request.StartedBySid);
+    }
+
+    [Fact]
+    public async Task Round_trips_the_account_the_scan_was_started_from()
+    {
+        // The helper runs as whoever typed the administrator password, so the window says whose
+        // scan it is (PRIV-002, review of 2026-10-28). A made-up SID, never a real one.
+        var result = await RoundTripAsync(new RunModulesRequest(["startup.allusers"], "S-1-5-21-1-2-3-1001"));
+
+        Assert.Equal("S-1-5-21-1-2-3-1001", Assert.IsType<RunModulesRequest>(result).StartedBySid);
     }
 
     [Fact]
@@ -36,7 +47,7 @@ public class PipeChannelTests
             Metrics =
             [
                 new Metric("smart.pending_sectors", "Pending sectors", 4d, HealthCategory.Storage,
-                    Unit: "sectors", Detail: "detail", Subject: "Disk 0"),
+                    Unit: "sectors", Detail: "detail", Subject: "Disk 0", DiskNumber: 2),
                 new Metric("smart.predict_failure", "Self-assessment", true, HealthCategory.Storage),
                 new Metric("integrity.image_health", "Component store", "Healthy", HealthCategory.SoftwareOs, InfoOnly: true),
             ],
@@ -50,6 +61,10 @@ public class PipeChannelTests
         Assert.Equal(["a note"], message.Result.Notes);
         Assert.Equal(4d, metrics[0].Value.Number);
         Assert.Equal("Disk 0", metrics[0].Subject);
+        // The benchmark finds a failing drive by this number, and on an unelevated scan the
+        // drive's own health arrives from the helper over this pipe (REMEDIES-PLAN H2).
+        Assert.Equal(2, metrics[0].DiskNumber);
+        Assert.Null(metrics[1].DiskNumber);
         Assert.True(metrics[1].Value.Flag);
         Assert.Equal("Healthy", metrics[2].Value.Text);
         Assert.True(metrics[2].InfoOnly);

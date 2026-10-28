@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PcHealth.Core.Metrics;
@@ -19,7 +20,8 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
         Id = "disk.reliability",
         Name = SmartAvailability.ReliabilityCheckName,
         Description = "SSD endurance used, drive temperature, and uncorrected read/write errors as reported by the storage driver. This is how NVMe SSD health is measured.",
-        Reads = ["Storage reliability counters (WMI)", "Volume dirty flag (fsutil, read-only query)"],
+        Reads = ["Storage reliability counters (WMI)", "Disk model, size, number, media type and bus type (WMI)",
+                 "Volume dirty flag (fsutil, read-only query)"],
         NeedsAdmin = true,
         EstimatedDuration = TimeSpan.FromSeconds(8),
     };
@@ -84,6 +86,8 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
                 ? disk.Name
                 : $"Disk {deviceId ?? "?"}";
             var isSsd = deviceId is not null && disks.TryGetValue(deviceId, out var d) && d.MediaType == 4;
+            // Windows' number for the drive, so the disk benchmark can find a failing one by number (H2).
+            int? number = int.TryParse(deviceId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
 
             if (ReliabilityCounterCheck.IsPlaceholder(
                     Wmi.Get<ushort>(counter, "Wear"), Wmi.Get<ushort>(counter, "Temperature"),
@@ -104,7 +108,7 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
                 if (ReliabilityCounterCheck.WearIsTrustworthy(wear, onUsb))
                 {
                     metrics.Add(new Metric("storage.wear_pct", "SSD endurance used", (double)wear,
-                        HealthCategory.Storage, Unit: "%", Subject: subject,
+                        HealthCategory.Storage, Unit: "%", Subject: subject, DiskNumber: number,
                         Detail: "Percentage of the drive's rated write endurance consumed. 100% does not mean instant failure, but it is past its warranty life."));
                 }
                 else
@@ -116,22 +120,29 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
 
             if (Wmi.Get<ushort>(counter, "Temperature") is { } temp && temp > 0)
             {
+                // The sentence names the kind of drive it is about: "NVMe SSDs commonly run 50-70"
+                // stood on a SATA SSD's row and on a hard disk's in a USB caddy (H7).
+                var bus = deviceId is not null && disks.TryGetValue(deviceId, out var b) ? b.BusType : (ushort)0;
                 metrics.Add(new Metric("storage.temperature_c", "Drive temperature", (double)temp,
-                    HealthCategory.Storage, Unit: "°C", Subject: subject,
+                    HealthCategory.Storage, Unit: "°C", Subject: subject, DiskNumber: number,
                     Detail: Wmi.Get<ushort>(counter, "TemperatureMax") is { } max && max > 0
                         ? $"The drive reports its own maximum safe temperature as {max} °C."
-                        : "NVMe SSDs commonly run 50–70 °C under load, which is within spec."));
+                        : bus == DiskBus.Nvme
+                            ? "NVMe SSDs commonly run 50–70 °C under load, which is within spec."
+                            : isSsd && !DiskBus.IsExternal(bus)
+                                ? "Most SSDs are rated to work up to 70 °C."
+                                : "Graded on SSD limits. If this is a hard disk, it lasts longest below about 40 °C."));
             }
 
             AddErrorCounter(counter, "ReadErrorsUncorrected", "storage.read_errors_uncorrected",
-                "Uncorrected read errors", "Data the drive could not read back correctly.", subject, metrics);
+                "Uncorrected read errors", "Data the drive could not read back correctly.", subject, number, metrics);
             AddErrorCounter(counter, "WriteErrorsUncorrected", "storage.write_errors_uncorrected",
-                "Uncorrected write errors", "Writes the drive could not complete correctly.", subject, metrics);
+                "Uncorrected write errors", "Writes the drive could not complete correctly.", subject, number, metrics);
 
             if (Wmi.Get<ulong>(counter, "PowerOnHours") is { } hours && hours > 0)
             {
                 metrics.Add(new Metric("storage.power_on_hours", "Power-on hours", (double)hours,
-                    HealthCategory.Storage, Unit: "h", Subject: subject, InfoOnly: true,
+                    HealthCategory.Storage, Unit: "h", Subject: subject, InfoOnly: true, DiskNumber: number,
                     Detail: $"About {Math.Round(hours / 8760.0, 1)} years of powered-on time."));
             }
         }
@@ -149,11 +160,11 @@ internal sealed partial class StorageReliabilityModule : WindowsModuleBase
 
     private static void AddErrorCounter(
         Dictionary<string, object?> counter, string property, string metricId,
-        string label, string detail, string subject, List<Metric> metrics)
+        string label, string detail, string subject, int? diskNumber, List<Metric> metrics)
     {
         if (Wmi.Get<ulong>(counter, property) is not { } value) return;
         metrics.Add(new Metric(metricId, label, (double)value, HealthCategory.Storage,
-            Subject: subject, Detail: detail));
+            Subject: subject, DiskNumber: diskNumber, Detail: detail));
     }
 
     /// <summary>

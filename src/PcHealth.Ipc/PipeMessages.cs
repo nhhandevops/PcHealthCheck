@@ -19,7 +19,10 @@ public abstract record PipeMessage;
 
 /// <summary>UI -> worker. The worker treats these ids as a REQUEST, not authorization:
 /// it intersects them with its own compiled-in registry of admin modules.</summary>
-public sealed record RunModulesRequest(string[] ModuleIds) : PipeMessage;
+/// <param name="StartedBySid">The UI's own Windows account (its SID), the one the scan was started
+/// from, because the worker runs as whoever gave administrator rights. It only decides which account
+/// the report calls the reader's, so the worker takes it only when it looks like a person's SID.</param>
+public sealed record RunModulesRequest(string[] ModuleIds, string? StartedBySid = null) : PipeMessage;
 
 public sealed record ProgressMessage(string ModuleId, string ModuleName, int Index, int Total, string Message) : PipeMessage;
 

@@ -33,7 +33,9 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
                       "Microsoft's DiskSpd. About a minute per physical drive, so several minutes on a PC with " +
                       "a few of them. Records the result so a future slowdown becomes visible. " +
                       "Needs DiskSpd installed — the app offers to install it.",
-        Reads = ["Drive model, media type and bus type (WMI)", "A temporary file this check creates itself — no existing file is opened"],
+        Reads = ["Drive model, media type, bus type and Windows' health flag, and each drive letter's disk and free space (WMI)",
+                 "A temporary file this check creates itself — no existing file is opened",
+                 "Disk errors in the System event log, and this scan's own drive-health findings, so a drive that is failing is never written to"],
         NeedsAdmin = false,
         Writes = new WriteSpec(
             // Built from the constants the writer actually uses, not typed out again. The previous
@@ -80,14 +82,37 @@ internal sealed class DiskSpeedModule : WindowsModuleBase
             notes.Add($"Removed a leftover test file from an earlier run that did not finish: {orphan}.");
         }
 
-        var (targets, skipped) = BenchmarkTargetSelector.Choose(
-            ReadVolumes(notes), ReadDisks(notes), DiskSpdRunner.DefaultFileBytes);
+        // Never write to a drive this scan already calls failing (REMEDIES-PLAN H2, project rule 4):
+        // what the other checks found, the elevated SMART check's included, and the event log's
+        // disk errors, read here because the event-log check reports a total, not each drive's. An
+        // error that names no drive keeps the benchmark off every drive inside the PC.
+        // Unknown health still measures, with a note: refusing every drive whose health was not
+        // read would switch the check off on every scan without administrator rights.
+        var diskErrors = DiskErrorLog.Read(out var logError);
+        if (diskErrors is null)
+        {
+            notes.Add($"The event log's disk errors could not be read ({logError}), so they were not checked " +
+                      "before writing to the drives.");
+        }
+        var volumes = ReadVolumes(notes);
+        var disks = ReadDisks(notes);
+        var failing = FailingDrives.Find(context.EarlierFindings, diskErrors ?? [], volumes, disks);
+
+        var (targets, skipped) = BenchmarkTargetSelector.Choose(volumes, disks, DiskSpdRunner.DefaultFileBytes, failing);
         foreach (var reason in skipped) notes.Add("Not benchmarked — " + reason);
 
         if (targets.Count == 0)
         {
-            notes.Add("No drive had enough free space to be benchmarked safely.");
+            notes.Add("No drive could be benchmarked safely.");
             return ModuleStatus.Skipped;
+        }
+
+        var unread = targets.Where(t => !FailingDrives.HealthWasRead(context.EarlierFindings, t.DiskNumber)).ToList();
+        if (unread.Count > 0)
+        {
+            notes.Add($"This scan did not read the drive's own health (SMART or wear counters) for " +
+                      $"{string.Join(", ", unread.Select(t => $"{t.DriveLetter} ({t.Model})"))}, so before writing to it " +
+                      "this check could go only on Windows' own health flag and the event log.");
         }
 
         var runner = new DiskSpdRunner(context.Processes);

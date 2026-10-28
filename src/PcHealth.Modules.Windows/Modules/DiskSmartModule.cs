@@ -1,6 +1,7 @@
 using System.Globalization;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
+using PcHealth.Modules.Windows.Benchmarks;
 using PcHealth.Modules.Windows.Storage;
 using PcHealth.Modules.Windows.Support;
 
@@ -22,7 +23,9 @@ internal sealed class DiskSmartModule : WindowsModuleBase
         Id = "disk.smart",
         Name = "Drive SMART health",
         Description = "The drive's own failure indicators: reallocated and pending sectors, uncorrectable errors, cable (CRC) errors, temperature and power-on hours.",
-        Reads = ["SMART attribute tables, and the failure limits the drive's maker set (WMI root\\wmi)", "Disk model/serial inventory (WMI)"],
+        Reads = ["SMART attribute tables, and the failure limits the drive's maker set (WMI root\\wmi)",
+                 "Disk model, size, number and Windows' device ID, which links each disk to its SMART data (WMI)",
+                 "Each disk's media type and bus type (WMI)"],
         NeedsAdmin = true,
         EstimatedDuration = TimeSpan.FromSeconds(6),
     };
@@ -38,14 +41,29 @@ internal sealed class DiskSmartModule : WindowsModuleBase
             "SELECT Model, PNPDeviceID, InterfaceType, Index, Size FROM Win32_DiskDrive",
             failures, "Disk inventory");
 
-        var byPnpId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // What kind of drive each one is, by disk number, so a temperature is graded on the right
+        // bands (REMEDIES-PLAN H7). Read here once; the refusal branch below also needs the buses.
+        var physicalRows = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
+            "SELECT DeviceId, MediaType, BusType FROM MSFT_PhysicalDisk", out var busError);
+        var classByNumber = new Dictionary<int, DriveClass>();
+        foreach (var row in physicalRows)
+        {
+            if (int.TryParse(Wmi.GetString(row, "DeviceId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var number))
+                classByNumber[number] = DriveClassifier.Classify(Wmi.Get<ushort>(row, "MediaType"), Wmi.Get<ushort>(row, "BusType"));
+        }
+
+        // Each drive's number goes on its rows, so the disk benchmark can find a failing drive by
+        // its number and never by its model name, which two identical drives share (H2).
+        var byPnpId = new Dictionary<string, SmartDrive>(StringComparer.OrdinalIgnoreCase);
         foreach (var drive in drives)
         {
             var pnp = Wmi.GetString(drive, "PNPDeviceID");
             if (string.IsNullOrEmpty(pnp)) continue;
             var model = Wmi.GetString(drive, "Model")?.Trim() ?? $"Disk {Wmi.GetString(drive, "Index")}";
             var sizeGb = Wmi.Get<ulong>(drive, "Size") is { } size ? $" — {Math.Round(size / 1e9)} GB" : "";
-            byPnpId[pnp] = $"{model}{sizeGb}";
+            var index = Wmi.Get<uint>(drive, "Index") is { } i ? (int?)i : null;
+            byPnpId[pnp] = new SmartDrive($"{model}{sizeGb}", index,
+                index is { } n && classByNumber.TryGetValue(n, out var driveClass) ? driveClass : DriveClass.Unknown);
         }
 
         var status = Wmi.TryQuery(@"root\wmi",
@@ -70,9 +88,7 @@ internal sealed class DiskSmartModule : WindowsModuleBase
             // was already in the same report under disk.reliability (SMART-001). Both facts it
             // needed were to hand: context.IsElevated, and the bus each disk sits on - the same
             // MSFT_PhysicalDisk.BusType the reliability and speed checks already read.
-            var busRows = Wmi.TryQuery(@"root\Microsoft\Windows\Storage",
-                "SELECT BusType FROM MSFT_PhysicalDisk", out var busError);
-            var busTypes = busRows.ConvertAll(row => Wmi.Get<ushort>(row, "BusType"));
+            var busTypes = physicalRows.ConvertAll(row => Wmi.Get<ushort>(row, "BusType"));
             var reason = SmartAvailability.Diagnose(context.IsElevated, busError is null, busTypes);
 
             if (reason == SmartUnavailableReason.NoAtaDrivePresent)
@@ -121,11 +137,11 @@ internal sealed class DiskSmartModule : WindowsModuleBase
 
         foreach (var row in status)
         {
-            var subject = ResolveSubject(Wmi.GetString(row, "InstanceName"), byPnpId);
+            var drive = Resolve(Wmi.GetString(row, "InstanceName"), byPnpId);
             if (Wmi.Get<bool>(row, "PredictFailure") is { } predict)
             {
                 metrics.Add(new Metric("smart.predict_failure", "Drive self-assessment", !predict,
-                    HealthCategory.Storage, Subject: subject,
+                    HealthCategory.Storage, Subject: drive.Subject, DiskNumber: drive.Number,
                     Detail: predict
                         ? "The drive's own firmware predicts imminent failure. Treat the data on it as at risk right now."
                         : "The drive's firmware reports it is not predicting failure. (Note: about a quarter of failures give no warning.)"));
@@ -135,16 +151,16 @@ internal sealed class DiskSmartModule : WindowsModuleBase
         var drivesWithAttributes = 0;
         foreach (var row in data)
         {
-            var subject = ResolveSubject(Wmi.GetString(row, "InstanceName"), byPnpId);
+            var drive = Resolve(Wmi.GetString(row, "InstanceName"), byPnpId);
             var vendorSpecific = row.GetValueOrDefault("VendorSpecific") as byte[];
             var attributes = SmartAttributeParser.Parse(vendorSpecific);
             if (attributes.Count == 0) continue;
             drivesWithAttributes++;
-            AddAttributeMetrics(metrics, subject, attributes);
+            AddAttributeMetrics(metrics, drive, attributes);
             if (Wmi.GetString(row, "InstanceName") is { } instance &&
                 thresholdsByInstance.TryGetValue(instance, out var thresholds) && thresholds.Count > 0)
             {
-                AddThresholdMetric(metrics, subject, attributes, thresholds);
+                AddThresholdMetric(metrics, drive, attributes, thresholds);
             }
         }
 
@@ -165,15 +181,17 @@ internal sealed class DiskSmartModule : WindowsModuleBase
         return Task.FromResult(failures.Resolve());
     }
 
-    private static void AddAttributeMetrics(List<Metric> metrics, string subject, IReadOnlyList<SmartAttribute> attributes)
+    private static void AddAttributeMetrics(List<Metric> metrics, SmartDrive drive, IReadOnlyList<SmartAttribute> attributes)
     {
         var map = attributes.ToDictionary(a => a.Id);
+        var subject = drive.Subject;
 
         void AddCounter(int id, string metricId, string label, string detail)
         {
             if (!map.TryGetValue(id, out var attribute)) return;
             metrics.Add(new Metric(metricId, label, (double)attribute.MeaningfulRaw, HealthCategory.Storage,
-                Subject: subject, Detail: $"{detail} (SMART attribute {id}, normalized value {attribute.Current}/{attribute.Worst} worst)"));
+                Subject: subject, DiskNumber: drive.Number,
+                Detail: $"{detail} (SMART attribute {id}, normalized value {attribute.Current}/{attribute.Worst} worst)"));
         }
 
         AddCounter(5, "smart.reallocated", "Reallocated sectors",
@@ -193,16 +211,14 @@ internal sealed class DiskSmartModule : WindowsModuleBase
 
         if (map.TryGetValue(194, out var temperature) || map.TryGetValue(190, out temperature))
         {
-            metrics.Add(new Metric("smart.temperature_c", "Drive temperature", (double)temperature.MeaningfulRaw,
-                HealthCategory.Storage, Unit: "°C", Subject: subject,
-                Detail: "Mechanical drives last longest below about 40 °C."));
+            metrics.Add(SmartTemperature.Reading(subject, drive.Number, temperature.MeaningfulRaw, drive.Class));
         }
 
         if (map.TryGetValue(9, out var hours))
         {
             var years = Math.Round(hours.MeaningfulRaw / 8760.0, 1);
             metrics.Add(new Metric("smart.power_on_hours", "Power-on hours", (double)hours.MeaningfulRaw,
-                HealthCategory.Storage, Unit: "h", Subject: subject, InfoOnly: true,
+                HealthCategory.Storage, Unit: "h", Subject: subject, InfoOnly: true, DiskNumber: drive.Number,
                 Detail: $"About {years} years of powered-on time."));
         }
 
@@ -211,7 +227,7 @@ internal sealed class DiskSmartModule : WindowsModuleBase
             if (!map.TryGetValue(id, out var life)) continue;
             var consumed = Math.Clamp(100 - life.Current, 0, 100);
             metrics.Add(new Metric("smart.ssd_percent_consumed", "SSD endurance used", (double)consumed,
-                HealthCategory.Storage, Unit: "%", Subject: subject,
+                HealthCategory.Storage, Unit: "%", Subject: subject, DiskNumber: drive.Number,
                 Detail: $"Estimated from SMART attribute {id} ({SmartAttributeParser.NameFor(id)} = {life.Current}). " +
                         "Vendors vary in how they report this, so treat it as approximate."));
             break;
@@ -219,7 +235,7 @@ internal sealed class DiskSmartModule : WindowsModuleBase
     }
 
     private static void AddThresholdMetric(
-        List<Metric> metrics, string subject, IReadOnlyList<SmartAttribute> attributes, IReadOnlyDictionary<int, int> thresholds)
+        List<Metric> metrics, SmartDrive drive, IReadOnlyList<SmartAttribute> attributes, IReadOnlyDictionary<int, int> thresholds)
     {
         var (now, past) = SmartAttributeParser.AtThreshold(attributes, thresholds);
         string Describe(IEnumerable<SmartAttribute> list, Func<SmartAttribute, int> value) => string.Join(", ",
@@ -232,14 +248,21 @@ internal sealed class DiskSmartModule : WindowsModuleBase
             detail += $" These reached their limit at some point and have since recovered: {Describe(past, a => a.Worst)}.";
 
         metrics.Add(new Metric("smart.attributes_at_threshold", "Attributes at the drive's own failure limit", (double)now.Count,
-            HealthCategory.Storage, Subject: subject, Detail: detail));
+            HealthCategory.Storage, Subject: drive.Subject, DiskNumber: drive.Number, Detail: detail));
     }
 
+    /// <summary>One drive as its rows name it: the subject shown, Windows' disk number, and its kind.</summary>
+    private sealed record SmartDrive(string Subject, int? Number, DriveClass Class);
+
     /// <summary>WMI SMART instance names are the device's PNPDeviceID with a "_0" suffix.</summary>
-    private static string ResolveSubject(string? instanceName, Dictionary<string, string> byPnpId)
+    private static SmartDrive Resolve(string? instanceName, Dictionary<string, SmartDrive> byPnpId)
     {
-        if (string.IsNullOrEmpty(instanceName)) return "Unknown drive";
+        if (string.IsNullOrEmpty(instanceName)) return new SmartDrive("Unknown drive", null, DriveClass.Unknown);
         var trimmed = instanceName.EndsWith("_0", StringComparison.Ordinal) ? instanceName[..^2] : instanceName;
-        return byPnpId.TryGetValue(trimmed, out var friendly) ? friendly : trimmed;
+        if (byPnpId.TryGetValue(trimmed, out var drive)) return drive;
+        // The instance name is a device path, and a USB disk's can carry its serial number (PRIV-003),
+        // so an unmatched drive is named by a short one-way fingerprint of it, never by the path itself.
+        var print = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(trimmed)))[..6];
+        return new SmartDrive($"Drive not in Windows' disk list ({print})", null, DriveClass.Unknown);
     }
 }

@@ -71,11 +71,21 @@ app is the tool, and the results are its first field test.
     `A9E8396710BEF6EDADCFEE5C389624B2CD21C6C3624CA319A28869AE2EFB46E7`) made only the unfinished run
     above, and no zip. `7b7d537` (zip `BF4425554EC31735B5FDD9A29BC364EDAFCAB5593CC3DD4DE2E807CDC7D0B9D1`)
     checked no laptop at all.
-  - **The remedies plan waits on the owner (2026-10-27).** [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md)
-    records the owner's decisions and six questions still open, among them which Windows goes onto a
-    reimaged laptop, commercial ESU, and whether "Windows 11 does not support this processor" should
-    still mean REPLACE. Nothing in it is built. Phase 1 starts on the owner's "go". It changes the app
-    on the stick, so the stick is rebuilt and re-copied after the commit, as always.
+  - **Remedies plan: Phase 1 Step A is built (2026-10-28).** [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md)
+    records the owner's decisions; the owner said "go" on 2026-10-27. Step A, rows 1-13, is done:
+    - six agents built it;
+    - a five-lens review with skeptics found 22 confirmed faults;
+    - a gate re-ran every test.
+
+    The kit no longer marks a laptop REPLACE because Windows 11 refuses its processor (decision 9).
+    The app tells an unenrolled Windows 10 the truth (OS-001). The kit version is `2026-10-28.1`.
+    **Fleet rows change once the stick carries this build:** the three pilot laptops move from
+    REPLACE to FIX FIRST, for their real hardware faults. Next in the plan:
+    - Step B, the advice engine;
+    - Step D, the intake and handover check;
+    - the golden-image tasks in [docs/GOLDEN-IMAGE-PLAN.md](docs/GOLDEN-IMAGE-PLAN.md), which wait
+      on the owner's decisions A-J;
+    - REP-002 (decimal commas in report details), still open.
   - **The stick's own health (2026-10-27).** The stick is a 1 TB laptop hard disk in a USB case.
     The T470p's event log had 7 disk errors against it in 90 days, and it carries a `FOUND.000`
     folder dated 21 October. The pilot's Silicon-Power drive also reported uncorrected read
@@ -83,6 +93,12 @@ app is the tool, and the results are its first field test.
     owner keeps using it. That check covers the file system only, not the disk surface. After
     every batch, copy `Results` off the stick. If a zip ever fails to open, switch sticks and
     copy the whole kit folder, `Results` included, onto the new one.
+    **Re-read on 2026-10-28 from the T470p's System log.** Every burst of 5-9 "error during a
+    paging operation" events (disk event 51) came within a second of the stick being plugged in
+    (27 Oct 08:36, 28 Oct 08:55). The same burst happened once with another USB enclosure. So these
+    look like errors from plugging the drive in, not from its surface. Four "IO retried" warnings
+    (disk event 153) came on 27 Oct at 16:11. There were no unrecoverable reads. The stick stays in
+    use, as `H:` on the T470p today.
   - Rebuild the stick's copy after any commit that touches Windows code or the kit, and rebuild
     **after** committing, not before: the exe is stamped with HEAD at build time, so a zip built
     on a dirty tree names a commit that does not contain the code inside it.

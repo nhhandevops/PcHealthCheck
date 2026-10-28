@@ -3,7 +3,24 @@
 # Windows PowerShell 5.1 compatible and ASCII only: 5.1 reads a script without a byte-order mark
 # in the ANSI code page, so any non-ASCII character here would be garbled on some laptops.
 
-$script:AuditKitVersion = '2026-10-26.1'
+$script:AuditKitVersion = '2026-10-28.1'
+
+# The first kit whose app reads Windows 11 hardware support on Windows 11, Windows 10's ESU
+# licence and the Home edition, and writes no user name into its startup rows. A zip records the
+# kit that made it as kit.json's KitVersion; a stick's build date says nothing, because the stick
+# built on 2026-10-27 carries kit 2026-10-26.1, which has none of this.
+$script:FirstKitWithSupportReadings = '2026-10-28.1'
+
+# Whether a kit version as kit.json records it ("2026-10-28.1") is older than another. False for
+# anything else, no version included: then the zip does not say which kit made it.
+function Test-KitOlder([string]$Version, [string]$Than) {
+    if ($Version -notmatch '^(\d{4}-\d{2}-\d{2})\.(\d+)$') { return $false }
+    $day = $Matches[1]; $count = [int]$Matches[2]
+    if ($Than -notmatch '^(\d{4}-\d{2}-\d{2})\.(\d+)$') { return $false }
+    $order = [string]::CompareOrdinal($day, $Matches[1])
+    if ($order -ne 0) { return $order -lt 0 }
+    return $count -lt [int]$Matches[2]
+}
 
 function Write-Utf8NoBom([string]$Path, [string]$Text) {
     [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding $false))
@@ -80,13 +97,15 @@ function Get-AuditCheckedAt($Kit) {
 }
 
 # The pass rules, from audit-rules.json, with the defaults filled in for anything missing.
+# requireWindows11Ready is off since 2026-10-27 (decision 9): a laptop whose processor Windows 11
+# does not support gets Windows 10 or Windows 11 anyway, so that alone no longer means REPLACE.
 function Read-AuditRules([string]$Path) {
     $rules = [ordered]@{
         minRamGb              = 8
         requireSsd            = $true
         minBatteryPct         = 60
         minSystemDriveFreePct = 15
-        requireWindows11Ready = $true
+        requireWindows11Ready = $false
         driveWarningsNeedFix  = $false
     }
     $file = Read-JsonFile $Path
@@ -190,9 +209,28 @@ function Test-ExternalDrive([string]$Subject, $ExternalNames) {
 # kit-tests.ps1 fails if the two ever disagree.
 $script:DiskErrorsNormalMax = 5
 
+# What a "90 days" count from the event log really covers, for the text beside it. Since
+# REMEDIES-PLAN M1 the app ends such a count's Detail with "In the last 90 days (records cover only
+# 9 days: the System event log goes back no further)." when the log is shorter, or with "(how many
+# days the records cover is unknown: ...)". Older reports say neither, and their count is over the
+# full window as before, so $Whole is returned.
+function Get-EventLogWindow($Metric, [string]$Whole) {
+    $detail = [string](Get-JsonField $Metric 'Detail')
+    $span = [regex]::Match($detail, 'records cover only ([^:)]+):')
+    if ($span.Success) {
+        if ($span.Groups[1].Value -eq 'less than a day') { return 'in less than a day of event log' }
+        return "in the $($span.Groups[1].Value) the event log covers"
+    }
+    if ($detail -match 'how many days the records cover is unknown') { return 'in an event log of unknown length' }
+    return $Whole
+}
+
 # The event log's disk errors split by the drive that logged them. The app writes the split into
 # the metric's Detail, in fixed English that is never translated (DiskEventAttribution.Describe):
 #   "By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 34, disk 2: 13."
+# Since REMEDIES-PLAN H3 the app's value counts only the PC's own drives, and when that is not every
+# error the Detail also says "Counted against this PC: 0 of 47." The total is then the second number;
+# older reports have no such sentence, and their value is the total.
 # Returns $null when there is no split, or when its numbers do not add up to the total: the caller
 # then counts every error against the laptop, because a sentence that cannot be read must never
 # make errors disappear.
@@ -200,6 +238,11 @@ function Get-DiskErrorSplit($Verdict) {
     $detail = [string](Get-JsonField $Verdict.Metric 'Detail')
     $total = Get-JsonField (Get-JsonField $Verdict.Metric 'Value') 'Number'
     if (-not $detail -or $null -eq $total) { return $null }
+    $stated = [regex]::Match($detail, 'Counted against this PC: (\d+) of (\d+)\.')
+    if ($stated.Success) {
+        if ([int]$stated.Groups[1].Value -ne [int]$total) { return $null }
+        $total = [int]$stated.Groups[2].Value
+    }
     $byDisk = @{}
     $systemDisk = $null
     $match = [regex]::Match($detail, 'on the disk Windows runs from \(disk (\d+)\): (\d+)')
@@ -453,9 +496,12 @@ function Get-ResultNameParts([string]$Name, [string]$ComputerName) {
 $script:CriticalModules = @('sys.overview', 'volumes', 'battery', 'disk.smart', 'disk.reliability')
 
 # One row of the fleet table: the facts, and the verdict with every reason for it.
-# READY       - nothing found that stops a new employee using it.
+# READY       - nothing found that stops a new employee using it. It does not say Windows 11
+#               supports the laptop: the Windows11 column and the notes do.
 # FIX FIRST   - usable after a repair or upgrade the reasons name (battery, drive, memory...).
-# REPLACE     - cannot meet the rules at any repair cost (today: a processor Windows 11 refuses).
+# REPLACE     - cannot meet the rules at any repair cost: a processor Windows 11 refuses, and only
+#               while requireWindows11Ready is on. It is off since 2026-10-27 (decision 9), so with
+#               the shipped rules no laptop is REPLACE.
 # CHECK AGAIN - something important was not checked, so no verdict would be honest.
 #
 # Used on one run, and by the fleet summary on the run it shows for a laptop checked more than once.
@@ -636,10 +682,12 @@ function Get-AuditRow($Bundle, $Rules) {
         if ($split.External.Count -gt 0) { $outside += "on USB drives ($($split.External -join ', '))" }
         if ($split.Detached.Count -gt 0) { $outside += "on drives not attached during the audit ($($split.Detached -join ', '))" }
         if ($outside.Count -gt 0) { $notes.Add("Not counted against this laptop, disk errors in the event log $($outside -join ' and ')") }
+        # A short log is said, never stretched to 90 days: 3 errors in 9 days is ten times the rate.
+        $window = Get-EventLogWindow $eventVerdict.Metric 'in 90 days'
         if ($split.Own -gt $script:DiskErrorsNormalMax) {
-            $driveFix.Add("Disk errors in the event log from this laptop's own drive: $($split.Own) in 90 days ($($split.OwnParts -join ', ')), check that drive")
+            $driveFix.Add("Disk errors in the event log from this laptop's own drive: $($split.Own) $window ($($split.OwnParts -join ', ')), check that drive")
         } elseif ($split.Own -gt 0) {
-            $notes.Add("A few disk errors in the event log from this laptop's own drive: $($split.Own) in 90 days ($($split.OwnParts -join ', '))")
+            $notes.Add("A few disk errors in the event log from this laptop's own drive: $($split.Own) $window ($($split.OwnParts -join ', '))")
         }
     }
 
@@ -683,7 +731,7 @@ function Get-AuditRow($Bundle, $Rules) {
     } elseif ($battery.Count -gt 0) {
         $batteryText = 'Not reliable'
         $recheck.Add('The battery gauge reported a figure it cannot hold, so battery wear was NOT established')
-        $notes.Add("Battery gauge reported $(($battery | ForEach-Object { [double]$_.Metric.Value.Number } | Measure-Object -Maximum).Maximum)% of design; recalibrate (full discharge, then a full uninterrupted charge) and check again")
+        $notes.Add("Battery gauge reported $(($battery | ForEach-Object { [double]$_.Metric.Value.Number } | Measure-Object -Maximum).Maximum)% of design, so recalibrate it (full discharge, then a full uninterrupted charge) and check again")
     } elseif (($m -and $m.IsLaptop) -or -not $report -or -not $m) {
         # A laptop whose battery was not read, or a run that read nothing at all: "No battery" would
         # claim a fact nobody established. Without a report, the no-report reason already says why.
@@ -702,26 +750,100 @@ function Get-AuditRow($Bundle, $Rules) {
         }
     }
 
-    # --- Windows 11
+    # --- Windows 11. The column always says whether Windows 11 supports the laptop. It decides the
+    # verdict only while requireWindows11Ready is on. Since 2026-10-27 it is off (decision 9): a
+    # laptop Windows 11 does not support gets Windows 10, or Windows 11 anyway, so each finding is a
+    # note saying what that means, and the reasons are kept for a manager who turns it back on.
+    # Then they hold for a laptop already running Windows 11 as well: the processor is the same
+    # whichever Windows is on it, and before this, installing Windows 11 anyway read READY (KIT-008).
     $build = 0
     if ($m -and $m.WindowsBuild) { $build = [int]$m.WindowsBuild }
     $ready = @($verdicts | Where-Object { $_.Metric.Id -eq 'os.win11_ready' }) | Select-Object -First 1
     $codesMetric = @($verdicts | Where-Object { $_.Metric.Id -eq 'os.win11_blockers' }) | Select-Object -First 1
     $codes = if ($codesMetric) { [string]$codesMetric.Metric.Value.Text } else { '' }
-    if ($build -ge 22000) { $win11 = 'Already Windows 11' }
+    # On Windows 11 the app's reading says whether Microsoft supports it on this hardware. Without
+    # it, the column does not say "supported" either, and the text gives only the cause the zip
+    # shows: a kit older than FirstKitWithSupportReadings never read it, and a blockers row with no
+    # verdict row is a verdict the app does not interpret, so Windows did assess the laptop.
+    # A run with no report reads "Not read", whichever Windows: the no-report reason says why.
+    $hardware = @($verdicts | Where-Object { $_.Metric.Id -eq 'os.win11_hardware_supported' }) | Select-Object -First 1
+    $blocked = $false; $unread = ''
+    if (-not $report) { $win11 = 'Not read' }
+    elseif ($build -ge 22000) {
+        if ($hardware -and $hardware.Metric.Value.Flag -eq $true) { $win11 = 'Already Windows 11' }
+        elseif ($hardware -and $hardware.Metric.Value.Flag -eq $false) {
+            $win11 = 'Already Windows 11, on hardware Microsoft does not support' + $(if ($codes) { " ($codes)" } else { '' })
+            $blocked = $true
+        } else { $win11 = 'Already Windows 11, hardware support not read'; $unread = 'Whether Microsoft supports Windows 11 on this hardware was not read' }
+    }
     elseif ($ready -and $ready.Metric.Value.Flag -eq $true) { $win11 = 'Yes' }
-    elseif ($ready) {
-        $processor = $codes -match '(^|\s)(Cpu\w*|PopCnt|Sse\w*)'
-        $win11 = "No ($codes)"
-        if ($Rules.requireWindows11Ready) {
-            if ($processor) { $replace.Add("Windows 11 will not run on this processor ($codes)") }
-            else { $fix.Add("Windows 11 blocked by $($codes): turn on TPM / Secure Boot in the firmware settings") }
+    elseif ($ready) { $win11 = "No ($codes)"; $blocked = $true }
+    elseif ($codesMetric) { $win11 = 'Verdict not interpreted'; $unread = 'Whether this laptop can move to Windows 11 was not read' }
+    else { $win11 = 'Not assessed'; $unread = 'Windows has not assessed this laptop for Windows 11' }
+    if ($unread -and $codesMetric) { $unread += ': Windows gave a verdict the app does not interpret, see its report' }
+    elseif ($unread -and $build -ge 22000) {
+        $kitVersion = [string](Get-JsonField $kit 'KitVersion')
+        if (Test-KitOlder $kitVersion $script:FirstKitWithSupportReadings) {
+            $unread += ": kit $kitVersion does not read it, kit $($script:FirstKitWithSupportReadings) and later do"
+        } elseif ($kitVersion -match '^\d{4}-\d{2}-\d{2}\.\d+$') { $unread += ': Windows has no verdict on this installation yet, see its report' }
+        else { $unread += ": Windows has no verdict on this installation yet, or the zip is from a kit older than $($script:FirstKitWithSupportReadings)" }
+    }
+    # "Not assessed" names its cause but not what is unknown, so its note says that as well.
+    $unreadNote = if ($win11 -eq 'Not assessed') { "$unread, so whether Windows 11 supports it is not known" } else { $unread }
+
+    # TPM / Secure Boot advice only when every code is one the firmware settings fix. Any other code
+    # (SystemDriveSize, Memory, DX12, "none" for a block Windows does not name, a code this kit does
+    # not know) gets no repair advice: the report says what each one means.
+    $processor = $codes -match '(^|\s)(Cpu\w*|PopCnt|Sse\w*)'
+    $codeList = @($codes -split '\s+' | Where-Object { $_ -and $_ -ne 'none' })
+    $firmware = $codeList.Count -gt 0 -and @($codeList | Where-Object { $_ -notmatch '^(Tpm|TpmVersion|UefiSecureBoot|SecureBoot|Uefi)$' }).Count -eq 0
+    $firmwareFix = 'turn on TPM / Secure Boot in the firmware settings'
+    $blockedBy = if ($codeList.Count -gt 0) { "Windows 11 blocked by $codes" } else { 'Windows 11 blocked for a reason Windows does not name' }
+    if ($blocked -and $Rules.requireWindows11Ready) {
+        if ($processor -and $build -ge 22000) { $replace.Add("Windows 11 runs here, but Microsoft does not support it on this processor ($codes)") }
+        elseif ($processor) { $replace.Add("Windows 11 will not run on this processor ($codes)") }
+        elseif ($build -ge 22000) {
+            $fix.Add("Windows 11 runs here on hardware Microsoft does not support ($codes): " + $(if ($firmware) { $firmwareFix } else { "see 'Hardware supported by Windows 11' in its report" }))
         }
-    } elseif (-not $report) {
-        $win11 = 'Not read'
-    } else {
-        $win11 = 'Not assessed'
-        if ($Rules.requireWindows11Ready) { $recheck.Add('Windows has not assessed this laptop for Windows 11') }
+        elseif ($firmware) { $fix.Add("$($blockedBy): $firmwareFix") }
+        else { $fix.Add("$($blockedBy): see 'Can move to Windows 11' in its report") }
+    }
+    elseif ($blocked -and $build -ge 22000) {
+        $notes.Add('Windows 11 on hardware Microsoft does not support: updates are not guaranteed, and feature updates are not offered' +
+            $(if ($firmware) { ". To make it supported, $firmwareFix" } else { '' }))
+    }
+    elseif ($blocked -and $processor) {
+        $notes.Add("Windows 11 does not support this processor ($codes). Options: Windows 10 22H2 with Extended Security Updates (ESU), or Windows 11 installed anyway, whose updates Microsoft does not guarantee on this hardware")
+    }
+    elseif ($blocked -and $firmware) { $notes.Add("$($blockedBy): to give this laptop Windows 11, $firmwareFix") }
+    elseif ($blocked) { $notes.Add("$($blockedBy): see 'Can move to Windows 11' in its report") }
+    elseif ($unread -and $Rules.requireWindows11Ready) { $recheck.Add($unread) }
+    elseif ($unread) { $notes.Add($unreadNote) }
+
+    # --- The edition. Home is reported, never decided (decision 10): the note says what it rules out
+    # on a company laptop. The app's os.home_edition row says it from kit 2026-10-28.1, and the licence
+    # name in license.activated says it in a zip from any kit: "Windows(R), Core edition" (CoreN,
+    # CoreSingleLanguage...) is Home. A zip with neither gets no note, which is not a claim of Pro.
+    $homeEdition = @($verdicts | Where-Object { $_.Metric.Id -eq 'os.home_edition' }).Count -gt 0
+    if (-not $homeEdition) {
+        $licence = @($verdicts | Where-Object { $_.Metric.Id -eq 'license.activated' }) | Select-Object -First 1
+        $homeEdition = $licence -and ([string](Get-JsonField $licence.Metric 'Detail') -match '^Windows\(R\), Core\w* edition')
+    }
+    if ($homeEdition) {
+        if ($build -ge 22000) { $notes.Add('Windows 11 Home: BitLocker drive encryption needs a Pro licence') }
+        elseif ($build -ge 10240) { $notes.Add('Windows 10 Home: company Extended Security Updates (ESU) and BitLocker drive encryption both need a Pro licence') }
+        else { $notes.Add('Windows Home: BitLocker drive encryption needs a Pro licence, and on Windows 10 so do company Extended Security Updates (ESU)') }
+    }
+
+    # --- Security updates, as information only: verdicts move only on the owner's rules (plan
+    # section 5). From kit 2026-10-28.1 the app decides os.supported from the ESU licence and the
+    # build (OS-001). An older zip called every Windows 10 laptop supported, so it gets no note either way.
+    # The October 2025 wording is the app's own (WindowsSupport.cs); any other "no" says only that.
+    $support = @($verdicts | Where-Object { $_.Metric.Id -eq 'os.supported' -and $_.Metric.Value.Flag -eq $false }) | Select-Object -First 1
+    if ($support) {
+        if ([string](Get-JsonField $support.Metric 'Detail') -match 'No Windows security updates since October 2025') {
+            $notes.Add('Windows 10 without ESU: no security updates since October 2025')
+        } else { $notes.Add("This Windows gets no security updates: see 'OS support status' in its report") }
     }
 
     # --- Heat and hardware errors
@@ -735,7 +857,7 @@ function Get-AuditRow($Bundle, $Rules) {
         $fix.Add('Hardware errors logged (WHEA): test the memory (Windows Memory Diagnostic) before handing it over')
     }
     foreach ($v in @($verdicts | Where-Object { $_.Metric.Id -eq 'events.bugcheck_90d' -and $_.Grade -ne 'Good' -and $_.Grade -ne 'Unknown' })) {
-        $notes.Add("Blue screens in the last 90 days: $($v.Metric.Value.Number)")
+        $notes.Add("Blue screens $(Get-EventLogWindow $v.Metric 'in the last 90 days'): $($v.Metric.Value.Number)")
     }
 
     # What the scan found, kept apart for the fleet summary to carry between runs, then everything

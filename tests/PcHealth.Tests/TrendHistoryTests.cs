@@ -339,6 +339,10 @@ public sealed class TrendHistoryTests : IDisposable
         Assert.Contains("Temperatures & fans", advice, StringComparison.Ordinal);
         Assert.Contains("too hot", advice, StringComparison.Ordinal);
         Assert.Contains("power mode", advice, StringComparison.Ordinal);
+        // Changed on purpose on 2026-10-27 (REMEDIES-PLAN Step A row 13): "Settings > System > Power"
+        // exists only on Windows 11, so the advice now says where to look on each version.
+        Assert.Contains("Windows 11: Win+R, then ms-settings:powersleep", advice, StringComparison.Ordinal);
+        Assert.Contains("Windows 10: the battery icon's slider", advice, StringComparison.Ordinal);
         Assert.DoesNotContain("SATA cable", advice, StringComparison.Ordinal);
         Assert.DoesNotContain("free space", advice, StringComparison.Ordinal);
     }

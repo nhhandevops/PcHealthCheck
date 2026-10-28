@@ -103,7 +103,7 @@ public static class TrendAnalyzer
         "Re-run the check with nothing else running — anything busy in the background takes cores away from the benchmark and lowers the score.",
         "Check the Temperatures & fans section of this report. A processor that gets too hot slows itself down to survive, and that is the most common reason a score falls over time. Dust in the cooler and dried-out thermal paste are the usual causes.",
         grade == Grade.Bad
-            ? "Also check Windows' power mode (Settings > System > Power) and, on a laptop, that it is plugged in — 'Best power efficiency' or battery power can halve the score legitimately."
+            ? "Also check Windows' power mode (Windows 11: Win+R, then ms-settings:powersleep; Windows 10: the battery icon's slider, or Win+R, then powercfg.cpl) and, on a laptop, that it is plugged in — a power-saving mode or battery power can halve the score legitimately."
             : "On a laptop, a lower score on battery than on mains is normal and not a fault.",
     ];
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using PcHealth.Core.Metrics;
+using PcHealth.Modules.Windows.Support;
 
 namespace PcHealth.Modules.Windows.Security;
 
@@ -165,6 +166,10 @@ public static class DefenderScanAssessment
 /// records a failure so the scan says out loud that it could not establish this. Grading it Bad
 /// would put a red row on a PC that may well have been scanned this morning; grading it Good is
 /// the defect this project keeps shipping.
+///
+/// "Never run" on a young install (<see cref="InstallAge"/>) is the fourth: Defender has not had
+/// its first scheduled scan yet. It is shown, ungraded, with a Note that says why. That is
+/// something deliberately not judged, so it is not a failure either.
 /// </remarks>
 public static class ScanRecency
 {
@@ -190,18 +195,31 @@ public static class ScanRecency
     public const string NotReportedNote =
         "Defender did not report when it last ran a quick scan, so scan recency was NOT established.";
 
+    /// <summary>Why a scan that never ran is not judged on a young install.</summary>
+    private const string FirstScanTakesDays = "On a new install, Defender's first scheduled quick scan can take several days.";
+
+    /// <summary>The Note that goes with a scan that never ran on a young install. Not a failure.</summary>
+    public static string NotJudgedNote(int youngInstallDays) =>
+        InstallAge.NotJudged(QuickScanLabel, youngInstallDays, FirstScanTakesDays);
+
     /// <summary>
     /// The quick-scan-recency metric. <paramref name="ageDays"/> is Defender's QuickScanAge:
     /// null when the property could not be read, <see cref="NeverSentinel"/> when no scan has
     /// ever run, and otherwise a count of days.
     /// </summary>
-    public static Metric QuickScan(uint? ageDays, bool defenderInCharge) => ageDays switch
+    /// <param name="youngInstallDays">Days since install, only when Windows is young (<see cref="InstallAge.Young"/>).
+    /// It changes nothing but a scan that never ran.</param>
+    public static Metric QuickScan(uint? ageDays, bool defenderInCharge, int? youngInstallDays = null) => ageDays switch
     {
         null => new Metric(QuickScanMetricId, QuickScanLabel, NotReportedText,
             HealthCategory.Security, InfoOnly: true,
             Detail: "Defender did not say when it last ran a quick scan, so this scan could not establish " +
                     "how recently it looked. That is left ungraded rather than counted as either clean or " +
                     "overdue - open Windows Security > Virus & threat protection to see the real date."),
+
+        NeverSentinel when youngInstallDays is { } days => new Metric(QuickScanMetricId, QuickScanLabel, NeverText,
+            HealthCategory.Security, InfoOnly: true,
+            Detail: $"No quick scan has been recorded yet. Not judged: {InstallAge.Installed(days)}. {FirstScanTakesDays}"),
 
         NeverSentinel => new Metric(QuickScanMetricId, QuickScanLabel, NeverText,
             HealthCategory.Security, InfoOnly: !defenderInCharge,

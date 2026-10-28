@@ -9,23 +9,40 @@
       ],
       "tips": {
         "Bad": [
-          "This Windows version no longer receives security updates. Upgrade to Windows 11 if the hardware allows it, or plan to replace the device.",
+          "This Windows no longer receives security updates. The detail line says why.",
+          "Windows 10 on a company PC: Microsoft's paid Extended Security Updates (for Pro, Enterprise and Education, bought per year through volume licensing), or a move to Windows 11. Consumer ESU is for personal use only; it runs to 2027-10-12 and is joined from Windows Update.",
+          "Windows 11: install the newest version from Windows Update. On hardware Windows 11 does not support, Windows Update may not offer it.",
           "Until then: keep the browser updated, avoid installing unknown software, and keep backups current."
         ]
       },
       "forecast": "Out-of-support systems accumulate unpatched vulnerabilities every month; the risk of malware and data theft grows steadily over time."
     },
     {
-      "id": "rule.os.win10-eol",
-      "metricId": "os.win10_eol_near",
+      "id": "rule.os.support-ending",
+      "metricId": "os.support_ending",
       "bands": [
         { "grade": "Normal", "eq": true }
       ],
       "tips": {
         "Normal": [
-          "Windows 10 support (including consumer ESU) ends 2027-10-12. The 'Can move to Windows 11' row in this report says whether this PC can upgrade; plan the upgrade or replacement before then."
+          "Security updates for this Windows stop on the date in the detail line. Plan for it now: on Windows 11, install the next version from Windows Update; on Windows 10 with Extended Security Updates, buy and activate the next year, or move the PC to Windows 11 or replace it."
         ]
       }
+    },
+    {
+      "id": "rule.os.win11-hardware",
+      "metricId": "os.win11_hardware_supported",
+      "bands": [
+        { "grade": "Good", "eq": true },
+        { "grade": "Normal", "eq": false }
+      ],
+      "tips": {
+        "Normal": [
+          "Microsoft does not support Windows 11 on this hardware: it says updates are not guaranteed, security updates included, and Windows Update does not offer new Windows 11 versions to it.",
+          "Watch the 'OS support status' row. When this version's support ends, nothing replaces it on its own: the next version has to be installed by hand, or the PC moved to a supported Windows, or replaced."
+        ]
+      },
+      "forecast": "Updates on unsupported hardware can stop without notice, and each Windows 11 version is supported for a fixed time only."
     },
     {
       "id": "rule.os.win11-ready",
@@ -38,24 +55,25 @@
         "Normal": [
           "Windows' own check says this PC cannot move to Windows 11; the detail line names the reason.",
           "If the reason is the TPM or Secure Boot, it can often be switched on in the firmware (BIOS/UEFI) settings, and Windows re-checks on its own later. An unsupported processor cannot be fixed.",
-          "Windows 10 security updates for home PCs end 2027-10-12 (with ESU); company PCs need Microsoft's paid Extended Security Updates. Plan to replace PCs that cannot upgrade."
+          "Windows 10 gets security updates only through Extended Security Updates: company PCs need Microsoft's paid ESU, and consumer ESU (to 2027-10-12) is for personal use only. Windows 11 can be installed on hardware its check rejects, but Microsoft does not support it there or guarantee its updates."
         ]
       },
-      "forecast": "Once Windows 10 updates stop, every month adds security holes that will never be fixed on this PC."
+      "forecast": "Without Extended Security Updates, every month adds Windows 10 security holes that will never be fixed on this PC."
     },
     {
       "id": "rule.os.patch-age",
       "metricId": "os.patch.age_days",
       "bands": [
-        { "grade": "Good", "lte": 35 },
-        { "grade": "Normal", "lte": 60 },
+        { "grade": "Good", "lte": 42 },
+        { "grade": "Normal", "lte": 70 },
         { "grade": "Bad", "always": true }
       ],
       "tips": {
-        "Normal": ["Open Settings > Windows Update and install pending updates, then restart."],
+        "Normal": ["A newer Windows update has come out since this one. Open Windows Update in Settings (Win+R, then ms-settings:windowsupdate), install the waiting updates, then restart."],
         "Bad": [
-          "No successful update in over two months. Open Settings > Windows Update and install updates now.",
-          "If updates keep failing, run the Windows Update troubleshooter (Settings > System > Troubleshoot)."
+          "The newest Windows update on this PC came out more than ten weeks ago, so at least two months of Windows security fixes are missing. Open Windows Update in Settings (Win+R, then ms-settings:windowsupdate) and install updates now.",
+          "If updates keep failing, run the Windows Update troubleshooter: Win+R, then ms-settings:troubleshoot, then Additional troubleshooters (Other troubleshooters on Windows 11).",
+          "If Windows Update finds nothing newer, check the 'OS support status' row: this Windows may no longer get updates."
         ]
       },
       "forecast": "Most real-world infections exploit vulnerabilities that were already patched — staying current is the single cheapest protection."
@@ -91,8 +109,8 @@
         { "grade": "Bad", "always": true }
       ],
       "tips": {
-        "Normal": ["Install the waiting updates from Settings > Windows Update."],
-        "Bad": ["A large backlog of updates is waiting. Install them now — set aside time for one or two restarts."]
+        "Normal": ["Security or quality updates are waiting. Install them from Windows Update in Settings (Win+R, then ms-settings:windowsupdate), then restart."],
+        "Bad": ["A large backlog of security and quality updates is waiting. Install them now — set aside time for one or two restarts."]
       }
     },
     {
@@ -105,21 +123,7 @@
       "tips": {
         "Bad": [
           "The same update failed repeatedly — the Windows Update stack may be damaged.",
-          "Run the Windows Update troubleshooter first; if it persists, run 'DISM /Online /Cleanup-Image /RestoreHealth' then 'sfc /scannow' from an admin prompt."
-        ]
-      }
-    },
-    {
-      "id": "rule.time.service",
-      "metricId": "time.sync.service_running",
-      "bands": [
-        { "grade": "Good", "eq": true },
-        { "grade": "Normal", "eq": false }
-      ],
-      "tips": {
-        "Normal": [
-          "The Windows Time service is not running right now (it often runs on demand). If the clock shows the wrong time, sync it: Settings > Time & language > Date & time > Sync now.",
-          "A wrong clock breaks secure websites, updates, and activation."
+          "Run the Windows Update troubleshooter first (Win+R, then ms-settings:troubleshoot, then Additional troubleshooters; Other troubleshooters on Windows 11). If it persists, run 'DISM /Online /Cleanup-Image /RestoreHealth' then 'sfc /scannow' from an admin prompt."
         ]
       }
     },
@@ -132,7 +136,7 @@
       ],
       "tips": {
         "Bad": [
-          "Windows is not activated. Open Settings > System > Activation to fix it — a linked digital license or a genuine product key.",
+          "Windows is not activated. Open Activation in Settings (Win+R, then ms-settings:activation) to fix it — a linked digital license or a genuine product key.",
           "Avoid 'activators' found online: they are a common malware delivery method."
         ]
       }
@@ -163,7 +167,7 @@
       "tips": {
         "Bad": [
           "Windows is activated against a KMS server on this very machine — the signature of activation cracks (KMS emulators), which frequently bundle malware.",
-          "Run a full antivirus scan, then buy a legitimate license and activate normally (Settings > System > Activation)."
+          "Run a full antivirus scan, then buy a legitimate license and activate normally (Win+R, then ms-settings:activation)."
         ]
       },
       "forecast": "Machines with activation cracks have a far higher rate of infostealer infections — passwords and browser data are the usual target."

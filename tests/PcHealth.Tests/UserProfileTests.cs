@@ -1,3 +1,7 @@
+using PcHealth.Core.Metrics;
+using PcHealth.Core.Modules;
+using PcHealth.Core.Processes;
+using PcHealth.Modules.Windows;
 using PcHealth.Modules.Windows.Startup;
 using Xunit;
 
@@ -133,12 +137,12 @@ public class UserProfileTests
     {
         var text = OtherAccountReport.DescribeAccounts(
         [
-            new AccountStartupResult(@"PC\Alice", [], FullyExamined: true),
-            new AccountStartupResult(@"PC\Bob", [], FullyExamined: false),
+            new AccountStartupResult("Account 2", [], FullyExamined: true),
+            new AccountStartupResult("Account 3", [], FullyExamined: false),
         ]);
 
-        Assert.Contains("Alice: nothing starts up for this account.", text, StringComparison.Ordinal);
-        Assert.Contains("Bob: nothing found in the part that could be read", text, StringComparison.Ordinal);
+        Assert.Contains("Account 2: nothing starts up for this account.", text, StringComparison.Ordinal);
+        Assert.Contains("Account 3: nothing found in the part that could be read", text, StringComparison.Ordinal);
         Assert.Contains("NOT fully examined", text, StringComparison.Ordinal);
     }
 
@@ -146,10 +150,108 @@ public class UserProfileTests
     public void What_was_found_is_listed_per_account()
     {
         var text = OtherAccountReport.DescribeAccounts(
-            [new AccountStartupResult(@"PC\Bob", [@"Updater [Run] -> C:\odd.exe"], FullyExamined: true)]);
+            [new AccountStartupResult("Account 2", ["Updater [Run]"], FullyExamined: true)]);
 
         Assert.Contains("Updater [Run]", text, StringComparison.Ordinal);
         Assert.DoesNotContain("NOT fully examined", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_report_says_which_numbered_account_is_the_readers_own()
+    {
+        var text = OtherAccountReport.DescribeAccounts(
+            [new AccountStartupResult("Account 2", [], FullyExamined: true)], startedFrom: "Account 1");
+
+        Assert.StartsWith("Yours is Account 1. Account 2: nothing starts up", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other direction: an app started with "Run as administrator" may be running as whoever
+    /// typed the password, so the row cannot call that account the reader's (PRIV-002, review of
+    /// 2026-10-28).
+    /// </summary>
+    [Fact]
+    public void An_account_not_known_to_be_the_readers_is_named_only_as_the_one_that_started_the_scan()
+    {
+        var accounts = OtherAccountReport.DescribeAccounts(
+            [new AccountStartupResult("Account 2", ["Updater [Run]"], FullyExamined: true)], startedFrom: "Account 1", readersOwn: false);
+        var total = OtherAccountReport.DescribeTotal(totalItems: 1, partiallyExamined: 0, accounts: 1, readersOwn: false);
+
+        Assert.StartsWith("The account that started this scan is Account 1. Account 2: Updater [Run].", accounts, StringComparison.Ordinal);
+        Assert.DoesNotContain("Yours", accounts, StringComparison.Ordinal);
+        Assert.DoesNotContain("not when you do", total, StringComparison.Ordinal);
+        Assert.Contains("not when the account that started this scan does", total, StringComparison.Ordinal);
+        Assert.StartsWith("Yours is", OtherAccountReport.OnlyAccount(readersOwn: true), StringComparison.Ordinal);
+        Assert.DoesNotContain("Yours", OtherAccountReport.OnlyAccount(readersOwn: false), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The helper runs as whoever typed the administrator password. On a company laptop that is a
+    /// technician, so "yours" and "other" were decided from the technician's account: the
+    /// employee's own was listed as another person's, and the technician's Run keys were read by
+    /// neither check (PRIV-002, review of 2026-10-28). The window now tells the helper which account
+    /// started the scan.
+    /// </summary>
+    [Fact]
+    public void The_account_the_scan_started_from_is_the_current_one_not_the_process_running_the_check()
+    {
+        var notes = new List<string>();
+        var mine = Assert.Single(UserProfiles.Enumerate(notes), p => p.IsCurrentUser);
+
+        // A made-up account standing for whoever started the scan: this process's own is then another one.
+        var startedElsewhere = UserProfiles.Enumerate(notes, startedBySid: "S-1-5-21-1-2-3-1001");
+        Assert.DoesNotContain(startedElsewhere, p => p.IsCurrentUser);
+        Assert.Contains(startedElsewhere, p => p.Sid == mine.Sid);
+
+        // And a real second account on this PC, where there is one.
+        if (startedElsewhere.FirstOrDefault(p => p.Sid != mine.Sid) is { } other)
+        {
+            var asOther = UserProfiles.Enumerate(notes, startedBySid: other.Sid);
+            Assert.Equal(other.Sid, Assert.Single(asOther, p => p.IsCurrentUser).Sid);
+        }
+
+        Assert.Equal(mine.Sid, Assert.Single(UserProfiles.Enumerate(notes, startedBySid: mine.Sid), p => p.IsCurrentUser).Sid);
+    }
+
+    [Fact]
+    public async Task The_helper_counts_the_signed_in_account_as_yours_and_its_own_as_another()
+    {
+        var profiles = UserProfiles.Enumerate([]);
+        var mine = Assert.Single(profiles, p => p.IsCurrentUser);
+
+        // As the elevated helper when the window was started from another account: this process's
+        // own account is now one of the others, read like any other.
+        var elsewhere = await OtherAccountsRowAsync(startedBySid: "S-1-5-21-1-2-3-1001", isElevated: true);
+        Assert.Equal((double)profiles.Count, elsewhere.Value.Number);
+        Assert.DoesNotContain("Yours is " + mine.Label + ".", elsewhere.Detail ?? "", StringComparison.Ordinal);
+
+        // As the helper started from this account, which the window knows is the person signed in.
+        var helper = await OtherAccountsRowAsync(startedBySid: mine.Sid, isElevated: true);
+        Assert.Equal((double)profiles.Count - 1, helper.Value.Number);
+        Assert.StartsWith("Yours is ", helper.Detail, StringComparison.Ordinal);
+
+        // As an app started with "Run as administrator": whose account this is cannot be known.
+        var runAsAdmin = await OtherAccountsRowAsync(startedBySid: null, isElevated: true);
+        Assert.Equal((double)profiles.Count - 1, runAsAdmin.Value.Number);
+        Assert.StartsWith("The account that started this scan is ", runAsAdmin.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("Yours", runAsAdmin.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>Runs the real check against this PC's registry, as the helper or the elevated app would.</summary>
+    private static async Task<Metric> OtherAccountsRowAsync(string? startedBySid, bool isElevated)
+    {
+        var receipt = new ReceiptLog();
+        var context = new ModuleContext
+        {
+            Processes = new ProcessRunner(receipt),
+            Receipt = receipt,
+            AppTempDir = Path.GetTempPath(),
+            IsElevated = isElevated,
+            StartedBySid = startedBySid,
+        };
+        var module = new WindowsModuleProvider().CreateModules().Single(m => m.Manifest.Id == "startup.allusers");
+        var result = await module.RunAsync(context, null, CancellationToken.None);
+        return Assert.Single(result.Metrics, m => m.Id == "startup.other_accounts");
     }
 
     [Fact]
@@ -161,8 +263,31 @@ public class UserProfileTests
         var profiles = UserProfiles.Enumerate(notes);
 
         var current = Assert.Single(profiles, p => p.IsCurrentUser);
-        Assert.False(string.IsNullOrWhiteSpace(current.AccountName));
         Assert.True(Path.IsPathRooted(current.ProfilePath));
         Assert.All(profiles, p => Assert.True(UserProfiles.IsRealUserAccount(p.Sid)));
+        Assert.Equal(Enumerable.Range(1, profiles.Count), profiles.Select(p => p.Number));
+    }
+
+    /// <summary>
+    /// Principle 10: a report names no user. This check used to write other people's account
+    /// names, and the full commands their Run entries hold, into the report (PRIV-002). The
+    /// numbers follow the order Windows issued the accounts, so "Account 2" is the same account
+    /// whoever is signed in when the scan runs.
+    /// </summary>
+    [Fact]
+    public void Accounts_are_numbered_in_the_order_Windows_issued_them_never_named()
+    {
+        var numbered = UserProfiles.Numbered(
+        [
+            new UserProfile("S-1-5-21-1-2-3-1004", @"C:\Users\Placeholder4"),
+            new UserProfile("S-1-5-21-1-2-3-1001", @"C:\Users\Placeholder1") { IsCurrentUser = true },
+            new UserProfile("S-1-5-21-1-2-3-500", @"C:\Users\Placeholder0"),
+        ]);
+
+        Assert.Equal(["Account 1", "Account 2", "Account 3"], numbered.Select(p => p.Label));
+        Assert.Equal("S-1-5-21-1-2-3-500", numbered[0].Sid);
+        Assert.Equal("S-1-5-21-1-2-3-1001", numbered[1].Sid);
+        Assert.True(numbered[1].IsCurrentUser);
+        Assert.All(numbered, p => Assert.DoesNotContain("Placeholder", p.Label, StringComparison.Ordinal));
     }
 }

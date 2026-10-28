@@ -10,10 +10,924 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## PRIV-003 — A drive the SMART check could not match was named by its device path
+
+**Symptom.** Found by the Step A gate on 2026-10-28, by reading the code. No report has been seen
+to carry it. `DiskSmartModule.Resolve` names each SMART row's drive by matching the WMI
+`InstanceName` with `Win32_DiskDrive.PNPDeviceID`. When no inventory row matched, it used the
+`InstanceName` itself as the drive's name, that is, as the row's Subject in the report, the JSON
+and the history. For a USB disk that device path can contain the disk's serial number. Meanwhile
+PRIVACY.md said "the app itself still never reads a serial number".
+
+**Root cause.** The fallback treated a device path as a harmless label. It was written before the
+plan's principle 10 ("never serials") existed, and nothing tested the unmatched path.
+
+**How to verify.** Read `DiskSmartModule.Resolve`. An `InstanceName` that matches no
+`PNPDeviceID` takes the fallback. Before the fix the Subject was the path; now it is
+`Drive not in Windows' disk list (<6 hex>)`.
+
+**Fix (2026-10-28).**
+- An unmatched drive is named by the first 6 hex digits of the SHA-256 of its device path. That
+  is stable across scans, so its history still lines up, and it cannot be turned back into the
+  path.
+- PRIVACY.md now says what is true: the app reads the device path in memory to link its readings,
+  and never reports it.
+- No unit test: `Resolve` is private, and the Windows modules have no `InternalsVisibleTo`. The fix
+  is three lines and is checked by reading.
+
+**Date.** 2026-10-28.
+
+---
+
+## SEC-002 — A drive encrypted with its key in the clear read "not encrypted"
+
+**Symptom.** Found while planning the company image (GOLDEN-IMAGE-PLAN I1, 2026-10-28).
+`SecurityPlatformModule` queried BitLocker's `ConversionStatus` and graded only `ProtectionStatus`.
+Protection 0 is Microsoft's "The volume is not encrypted, partially encrypted, or the volume's
+encryption key for the volume is available in the clear on the hard disk"
+([Win32_EncryptableVolume](https://learn.microsoft.com/en-us/windows/win32/secprov/win32-encryptablevolume)).
+Three different drives therefore all read "This drive is not encrypted":
+
+- a fully encrypted drive with its key in the clear. Windows 11 device encryption leaves this
+  state on a PC with only local accounts ("a clear key that is the equivalent of standard BitLocker
+  suspended state"), and so does a suspended BitLocker;
+- a drive in the middle of encrypting;
+- a drive that was never encrypted.
+
+Windows 11 24H2 removed device encryption's DMA and HSTI/Modern Standby prerequisites, so more
+laptops can now reach the first state by themselves
+([BitLocker overview, Device encryption](https://learn.microsoft.com/en-us/windows/security/operating-system-security/data-protection/bitlocker/)).
+
+**Root cause.** The column that tells the three apart was fetched and never used.
+
+**The wrong first guess.** That the key-in-the-clear drive should grade Good, "it is encrypted".
+The key sits on the drive beside the data, and Microsoft: "If a device uses only local accounts,
+then it remains unprotected even though the data is encrypted." It keeps the grade an unencrypted
+drive has, Normal, never Bad, because encryption is not required (REMEDIES-PLAN decision 12). What
+changes is that the report says which drive it is.
+
+**How to verify.** `UsbAndDriveKindTests`, I1 section: fully encrypted with protection off says
+"encrypted, but its key is in the clear (device encryption waiting, or BitLocker suspended)", on an
+internal drive (Normal) and a USB one (information). Encryption in progress or paused, even with
+protection reported on, says it is not finished, and decryption says so. Both are Normal. Neither
+the Detail nor the tips say "not encrypted" for a drive that is. A drive never encrypted, and one
+fully protected, grade as before.
+
+**Fix.**
+- `VolumeReadings.Encryption` takes both statuses. Protected and not mid-conversion is Good. Every
+  state that does not protect the data is Normal, with a Detail naming the state. Protection off
+  with no conversion status says Windows did not say which of the three it is.
+- The tips said "This drive is not encrypted" and "To encrypt it". They now say "not protected by
+  encryption" and "To protect it ... or resume it if it is suspended".
+- An unknown protection status is SEC-001's review round.
+
+**Not verified.** No drive in any of these states was scanned. Unelevated, this PC's BitLocker
+class answers "Access denied", and the check needs administrator rights.
+
+**Date.** 2026-10-28.
+
+---
+
+## BAK-001 — File History and OneDrive were read for the administrator, not for the user
+
+**Symptom.** Found by the review of 2026-10-27 (REMEDIES-PLAN H1, Step A row 7). The backup check
+needed administrator rights as a whole, so it ran in the elevated helper. The helper runs as
+whoever typed the administrator password, and File History and OneDrive folder backup are read
+from that account's own profile (`%LOCALAPPDATA%` and `HKCU`). On a company laptop, where a
+technician types the password, the report described the technician's backups, not the employee's.
+An unelevated scan had no backup rows at all.
+
+**Root cause.** Two of the check's four readings need admin (restore points and shadow copies), and
+the module was marked as needing admin as a whole. The per-account readings went with them.
+
+**The wrong first guess.** That restore points and System Protection could move out too. Read
+unelevated on the dev T470p on 2026-10-28: the `SystemRestore` class answers "Access denied",
+`Win32_ShadowCopy` "Initialization failure", and the `SPP\Clients` key is refused. Only
+`SystemRestoreConfig` (and the registry value behind it) can be read. Microsoft documents its
+`RPSessionInterval` as the interval between checkpoints, and "zero if System Restore is disabled"
+only for Windows Vista ([SystemRestoreConfig](https://learn.microsoft.com/en-us/windows/win32/sr/systemrestoreconfig)).
+That is not a System Protection reading, so it is not used.
+
+**How to verify.** `BackupSplitTests`: the new check runs without admin and after the helper, and
+the admin check no longer reads File History or OneDrive. One working backup still proves "backed
+up somewhere" (Good). All three read and all off is still Bad. Shadow copies the admin check did
+not count, or a read that broke, give no conclusion, with a Note. `ScanOrchestratorTests`: a check
+marked `RunsAfterOthers` starts after the helper and sees its shadow-copy count. Live, unelevated
+on the dev T470p: `backup.files` Completed, File History Normal, OneDrive information only, no
+conclusion and the shadow-copy Note.
+
+**Fix.**
+- `Modules/BackupFilesModule.cs` (`backup.files`, no admin): File History and OneDrive folder
+  backup for the account the app runs as, and the conclusion, "Your files are backed up
+  somewhere". The texts say "this account".
+- `Modules/BackupPostureModule.cs` (`backup.posture`, admin) keeps restore points and shadow
+  copies, renamed "Restore points & shadow copies".
+- The conclusion (`Support/BackupProtection.cs`) needs the helper's shadow-copy count. The new
+  `ModuleManifest.RunsAfterOthers` runs the check after the helper, one at a time, and hands it
+  `ModuleContext.EarlierFindings`. What counts as protection is unchanged, and so is the grade
+  (decision 13 concerns only the kit, and the kit does not read these rows).
+
+**Not verified.** No elevated scan was run, so the conclusion drawn from a real helper's count was
+seen only in tests. An unelevated scan now shows a File History row, graded Normal when it is off,
+as elevated scans already did. The new check is a new consent row in the window, unticked until
+the user ticks it.
+
+**Review round, 2026-10-28.** A folder named OneDrive was taken as OneDrive backing it up.
+- *Symptom.* OneDrive folder backup was "on" when the Documents, Desktop or Pictures path contained
+  the text "OneDrive". Removing OneDrive or signing it out does not move the folders back, so a
+  profile left in `%USERPROFILE%\OneDrive\Documents` read "Your files are backed up somewhere: Good"
+  with nothing backing it up. So did a local folder such as `D:\OneDriveOld\Documents`. GOLDEN-IMAGE-PLAN
+  task 8 removes OneDrive, so on the company image this mostly affects personal PCs. Found by
+  reading the code. The heuristic predates Step A, which made it run on every unelevated scan.
+- *Fix.* A folder counts only when it is inside the folder of a OneDrive account signed in for this
+  account: a subkey of `HKCU\Software\Microsoft\OneDrive\Accounts` (Personal, Business1 and so on)
+  whose `UserFolder` holds it (`BackupProtection.OneDriveFolders`). A folder named OneDrive that no
+  account holds says so, and is left out of the conclusion. A folder an account holds counts
+  whatever its name.
+- *How to verify.* `BackupSplitTests`, OneDrive section: inside an account's folder is backed up,
+  case and a trailing backslash included. A redirect with no account, a local "OneDriveOld" folder
+  and `OneDrive - <org>` beside a Personal account at `OneDrive` are not, and with File History off
+  and no shadow copies the conclusion is Bad. On the dev T470p the Accounts key exists with no
+  subkeys (OneDrive installed, never signed in), and the folders are where Windows put them.
+- *Not verified.* A PC with a signed-in account and folder backup on was not seen. The registry
+  layout is OneDrive's own, and no Microsoft page documents it.
+
+**Date.** 2026-10-28.
+
+---
+
+## HIST-001 — "Last 90 days" counts read 9 days of records as 90 clean days
+
+**Symptom.** Found by the review of 2026-10-27 (REMEDIES-PLAN M1, Step A row 6). On the dev T470p,
+installed on 2026-10-19, the System event log went back 9 days on 2026-10-28, yet "Blue screens (90
+days): 0" read as 90 clean days. The same held for every event-log count, the low-memory warnings
+and the disk errors included. After a reinstall, a cleared log or a small log that wrapped, a zero
+from a few days of records was graded as an all-clear.
+
+**Root cause.** Each count asked for "the last N days" and never asked how far back the log went.
+
+**The wrong first guess.** That only the event logs were short. Defender's "Threats caught in the
+last 90 days" reads a history that Defender itself empties after `ScanPurgeItemsAfterDelay` days,
+15 unless changed ([Set-MpPreference](https://learn.microsoft.com/powershell/module/defender/set-mppreference)).
+With Defender's defaults that count has always covered 15 days at most. `CrashDumpModule`, named
+in the task, has no day window: it reads settings.
+
+**How to verify.** `RecordSpanTests`: a log that covers the window leaves the count exactly as it
+was. A log of 9 days says so and its zero is still graded. A zero from 2 days of log is
+information only, with one Note per log, and a count above zero keeps its grade. A clock earlier
+than the oldest record, or than the app's build, gives an unknown span, and its zero is not
+judged. Defender's span is 15 days, or less on a young install. Kit check: a disk-error Detail
+ending with the span is still split. Live, unelevated, dev T470p, 2026-10-28: every System-log
+count says "records cover only 9 days", app crashes (7 days) unchanged, and Defender's count says
+9 days ("Windows was installed 9 days ago"). All grades are as before, and no module degraded.
+
+**Fix.** `Support/RecordSpan.cs`, applied by `EventsModule` (System and Application logs, from
+each log's oldest record), `MalwareDefenderModule` (Defender's purge setting, and the install age
+when nothing was caught) and `StabilityModule` (its 30-day range). The span is given in days,
+never as a date. A zero from under 7 days, or an unknown span, is shown but not graded, with a
+Note, not a failure. A log whose span could not be read is a failure (`failures.Record`).
+
+**For the kit (changed in the second review round below).** `audit-common.ps1` reads one of these
+Details: the disk-error split of `events.disk_errors_90d`, by regex. The span sentence goes after the
+split, and the split still parses. The kit wrote "N in 90 days" itself, which on a short log is the
+log's span, not 90 days. It reads no other changed Detail.
+
+**Review round, 2026-10-28.** "Only a zero is excused" assumed every count's Good band is zero.
+- *Symptom.* "Application crashes (7 days)" is Good up to 2. On a laptop reimaged the day before,
+  the Application log covers 1 day: 2 crashes (about 14 a week) read Good, while a zero from the
+  same log was not judged. Found by reading the code.
+- *Fix.* `RecordSpan.Apply` takes the top of the count's Good band (`goodUpTo`, 0 by default), and
+  `EventsModule` passes 2 for app crashes. A count inside the Good band from under a week of
+  records is not judged, with the Note ("a count this low there is not an all-clear"). 3 or more
+  still grades Normal. Every other count it is applied to has a Good band of zero, so nothing else
+  changes.
+- *How to verify.* `RecordSpanTests`: 1 and 2 crashes from 1 day are information only, 3 is Normal,
+  and 2 from a 9-day log is still Good. A test holds the rule to Good at 2 and Normal at 3, so a
+  band moved in `stability.json` fails it until `EventsModule` moves too.
+
+**Review round, 2026-10-28: the kit's "in 90 days".**
+- *Symptom.* The kit read the split but dropped the span. Beside a Detail saying the records cover
+  only 9 days, the reason read "Disk errors in the event log from this laptop's own drive: 12 in 90
+  days", and a kit check locked that wording in. A laptop reimaged a week ago, with 3 errors in 9
+  days, was shown as 3 in 90 days: a tenth of the real rate. "Blue screens in the last 90 days: N"
+  did the same. No verdict moved, because the kit's threshold is on the count. Found by reading the
+  code.
+- *Root cause.* The paragraph above left the kit's wording alone on purpose. The rate is what the
+  manager reads, so the count without its span misleads even when the verdict is right.
+- *Fix.* `Get-EventLogWindow` in `audit-common.ps1` reads "records cover only 9 days" ("1 day",
+  "less than a day") and "how many days the records cover is unknown" from the Detail. The text then
+  says "12 in the 9 days the event log covers", "in less than a day of event log" or "in an event log
+  of unknown length". A report with no span sentence (an older app, or a log that covers the whole
+  90 days) keeps "in 90 days". Blue screens use it too.
+- *How to verify.* `kit-tests.ps1`, under the disk-error split: spans of 9 days, 1 day, under a day
+  and unknown for disk errors, 9 days for blue screens, and both again with no span sentence. Each
+  span check fails on the kit before the fix. The checks with no span pass before and after.
+
+**Date.** 2026-10-28.
+
+---
+
+## SEC-001 — USB drives graded "not encrypted" against the PC, and a wrong claim about Windows Home
+
+**Symptom.** On the pilot reports of 2026-10-23, `security.drive_encrypted` was graded Normal for
+every USB volume: three on laptop A, two on laptop C, among them the kit's own stick. The comment
+in `SecurityPlatformModule` said Windows Home has no BitLocker provider, so a failed query there
+was "the ordinary shape of a Home edition" and only a note. The tip offered "Device Encryption
+(Home)" as if every Home PC had it.
+
+**Root cause.** Encryption was graded per drive letter with no question about where the drive is.
+The Home comment was never checked against a Home PC.
+
+**The wrong first guess.** The comment itself. Laptop A runs Windows 10 Home 22H2, and its elevated
+scan returned an encryption row for each of its four volumes. Home lacks the switch that turns
+BitLocker on, not the provider that reports it. Device encryption works on Home only on hardware
+that supports it ([Device encryption in Windows](https://support.microsoft.com/en-us/windows/device-encryption-in-windows-cf7e2b6f-3e70-4882-9532-18633605b7df)).
+
+**How to verify.** `UsbAndDriveKindTests`: an unencrypted USB drive is information only; the
+internal drive is Normal unencrypted and Good encrypted, as before; the tip names
+`ms-settings:deviceencryption` and Pro, and no longer "Device Encryption (Home)".
+
+**Fix.**
+- A USB volume's row is information only, by the D1 rule (`VolumeReadings.Encryption`). The drive
+  Windows runs from is graded exactly as before, whatever its connection (decision 12 does not
+  change the app's grade).
+- A failed query now goes through `failures.Record`: no Windows edition explains it any more.
+- The tip: BitLocker on Pro, Enterprise or Education; on Home, device encryption only where the
+  hardware supports it, opened with Win+R and `ms-settings:deviceencryption` (Microsoft's
+  [list of Settings links](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-settings-app));
+  otherwise the PC needs Pro.
+
+**Not verified.** The check needs administrator rights, and the live scan was unelevated. What
+`ms-settings:deviceencryption` opens on a Home PC without device encryption was not seen.
+
+**Review round, 2026-10-28.** A state Windows could not tell was graded "not encrypted".
+- *Symptom.* ProtectionStatus 2 is Microsoft's "PROTECTION UNKNOWN ... One potential cause is that
+  the volume is in a locked state" ([Win32_EncryptableVolume](https://learn.microsoft.com/en-us/windows/win32/secprov/win32-encryptablevolume)).
+  A locked BitLocker data drive therefore read "Drive encryption: Normal", with tips to encrypt a
+  drive that already is, and a Detail saying "could not be determined". A missing value was turned
+  into 0 (`?? 0`) and read "not encrypted" outright. Found by reading the code. The logic predates
+  Step A and moved unchanged into `VolumeReadings.Encryption`.
+- *Fix.* Such a row is information only, with the value "unknown", not "no". `SecurityPlatformModule`
+  passes the status as read. The conversion status, which this change also brought in, is SEC-002.
+- *How to verify.* `UsbAndDriveKindTests.An_encryption_state_windows_could_not_tell_is_not_graded_and_does_not_read_as_no`:
+  status 2 with and without a conversion status, a missing value and an undocumented one.
+
+**Review round, 2026-10-28: what the consent rows say is read.**
+- *Symptom.* This check's consent row did not name the reading this fix added: which disk each
+  drive letter is on, and its connection (`DriveMap.Read`, MSFT_Disk and MSFT_Partition). The
+  event-log and volume checks, given the same reading, did name it, and principle 10 of
+  REMEDIES-PLAN asks that every reading be named. A pass over every module Step A changed found
+  more. The SMART check's row said "Disk model/serial inventory", though its query selects no serial
+  and it now reads each disk's media and bus type on every run. The drive-reliability and disk-speed
+  rows left out the disk inventory they read. The other-accounts row did not say it reads each
+  profile's folder and each Run command (to skip empty ones), and the backup row did not say it
+  reads where Desktop, Documents and Pictures are. PRIVACY.md said the install date is read for the
+  Windows 11 comparison only when a verdict is found; the System overview reads it on every scan.
+  Found by reading the code.
+- *Fix.* Each of those Reads lines says what the check reads, and PRIVACY.md with them.
+- *How to verify.* `UsbAndDriveKindTests.Every_check_that_reads_how_drives_are_connected_says_so_and_none_claims_a_serial`
+  failed on the old rows. `CapabilityHashTests` now holds that a reworded Reads list, like the
+  description, leaves the capability hash alone, so nobody is asked for consent again.
+
+**Date.** 2026-10-27.
+
+---
+
+## BENCH-001 — The disk benchmark could write to a drive the same scan called failing
+
+**Symptom.** Found by the review of 2026-10-27 (REMEDIES-PLAN H2). The benchmark skipped a drive
+only when Windows' own health flag said Warning or Unhealthy. On pilot laptop A that flag said
+Healthy while SMART counted 5 retired sectors, graded Bad. The benchmark writes up to 1 GiB to each
+drive, and it once created the very disk errors the app then graded (project rule 4).
+
+**Root cause.** The benchmark could not see what the other checks found. It runs after them, but
+nothing handed their results over, and the SMART check runs in the elevated helper, another process.
+
+**How to verify.** `UsbAndDriveKindTests` (H2 section): of two identical drives only the failing
+one is skipped; a drive whose firmware predicts failure, or whose number the event log's disk
+errors name, is skipped; cable errors, command timeouts and temperature do not stop it.
+`ScanOrchestratorTests`: a check that runs alone sees this process's findings and the helper's.
+`PipeChannelTests`: a metric's disk number survives the pipe.
+
+**Fix.**
+- `ModuleContext.EarlierFindings`: the orchestrator grades every result gathered before the checks
+  that run alone, the helper's included (`ElevatedScanOutcome.ResultsOnceFinished`), and hands
+  them over.
+- `Metric.DiskNumber`: SMART and reliability rows carry Windows' number for the drive, so drives
+  are matched by number, never by model name, which two identical drives share.
+- `Support/FailingDrives.cs` is the one check for this. A damage reading graded Normal or Bad
+  skips the drive, and so do disk errors in the event log that name its number
+  (`Support/DiskErrorLog.cs`, the event-log check's own query). A counter that grew in the history
+  is already above its Good band of zero, so the history is not read separately.
+- A drive whose own health was not read is still measured, with a note: refusing it would switch
+  the benchmark off on every scan without administrator rights.
+
+**Not verified.** No benchmark was run, by rule, and no elevated scan.
+
+**Review round, 2026-10-28.** Disk errors that name no drive did not stop the benchmark.
+- *Symptom.* A controller reset (storahci, stornvme or iaStor 129) names `\Device\RaidPort0`, and
+  Ntfs 55 names the volume (`C:`), not a disk. The event-log check counts both against this PC, so
+  12 of them graded "Disk I/O errors" Bad with "BACK UP YOUR IMPORTANT FILES NOW". `FailingDrives`
+  kept only errors with a disk number, and the benchmark still wrote up to 1 GiB to the one drive
+  inside the PC. Found by reading the code. The reviewer marked it uncertain, because H2 names only
+  media errors. Rule 4 decides it: the benchmark must not exercise a drive the same scan calls
+  failing, and the scan's own row cannot say which drive it means.
+- *Fix.* `FailingDrives.Find` takes the benchmark's volumes and drives. An error that names a
+  volume on a drive attached now is placed on that drive (Ntfs 55's first field is `DriveName`, its
+  template on this PC says). Any other, `RaidPort` or a volume not there now, keeps the benchmark
+  off every drive that is not external, with the reason in the skip note. A deliberate skip, so no
+  failure is recorded. USB drives are still measured.
+- *How to verify.* `UsbAndDriveKindTests`, H2 section: controller resets skip C: and measure both
+  USB drives, and `Share` counts the same errors against the PC. Errors on E: skip only the USB
+  caddy, and on `c:` or `C:\` only the internal SSD. A letter or volume path not attached now skips
+  the internal drive. Errors naming only USB drives leave C: measured.
+  `Disk_errors_in_the_event_log_naming_a_drive_skip_it` locked in the old behaviour, so it now
+  checks numbered errors only.
+- *Not verified.* No Ntfs 55 or 129 event is in this PC's System log, so the field was read from the
+  provider's event template, not from a real event.
+
+**Date.** 2026-10-27.
+
+---
+
+## SMART-002 — An SSD at 40 °C graded on hard-disk bands, and a TRIM row on PCs without an SSD
+
+**Symptom.** Pilot laptop A's SATA SSD read `smart.temperature_c` 40 °C, graded Normal, beside
+"Mechanical drives last longest below about 40 °C" (HW-001 noted the text). The reliability
+counters' rows said "NVMe SSDs commonly run 50-70 °C" on that SATA SSD and on a hard disk in a USB
+caddy. TRIM, which only SSDs use, was asked about and graded on every PC.
+
+**Root cause.** One temperature rule for every SMART drive, written for hard disks.
+
+**The wrong first guess.** Telling an SSD by its SSD-life attribute. Attribute 202, in that list, is
+"Data Address Mark Errors" on some hard disks. Windows' media and bus type decide instead.
+
+**How to verify.** `UsbAndDriveKindTests` (H7 section): an SSD at 40 and 70 °C is Good, 75 °C
+Normal, 85 °C Bad; a hard disk, a USB caddy and a drive Windows did not describe keep the
+hard-disk bands; the TRIM row goes only when every internal drive is a hard disk.
+
+**Fix.**
+- An SSD's SMART temperature is `smart.ssd_temperature_c`, graded by `rule.smart.ssd-temperature`:
+  Good up to 70 °C, Normal up to 80 °C, Bad above. A typical SATA SSD is rated to work at 0-70 °C
+  ([Samsung 870 EVO data sheet](https://download.semiconductor.samsung.com/resources/data-sheet/Samsung_SSD_870_EVO_Data_Sheet_Rev1.1_230509_10129500053000.pdf)).
+- A hard disk, a drive behind USB and a drive Windows did not describe keep `smart.temperature_c`
+  and its bands, with a detail that says which case it is.
+- The reliability counters' temperature detail names the kind of drive.
+- No TRIM row, and a note, when every drive inside the PC is a hard disk. A drive that did not say
+  what it is, or a list that could not be read, keeps the row.
+
+**Not verified.** SMART needs administrator rights; the live scan was unelevated. The dev T470p has
+an SSD, so the no-TRIM case was seen only in tests. The reliability counters' `storage.temperature_c`
+is still graded on SSD bands for every drive, hard disks included; only its text changed.
+
+**Date.** 2026-10-27.
+
+---
+
+## STOR-002 — Disk errors logged by USB drives were graded against the PC
+
+**Symptom.** `events.disk_errors_90d` was graded on the total over every drive Windows had seen.
+KIT-005 fixed the fleet row, but the app's own report still read Bad for the pilot T470p's 47
+errors, all on two USB drives. On the dev T470p: 25 errors, all on USB disk 2, Bad, and the Storage
+card Bad.
+
+**Root cause.** The per-drive split existed only as text in the Detail (HW-001); the grade was on
+the total.
+
+**The wrong first guess.** That the value could change without touching the kit. The kit checks
+that the split adds up to the value. With the value now the PC's share, it would have fallen back to
+the app's grade and dropped its note about the USB drives' errors. So the Detail states the total,
+"Counted against this PC: 0 of 47.", and the kit reads it.
+
+**How to verify.** `UsbAndDriveKindTests` (H3 section), and 4 new kit checks; the two that use the
+stated total fail against the old parser. In the unelevated live scan after the fix:
+"Counted against this PC: 0 of 25", Good, Storage card Good. The kit's parser on that report: own
+0, USB disk 2: 25.
+
+**Fix.** `DiskEventAttribution.Share` follows the kit's rule (`Get-DiskErrorsAgainstLaptop`), so the
+two agree:
+- counted: the disk Windows runs from, whatever its connection; a disk attached now on an internal
+  or unknown bus; an error that names no disk;
+- not counted, but listed: a disk on a USB, FireWire or card-reader bus, and a disk number nothing is
+  attached at now (REMEDIES-PLAN H3 says an unknown connection counts as internal; a number with
+  nothing attached was treated as the kit treats it, so the app and the kit cannot disagree);
+- with no list of attached disks, every error counts, with a note.
+
+The "By drive" sentence is unchanged. `audit-common.ps1` reads the stated total, and reports
+without it read as before.
+
+**Not done.** The detailed log that tells "drive disconnected" from "damaged media" (Phase 3), and
+"reported through a USB adapter" on drive readings.
+
+**Date.** 2026-10-27.
+
+---
+
+## STOR-001 — A full USB drive read as this PC's disk nearly full
+
+**Symptom.** On all three pilot reports the auditor's USB drive read "Free space 18%", graded Normal,
+with the tip to free space on the PC. It was the pilot's only "disk nearly full": the laptops' C:
+had 52-82% free. The kit grades only the system drive, so the fleet table was right and the app's
+report was wrong. The dev T470p's two USB drives were graded the same way.
+
+**Root cause.** `VolumesModule` graded every fixed volume, and USB drives often call themselves
+fixed. Nothing asked which disk a volume was on.
+
+**How to verify.** `UsbAndDriveKindTests` (D1 section): a USB volume at 18% is information only,
+with its space and advice in the detail; an internal volume at 5% is still Bad; the drive Windows
+runs from is graded even on USB; unknown, RAID and NVMe buses count as internal; SD and FireWire
+count as external, like the kit's four. In the live scan the two USB volumes are information only,
+and C: and D: are graded as before.
+
+**Fix.** `Support/DiskBus.cs` maps each letter to its disk (MSFT_Partition) and each disk to its bus
+(MSFT_Disk), without administrator rights. `Support/VolumeReadings.cs` writes a USB volume's row.
+If the map cannot be read, every volume is graded as before, with a note. The sizes in these
+details are now written with the invariant culture (REP-002's class, for these lines only).
+
+**Not done.** A USB volume's "Volume health" row, and SMART and reliability readings of USB disks,
+are still graded. The kit reads those grades for its "not counted against this laptop" note
+(KIT-003), so changing them needs a kit change and the owner's OK.
+
+**Date.** 2026-10-27.
+
+---
+
+## PRIV-002 — The startup checks wrote user names into the report
+
+**Symptom.** Found by the review of 2026-10-27 (REMEDIES-PLAN Step A row 12):
+- The admin check `startup.allusers` named the other accounts ("PC\name") in its rows and notes.
+  It also wrote each of their Run entries' full command, which usually holds that account's profile
+  folder (`AllUsersStartupModule.cs:100,114,121`).
+- The unelevated startup check wrote the full path of each unsigned or broken item. An unsigned
+  program under `%LOCALAPPDATA%` put the user's folder, and with it the Windows user name, into
+  the report.
+
+Both break principle 10 of REMEDIES-PLAN: a report travels when it is shared, and carries no user
+names and no command lines.
+
+**Root cause.** Both were written before that rule, for the person reading at the PC.
+
+**How to verify.**
+- `UserProfileTests`: accounts are numbered in the order Windows issued them (by the SID's last
+  part), the current one included, so "Account 2" names the same account whoever runs the scan.
+  Their labels carry no name. An account's items read "Updater [Run]", with no command.
+- `StartupSignatureTests`: an unsigned item under `%LOCALAPPDATA%` is written with the token, and
+  the real folder does not appear. `ReportPaths` keeps `C:\Program Files (x86)` apart from
+  `C:\Program Files`, and writes another profile's folder as `<another account>`.
+
+**Fix.**
+- `UserProfile` carries a `Number` and the label "Account N", and the row starts "Yours is
+  Account 1." so the reader can place the others. The account's name is no longer looked up at
+  all; for a domain account, translating the SID could also have asked a domain controller.
+- Other accounts' Run entries are listed by name and key only.
+- `Support/ReportPaths.cs` writes every path in the startup rows and notes with `%LOCALAPPDATA%`,
+  `%APPDATA%`, `%USERPROFILE%`, `%ProgramFiles%` and similar tokens. PRIVACY.md says so.
+
+**Not verified.** The admin check was not run live: the dev T470p has one account, and the live
+check was unelevated.
+
+**Review round, 2026-10-28.** Two faults in the fix above, both found by reading the code.
+- *Symptom: whose account is "yours".* The admin check decided which account was the reader's, and
+  so which were "other", from the elevated helper's own account. The helper runs as whoever typed
+  the administrator password, which the kit asks for on a standard-user company laptop. With a
+  technician's password the row read "Yours is Account 1" about the technician's account, listed
+  the employee's own as another person's ("These run when that person signs in, not when you do"),
+  and neither startup check read the technician's Run keys. Before this fix the names at least
+  showed which account was which; numbers do not.
+- *Symptom: Winlogon.* A non-default Shell or Userinit value was quoted as found, so a Userinit of
+  `userinit.exe,C:\Users\<name>\AppData\Roaming\x.exe` put the user name into the report most likely
+  to be sent to IT. The fix above tokenized only the startup rows' file paths, each as one path.
+- *Fix: whose account.* The window sends its own account's SID with the request
+  (`RunModulesRequest.StartedBySid`), and the worker keeps it only when it is a person's SID
+  (`UserProfiles.IsRealUserAccount`). `UserProfiles.Enumerate` marks that profile current, so the
+  helper's own account, when it differs, is counted and read like any other. "Yours is" is written
+  only when the scan was started from an unelevated window, which runs as the person signed in. An
+  app started with "Run as administrator" may run as whoever typed the password, and that is not
+  checked, so the row then says "The account that started this scan is Account N", and the total
+  "not when the account that started this scan does".
+- *Fix: Winlogon.* `StartupReport.Winlogon` builds the row, and `ReportPaths.TokenizeWithin` writes
+  every path in the value with its token. A path starts at each drive letter, so the second entry
+  of a Userinit list and a path after `cmd /c` are covered too.
+- *How to verify.* `UserProfileTests`: enumerated with a made-up starting SID, no profile is current
+  and this process's own is listed. The real check, run as the helper started from another account,
+  counts this account among the others and writes no "Yours is"; started from this account it does;
+  as an elevated app with no SID it names "the account that started this scan". `PipeChannelTests`
+  round-trips the SID, and a request without one reads null. `StartupSignatureTests`: a Userinit
+  list with a program under `%APPDATA%` is written with the token and without the folder, the
+  defaults still read standard, and `TokenizeWithin` handles lists, quotes and `cmd /c`. Each new
+  test failed before the fix.
+- *Not verified.* No elevated run with two accounts: the dev T470p has one. Consent is not asked
+  again: the capability hash covers the id, admin, internet, driver and writes, not the wording.
+
+**Review round, 2026-10-28: what the guide says a zip holds.** Two faults in `AUDIT-GUIDE.md`,
+found by reading it against the kit.
+- *Symptom: a build day for a kit version.* The guide said that on "a stick built on or after 27
+  October 2026", startup paths are written as `%LOCALAPPDATA%\...` and other accounts are numbered,
+  so neither carries a Windows user name. The stick built that day, at about 09:55, carries kit
+  2026-10-26.1 (app `c067e3a`), which has none of this work: its zips name the user in startup paths
+  and name the other accounts. The person carrying the kit could have sent them outside the company
+  believing they held no user names. The ESU note was dated the same way (OS-001).
+- *Root cause.* The guide dated the change by the day the code was written, not by anything a zip
+  records. The person carrying the kit cannot see when a stick was built anyway.
+- *Fix.* The guide names the kit version, which the kit prints when it starts and `kit.json`
+  records as `KitVersion`: "kit 2026-10-28.1 or later". This work ships in a stick built on
+  2026-10-28 or later, so the kit version is bumped from 2026-10-27.1 (never on a stick) to
+  2026-10-28.1. `$script:FirstKitWithSupportReadings` in `audit-common.ps1` holds that boundary, and
+  the kit's own Windows 11 note uses it too (KIT-008).
+- *Symptom: the transcript.* The change above removed the guide's only mention of a user name. But
+  every kit, old and new, zips its own log, `audit-transcript.txt`, and Windows PowerShell starts it
+  with "Username" and "RunAs User" lines that name the computer and the Windows account. Nothing
+  strips them. The kit's own help ("WHAT THE ZIP CONTAINS") and PRIVACY.md's list of what the kit
+  reads left it out as well.
+- *Fix.* The guide's list, the kit's help and PRIVACY.md now name the transcript and say it names the
+  computer and the Windows user the kit ran under, on every kit. Stripping the header before the zip
+  is made would be the other way; it was not done, because this round only makes the text true.
+- *How to verify.* `kit-tests.ps1` checks that the guide says "kit 2026-10-28.1 or later" (built from
+  `$script:FirstKitWithSupportReadings`), never "stick built on or after", and lists
+  `audit-transcript.txt` with the user name; that `Test-KitOlder` orders versions by day, then by
+  number, and calls no unknown version older; and that this kit is not older than the boundary. Each
+  failed before the fix.
+
+**Date.** 2026-10-27; review round 2026-10-28.
+
+---
+
+## START-002 — "Every startup item has a valid signature" beside broken and unverified ones
+
+**Symptom.** Found by the review of 2026-10-27 (`StartupModule.cs:83-84`). The sentence "Every
+resolved startup item has a valid publisher signature" was chosen on the unsigned count alone, so:
+- with one BROKEN signature it stood beside "Startup items with a BROKEN signature: 1";
+- a file Windows could not verify was counted nowhere and read as valid too. That is any status
+  the check did not map, for example an untrusted root, or an intermediate certificate missing
+  offline;
+- `CERT_E_EXPIRED` was mapped to Invalid, so a signature whose certificate expired, with no
+  timestamp, would read "BROKEN signature (possible tampering)" and grade Bad.
+
+**The wrong first guess.** That LightShot (certificate expired 2022-05-30) and UniKey (2025) read
+BROKEN through that mapping. On the dev T470p WinVerifyTrust, with the app's offline flags,
+returned 0 for `Lightshot.exe`. Its signature is timestamped, and Windows judges a timestamped
+signature at the time it was made. The mapping only affects an untimestamped one. UniKey is not on
+this PC, so whether its signature is timestamped is still unknown.
+
+**Root cause.** The count and the sentence were worked out separately, and only "not signed" had
+wording of its own.
+
+**How to verify.** `StartupSignatureTests`, both directions:
+- every item verified: the sentence is written;
+- a broken, an unverifiable or an expired one: it is not;
+- unverifiable: a Note names the item and Windows' answer, and the scan is not degraded;
+- the verifier itself unable to run: the scan is degraded;
+- nothing could be checked: the counts are left out instead of reading 0;
+- unsigned items are still counted and listed.
+
+**Fix.** `Startup/StartupReport.cs` writes the rows.
+- Expired is its own state. It gets a Note: "signed by X, but the certificate has expired and no
+  timestamp shows the file was signed while it was valid". It is counted neither as signed nor as
+  unsigned. The file's digest is checked before its certificate, so expiry is not tampering.
+- "Could not verify" gets a Note with Windows' status, and is never counted as verified.
+- A verifier that could not run goes through `failures.Record`.
+- The sentence is written only when every resolved item verified.
+
+**Not verified.** No file on this PC returns `CERT_E_EXPIRED` or an unmapped status, so those
+wordings were seen only in tests.
+
+**Date.** 2026-10-27.
+
+---
+
+## START-001 — A startup shortcut switched off in Task Manager was still listed as starting
+
+**Symptom.** On the dev T470p the all-users Startup folder holds `VpnClient.lnk`, switched off in Task
+Manager: its `StartupApproved\StartupFolder` value starts with 05. The startup check still listed it,
+and examined its file, as a program that starts with Windows.
+
+**Root cause.**
+- All six `StartupApproved` subkeys (Run, Run32 and StartupFolder, in HKCU and HKLM) were read
+  into one map keyed by value name.
+- Startup folder items were then created with `Disabled: false`, and never looked in the map.
+  Their switches are filed by file name with its extension, "VpnClient.lnk", which no lookup used.
+- A switch filed for one place, such as HKCU Run, could decide an item of the same name in
+  another, such as HKLM's 32-bit Run key.
+
+**How to verify.** `StartupSignatureTests`:
+- a StartupFolder switch turns off that shortcut, in its own hive only;
+- an HKCU Run switch leaves HKLM Run and Run32 items of the same name alone;
+- the odd-first-byte rule, with the values seen on this PC (01 and 05 off, 04 on).
+
+In the live scan of 2026-10-27, a VPN client is no longer among the 8 items.
+
+**Fix.**
+- `Startup/StartupApproved.cs` keys each switch by hive, location and name: Run for that hive's Run
+  key, Run32 for HKLM's 32-bit Run key, StartupFolder for that hive's Startup folder.
+- RunOnce and policy entries have no switch, because Task Manager does not list them.
+- The inventory also reads HKLM's 32-bit RunOnce key and both hives' `Policies\Explorer\Run`,
+  which it used to skip.
+
+**Not verified.** No 32-bit HKLM Run item on this PC is switched off; the Run32 subkey is empty
+here.
+
+**Date.** 2026-10-27.
+
+---
+
+## SIG-001 — Windows Security's own tray icon read as an unsigned startup item on every PC
+
+**Symptom.** All three pilot laptops and the dev T470p reported "Startup items without a publisher
+signature: 1", graded Normal. The one item was `SecurityHealthSystray.exe`, Windows Security's tray
+icon, started from HKLM Run as "SecurityHealth". A freshly reimaged laptop could never read clean.
+
+**Root cause.** The file has no signature of its own. Microsoft signs a catalog that lists its hash
+(`System32\CatRoot`). `AuthenticodeVerifier` asked WinVerifyTrust about the file alone
+(`WTD_CHOICE_FILE`), which answers `TRUST_E_NOSIGNATURE` (0x800B0100). Explorer's Digital
+Signatures tab shows no signature for the same reason. `Get-AuthenticodeSignature` says Valid,
+SignatureType Catalog.
+
+**How to verify.**
+- On this PC, WinVerifyTrust with the app's flags returned 0x800B0100 for
+  `SecurityHealthSystray.exe` and `notepad.exe`. `Get-AuthenticodeSignature` reports both as Valid,
+  Catalog.
+- `StartupSignatureTests`: the tray icon verifies through its catalog, signed by Microsoft; an exact
+  copy elsewhere verifies too; one changed byte makes the copy unsigned. A plain unsigned file
+  stays unsigned, with no failure recorded.
+
+**Fix.**
+- A file with no embedded signature is looked up in Windows' catalog database, on the PC:
+  `CryptCATAdminAcquireContext2` (SHA-256, then SHA-1) and `CryptCATAdminEnumCatalogFromHash`.
+- The catalog that lists it is verified with WinVerifyTrust (`WTD_CHOICE_CATALOG`), with the same
+  offline flags.
+- "No catalog lists it" (`ERROR_NOT_FOUND`) leaves the answer as unsigned. Any other catalog error
+  is a check that could not run.
+- The signer's CN and O are now recorded for embedded and catalog signatures alike, from the
+  certificate WinVerifyTrust used. This is the groundwork for Step D's allowlist.
+
+In the unelevated live scan of 2026-10-27 the list reads "SecurityHealth (Microsoft Windows)" and
+"Lightshot (Kilonova LLC)", and neither is counted as unsigned.
+
+**Review round, 2026-10-28.** A file the catalog hasher refuses was recorded as a broken verifier.
+- *Symptom.* For a 0-byte file WinVerifyTrust answers 0x800B0003, not signed, and
+  `CryptCATAdminCalcHashFromFileHandle2` then fails with 1006 (ERROR_FILE_INVALID) under SHA-256 and
+  SHA-1. For notepad.exe cut to 4 KB the answers are 0x800B0100 and 0x800700C1 (ERROR_BAD_EXE_FORMAT).
+  Both went to `CatalogFailure`, and `StartupReport` passes every Failure to `failures.Record`. So a
+  Run entry or shortcut pointing at an empty or truncated program, which a failed update can leave,
+  put "some checks could not finish" on a healthy PC and made the kit exit 2. Found by reading the
+  code, confirmed with a probe on the dev T470p. A 512-byte or text file hashes normally and is
+  "not found" (1168), so it already read unsigned.
+- *The wrong first guess.* Matching the Win32 codes 1006 and 193. The truncated file's last error
+  is already an HRESULT, so the test still failed; the code now compares after `HResultFromWin32`.
+- *Fix.* A file the hasher refuses for what it holds is in no catalog, so the embedded "not signed"
+  stands. Any other reason the file cannot be hashed, or opened for hashing, makes it Unknown with
+  Windows' status: a Note naming the item, not a failure. `CatalogFailure` is kept for the catalog
+  database not opening and the catalog lookup failing, which are the check itself breaking.
+- *How to verify.* `StartupSignatureTests`: a 0-byte .exe and a 4 KB copy of notepad.exe each read
+  NotSigned with no Failure, and the startup report records no failure for them. Both failed before.
+- *Not verified.* No other hash error was seen, so the Unknown wording for one was not tested.
+
+**Date.** 2026-10-27; review round 2026-10-28.
+
+---
+
+## REP-002 — Report details follow the regional number format: "4,5–10,0"
+
+**Status: open, found 2026-10-27, not fixed.** Found during the live check for Step A rows 10, 11
+and 13, outside their scope.
+
+**Symptom.** On the dev T470p, whose regional format uses a decimal comma, the unelevated scan of
+2026-10-27 wrote the `stability.index` detail as "30-day range: 4,5–10,0 (average 6,1)". The value
+itself, 6.9, is right: it is a number, not text. Only the detail line is affected, but the JSON and
+the kit carry that text, and English is the language of the data (REMEDIES-PLAN, decision 6).
+
+**Root cause.** Interpolated strings with a format, such as `$"{x:0.0}"`, format with the current
+culture, and CA1305 does not flag them. LNX-001 was the same fault in the Linux modules. A grep for
+`$"...{x:0...}"` without `string.Create(CultureInfo.InvariantCulture, ...)` finds about 30 in `src/`,
+among them `StabilityModule.cs:51` and the `memory.commit_pct` detail in `SysOverviewModule.cs`.
+
+**How to verify.** Run a scan on a PC whose number format uses a decimal comma, and search the JSON
+details for a digit, a comma and a digit.
+
+**Fix.** Not done. Fix the whole class at once, not this one line: every interpolation that formats
+a number into report text goes through `string.Create(CultureInfo.InvariantCulture, ...)`, with a
+test that runs a module's formatting under a comma culture. *2026-10-28: the `stability.index`
+range line was rewritten for HIST-001 and is invariant now ("4.5–10.0" in the live scan); the rest
+of the class is still open.*
+
+**Date.** 2026-10-27.
+
+---
+
+## TIP-001 — Tips sent Windows 10 users to menus that only Windows 11 has
+
+**Symptom.** Found by the review of 2026-10-27. On an English Windows 10 22H2 the tips said:
+
+- "Settings > System > Activation";
+- "Settings > System > Troubleshoot";
+- "Settings > Windows Update";
+- "Settings > Privacy & security > Windows Security";
+- "Task Manager > Startup apps";
+- in the processor trend advice, "Settings > System > Power".
+
+None of them exists on Windows 10. Activation, Troubleshoot, Windows Update and Windows Security
+are under Update & Security there. Task Manager's tab is called "Startup", and the power mode is the
+battery icon's slider. Windows 11 has no Update & Security, so Windows 10 paths would be wrong there
+instead. The company's laptops run both (decision 8).
+
+**Root cause.** The tips were written from Windows 11's menus, and nothing ever compared them with
+Windows 10.
+
+**The wrong first guess.** That the review's list of eight places was complete. Grepping every rule
+file for " > " found "Settings > Windows Update" in three more tips (`os.json`, the update-age and
+pending-update rules).
+
+**How to verify.** `FreshInstallTests.No_tip_names_a_menu_path_that_only_one_Windows_version_has`
+reads every embedded tip and forecast. `The_tips_still_say_how_to_get_there` checks the other
+direction: the activation, troubleshooter, startup and Windows Update tips still name a way there.
+
+**Fix.** Each such tip names the page and its `ms-settings:` link, typed after Win+R, which opens
+the same page on both versions. The links are from Microsoft's list
+([Launch Windows Settings](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-settings-app)). Where the step
+below the page differs, the tip names both: "Additional troubleshooters (Other troubleshooters on
+Windows 11)". Windows Security is opened from the Start menu. The processor advice names the power
+mode for each version, after Microsoft's own page
+([Change the power mode](https://support.microsoft.com/en-us/windows/change-the-power-mode-for-your-windows-pc-c2aff038-22c9-f46d-5ca0-78696fdf2de8)).
+Paths that exist on both were kept: Windows Security's own pages, Control Panel > File History,
+Event Viewer and Storage.
+
+**Not verified.** The links were not opened on Windows 11; Microsoft's list marks none of them as
+missing there. `audit-kit/audit-laptop.ps1` asks about "Settings > Sound > microphone test", which
+is System > Sound on both versions. The kit's text was outside this change.
+
+**Date.** 2026-10-27.
+
+---
+
+## OS-003 — A new Windows install was graded on readings it cannot have yet
+
+**Symptom.** From the review of 2026-10-27: on a new install, Defender's "Days since last quick
+scan" reads "never run" and is graded Bad. On the dev T470p, reinstalled on 2026-10-18, the first
+scheduled quick scan came 4 days after install. An empty Reliability Monitor history read
+"Reliability data collection (RAC scheduled task) appears to be disabled", and the module ended
+partially completed, which raises the "some checks could not finish" banner. A freshly installed,
+healthy PC must read clean.
+
+**Root cause.** Both readings depend on how long Windows has existed, and the app never asked.
+
+**How to verify.** `FreshInstallTests`, both directions:
+- under 7 days, "never run" is shown ungraded with a Note, and an empty history is a Note with the
+  module Skipped;
+- from 7 days on, "never run" is still Bad, and an empty history still says the check could not
+  finish;
+- an install date after the clock, or none, is never young;
+- a clock set back cannot make an old install look new.
+
+**Fix.** `Support/InstallAge.cs` reads `Win32_OperatingSystem.InstallDate`, and only when one of the
+two readings is empty. It compares in UTC, and "now" is never earlier than the support table's
+checked-on date. On an install under 7 days old, each reading becomes a Note: "Days since last quick
+scan: not judged: Windows was installed 3 days ago. ...". A failed install-date read is a note, and
+the reading is then graded as before. The Windows 11 "not assessed" notes now say that Windows runs
+its compatibility check by itself about once a day, and to scan again after a day. The kit's CHECK
+AGAIN for it is unchanged. PRIVACY.md names the new reading.
+
+**Not verified.**
+- **No young install was available.** The dev T470p was installed 8 days before the live check, so
+  neither Note fired there; its quick scan read 4 days, Good.
+- **A restored disk image keeps the image's install date,** so on the company's reimaged laptops
+  this rule will rarely fire.
+- **An empty reliability history was not seen.** On the dev T470p the history starts in the hour
+  Windows was installed. That half of the fix is a precaution.
+
+**Date.** 2026-10-27.
+
+---
+
+## OS-002 — "Time service not running" was graded on every PC outside a domain
+
+**Symptom.** `time.sync.service_running` was graded Normal whenever W32Time was stopped. On the dev
+T470p it is "Stopped", start mode "Manual", and its own detail line already said "'stopped' alone is
+not alarming".
+
+**Root cause.** On a PC outside a domain, W32Time is a trigger-start service whose one trigger is
+"domain joined" (`sc qtriggerinfo w32time` on the dev T470p). The Time Synchronization task starts
+it about once a week (`sc.exe start w32time task_started`) and lets it stop again. Microsoft: "On
+workgroup computers that aren't joined to an AD DS domain: the startup value ... is Manual. The
+service status is Stopped" and "the default setting can be kept as is"
+([W32Time doesn't start on a workgroup computer](https://learn.microsoft.com/en-us/troubleshoot/windows-client/active-directory/w32time-not-start-on-workgroup)).
+A threshold every healthy workgroup PC trips is a bug in the threshold, and the company's laptops are
+workgroup PCs.
+
+**The wrong first guess.** The original one: explaining the normal case in the detail line while
+still grading it.
+
+**How to verify.** `FreshInstallTests.The_time_service_state_is_never_graded`, for stopped and for
+running. On the dev T470p after the fix: the row is information only, value false, no rule.
+
+**Fix.** The reading is information only and `rule.time.service` is gone. The detail says how to sync
+the clock (Win+R, then `ms-settings:dateandtime`, Sync now). There was no clock-offset grading to
+keep: whether the clock itself is right is not checked yet, and the detail says so. That is Step C
+row 4 (O5).
+
+**Date.** 2026-10-27.
+
+---
+
+## KIT-008 — With `requireWindows11Ready` on, Windows 11 installed anyway read READY
+
+**Symptom.** Found on 2026-10-27, while decision 9 was turned into code; no audited laptop showed
+it, since all three pilot laptops run Windows 10. In the committed kit, with `requireWindows11Ready`
+on, a laptop whose processor Windows 11 does not support was REPLACE on Windows 10. With Windows 11
+installed or restored onto it anyway, the same laptop read "Already Windows 11" and, with nothing
+else wrong, READY. Decision 9 makes that the expected case on the T470s: some get Windows 11 on
+hardware it does not support.
+
+**Root cause.** `Get-AuditRow` tested the build first (`if ($build -ge 22000) { 'Already Windows 11' }`)
+and read Windows' own verdict only on Windows 10. Running Windows 11 was taken to mean the laptop met
+Windows 11's requirements, but Windows 11 installs on hardware its check rejects. The app did not
+help either: it read the verdict only on Windows 10 until `os.win11_hardware_supported` was added
+the same day (OS-001).
+
+**The wrong first guess.** That the new app reading was enough. The first kit change for decision 9
+(same day, not committed) showed it as a note, "Windows 11 on hardware Microsoft does not support",
+and never as a reason. Turning the rule back on would then still have passed exactly the laptops
+it exists to catch. That change also showed a Windows 11 laptop with no reading as plain
+"Already Windows 11", which reads as supported.
+
+**How to verify.** Feed `Get-AuditRow` a bundle with `WindowsBuild` 26200, `os.win11_hardware_supported`
+false and `os.win11_blockers` "CpuFms", once with `requireWindows11Ready` true and once false. The
+kit checks under "Windows 11 on unsupported hardware" do this in both directions.
+
+**Fix.** The kit reads Windows' verdict whichever Windows runs.
+- **With the rule on:**
+  - a processor block is REPLACE, worded "Windows 11 runs here, but Microsoft does not support it
+    on this processor (CpuFms)" on Windows 11;
+  - any other requirement is FIX FIRST;
+  - no reading is CHECK AGAIN, as "Not assessed" is on Windows 10.
+- **With the rule off (the default since decision 9):** each of these is a note.
+- **The column** says "Already Windows 11, hardware support not read" when there is no reading.
+
+**Not verified:** a real Windows 11 laptop. If Windows 11 keeps no verdict for its next version, every
+Windows 11 laptop reads "hardware support not read". That is a note with the rule off and CHECK
+AGAIN with it on.
+
+**Review round, 2026-10-28.** Two faults in the fix above, both found by reading the code.
+- *Symptom: a cause the zip does not show.* Every Windows 11 run without `os.win11_hardware_supported`
+  read "Windows has not assessed this laptop for Windows 11". Three kinds of run lack that row
+  whether or not Windows assessed the laptop:
+  - a zip from an older kit, which never read it on Windows 11. That is every zip so far: the dev
+    desktop's of 2026-10-25 (kit 2026-10-23.1), and every one from the stick in use (kit 2026-10-26.1);
+  - a run with no report, where Windows 10 read plainly "Not read";
+  - a verdict the app does not interpret, where the `os.win11_blockers` row shows Windows did assess it.
+
+  With the rule on, each was CHECK AGAIN, and checking again with the same stick could never clear it.
+- *Root cause.* The Windows 11 branch ran before the no-report test, and every missing row was read
+  as one cause.
+- *Fix.* With no report, the column reads "Not read" whichever Windows runs, and there is no
+  Windows 11 text: the no-report reason already says why. Otherwise the text names only the cause
+  the zip shows:
+  - a blockers row with no verdict row: "Windows gave a verdict the app does not interpret, see its
+    report". On Windows 10 the column then reads "Verdict not interpreted", not "Not assessed";
+  - on Windows 11, a `KitVersion` older than 2026-10-28.1: "kit 2026-10-23.1 does not read it, kit
+    2026-10-28.1 and later do";
+  - on Windows 11 with a newer kit: "Windows has no verdict on this installation yet, see its report";
+  - with no kit version at all: both of the last two causes.
+
+  `$script:FirstKitWithSupportReadings` and `Test-KitOlder` hold the boundary.
+- *Symptom: TPM advice for every block.* On Windows 10, every block that was not the processor was
+  told to "turn on TPM / Secure Boot in the firmware settings": SystemDriveSize, Memory, DX12,
+  "none" (a block Windows does not name) and any unknown code. The rule-on reason had done that
+  before; the new default note repeated it for every such laptop. On Windows 11 it was the reverse:
+  a TPM-only block got only "updates are not guaranteed". It is W11-001 again, in the kit.
+- *Fix.* The advice is given only when every code is Tpm, TpmVersion, UefiSecureBoot, SecureBoot or
+  Uefi. Any other block points to "Can move to Windows 11" (Windows 10) or "Hardware supported by
+  Windows 11" (Windows 11) in the report, which names each reason. A block with no named reason says
+  so. A TPM-only block on Windows 11 adds "To make it supported, turn on TPM / Secure Boot in the
+  firmware settings".
+- *How to verify.* `kit-tests.ps1`, under "Windows 11 on unsupported hardware", each with the rule off
+  and on:
+  - Windows 11 zips from an old kit, a current kit and one with no kit version;
+  - a blockers row alone, on Windows 10 and on Windows 11;
+  - no report, on both builds;
+  - SystemDriveSize, Memory, DX12, Tpm with SystemDriveSize, an unknown code, and none;
+  - Tpm, TpmVersion, SecureBoot and Uefi alone, which keep their advice.
+
+  Each new check of a fixed case fails on the kit before the fix. The checks of cases that were
+  already right (Tpm alone, a processor block on Windows 11, Windows 10 with no report) pass before
+  and after.
+- *Replay.* The pilot zips and the not-fleet runs, copied under `%TEMP%`: the three pilot rows and
+  the T470p's 2026-10-26 run do not change, with the rule off or on. The dev desktop's Windows 11 zip
+  now says "kit 2026-10-23.1 does not read it", and with the rule on its CHECK AGAIN says the same.
+- *Not changed.* The app's Windows 10 detail for a block that is not the processor still ends "TPM
+  and Secure Boot can often be switched on in the firmware (BIOS/UEFI) settings", and the kit's note
+  now points to it. Its list of reasons is right. That sentence is the app's, and was not changed
+  here.
+
+**Date.** 2026-10-27; review round 2026-10-28.
+
+---
+
 ## OS-001 — An unenrolled Windows 10 company laptop is graded "supported until 2027-10-12"
 
-**Status: open, not fixed (found 2026-10-27).** The fix is planned as Step A rows 8 and 9 in
-`docs/REMEDIES-PLAN.md`.
+**Status: fixed on 2026-10-27 (found the same day),** as Step A rows 8 and 9 of
+`docs/REMEDIES-PLAN.md`. `os.supported` now decides from an ESU licence or the build, out of one
+table of Microsoft's dates. Update age is counted from the release of the cumulative update the
+running build came from. Pending updates are split by type. See "Fix" below.
 
 **Symptom.** `os.supported` reads **Good**, "Windows 10 security updates (incl. consumer ESU) end
 2027-10-12", on all three pilot laptops and on the dev T470p. On the dev T470p, all 24 ESU licence
@@ -45,16 +959,154 @@ text and has to change deliberately with the fix.
   - `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` `UBR`: the running build.
 - Compare both with the `os.supported` row of a scan on the same PC.
 
-**Fix (planned).**
-- Grade `os.supported` from the edition, the ESU licence for the year that covers today
-  (`LicenseIsAddon` rows), and the running build.
-- Keep the end dates in one data table with sources and a "checked on" date.
-- Report the newest Windows update by KB number or build, never by install date or title.
-- A failed read is a failure, not a Note.
-- Ship it together with the stricter update grading, so no Windows 10 laptop without ESU is left
-  with only Good rows.
+**What the fix found on the way.**
+- **"The newest security update" would have been wrong too.** In Windows Update's cache on the dev
+  T470p, the newest installed update classified "Security Updates" is KB5126256 of September 2026.
+  It is the *ESU Licensing Preparation Package*, not a security fix. Counting it would have called
+  this PC patched in September 2026.
+- **The update history cannot name the newest Windows update either.** The cumulative update
+  KB5071959, installed and running, sits in the history with result code 1 (in progress). Most
+  history entries throw when asked for their categories.
+- **Pending updates were all offers.** The 13 waiting were 12 driver offers and 1 firmware update
+  (`DriverClass` "Firmware"); none was a security update.
+- **A latent licence bug.** `LicenseModule` took the first licence row with a key as "the Windows
+  licence". Once an ESU key is installed, its add-on row has a key too, and could have been
+  reported as the Windows licence, MAK channel included. No PC here has an ESU key, so it never
+  showed.
 
-**Date.** 2026-10-27.
+**Fix (2026-10-27).**
+- **One table, `Support/WindowsSupport.cs`.** It holds every end date with its Microsoft source
+  URL, "checked on 2026-10-27", the three published commercial ESU activation IDs with their year
+  ends, the consumer ESU end, and the build boundary. A test checks that every date is a Patch
+  Tuesday. A Wednesday would mean someone took a lifecycle page's "6:59:59 AM next day" stamp
+  literally.
+- **"Today" is never earlier than the table's checked-on date,** so a clock set back cannot make
+  an ended Windows look supported.
+- **Windows 10 22H2 is Good only on evidence.** One way is an active licence (`LicenseStatus` 1)
+  for the ESU year that covers today, matched by Microsoft's activation ID, never by name; Year 1
+  alone no longer covers it. The other is a build above 19045.6466, the last build Microsoft offers
+  a PC without ESU. Otherwise it is Bad: "No Windows security updates since October 2025...".
+  - A key installed but not activated, and an earlier year's licence, are named in the detail.
+  - On Home, the detail says company ESU covers Pro, Enterprise and Education only and BitLocker
+    needs Pro (decision 10), and an info row `os.home_edition` says it on every Windows version.
+  - A build-only Good never names an end date: consumer ESU and a company ESU without a key look
+    the same from here.
+- **LTSC and Windows 11 use their own rows by edition.** LTSC 2024 shares 24H2's build 26100. An
+  edition or build not in the table (Server, SE, newer builds) is a Note, not graded.
+- **`os.win10_eol_near` is removed; `os.support_ending` replaces it.** It is a Normal row when the
+  support that applies (a version, an LTSC, or an ESU year) ends within about six months.
+- **Windows 11 on unsupported hardware (decision 9).** `os.win11_hardware_supported` is Normal when
+  Windows' own appraiser verdict for the next Windows 11 version is Red for a known requirement. With
+  no verdict, it is a Note; the processor name is never guessed from.
+- **Licence and registry reads that throw** go through `failures.Record`, and then no
+  `os.supported` row is written.
+- **Update age.** `os.patch.age_days` is now the days since the *release* of the cumulative update
+  the running build came from. The KB comes from its servicing package's manifest; the release
+  date (`LastDeploymentChangeTime`) comes from Windows Update's cache. Hotfix install dates and the
+  history are no longer read for it. The bands are Good ≤ 42 and Normal ≤ 70: a five-week Patch
+  Tuesday gap plus a week to install stays Good, and only two missed months are Bad.
+- **Pending updates.** `updates.pending_count` counts security and quality updates only; Defender
+  definitions and optional updates are named in the detail. Drivers and firmware get their own
+  info rows. A zero is graded only when Windows Update searched in the last 7 days; otherwise it
+  is a Note, "Windows Update has not searched since...". A non-zero count stays graded as a lower
+  bound.
+- **`LicenseModule`** skips `LicenseIsAddon` rows.
+- **The test this fault named has changed on purpose.**
+  `Windows10_tips_never_give_a_company_laptop_the_consumer_esu_date` replaces
+  `Windows10_end_of_support_tip_names_the_extended_date`.
+
+**Verified on the dev T470p (unelevated scan, 2026-10-27).**
+- `os.supported`: Bad, "No Windows security updates since October 2025: no Extended Security
+  Updates licence is active, and this build (19045.6466) has nothing newer."
+- `os.patch.age_days`: 350, Bad (KB5071959, released 2025-11-11).
+- `updates.pending_count`: 0, Good, from a search the same day; the 12 driver and 1 firmware
+  offers are on their own rows.
+
+**Not verified:** any Windows 11 machine. The `os.win11_hardware_supported` reading assumes Windows
+11 keeps appraiser verdicts for its next version, as Windows 10 does. The RollupFix package naming
+was seen on Windows 10 only. If either differs, the row or the update age becomes a Note, not a
+false grade.
+
+**Review round, 2026-10-28.** Six faults in the fix above, all found by reading the code. No PC
+showed any of them.
+- **A Year-1-only PC read Good for two more years (the OS-001 class again).**
+  - *Symptom.* The PC has the Year 1 licence active and Year 1's builds (19045.7811). On 2026-10-28
+    it read Good, "No company ESU licence is active here, so this is consumer ESU or a company ESU
+    delivered another way". Both halves were false, and the verdict held until 2028-10-10.
+  - *Root cause.* With the covering year (Year 2) not active, the code fell through to the build
+    check, and Year 1's own builds passed it. The sentence for this case ("The Year 1 licence is
+    active, but Year 1 ended...") ran only at build 6466, which no PC that used Year 1 has. The test
+    for it used 6466, so the suite missed the bug.
+  - *Second fault.* Build evidence never expired. A Pro PC on consumer ESU stays above 6466 after
+    2027-10-12 and read Good until 2028-10-10.
+  - *Wrong first guess.* That the update-age row would catch it. On 2026-10-28 the October update
+    is 15 days old and reads Good, and that row's own Bad tip sends the reader to "OS support
+    status".
+  - *Fix.* If any published ESU year's licence is active, the licences alone decide, so Year 1
+    without Year 2 is Bad with "Year 2 is needed now". The build counts only when no licence is
+    active, and only until consumer ESU ends on 2027-10-12, with an `os.support_ending` warning
+    from six months before. After that, a build with no licence is Bad.
+- **Enterprise and Education were told they might have consumer ESU.** Microsoft's consumer ESU
+  is for "Home, Professional, Pro Education, or Workstations" only. Their wording now names only a
+  company ESU that needs no key on the PC, through Windows 365 or Azure Virtual Desktop
+  ([cloud and virtual ESU](https://learn.microsoft.com/en-us/windows/whats-new/enable-extended-security-updates-virtual)).
+  "Subscription activation" is gone, because no Microsoft ESU page names it.
+- **"Activate Year 3 before then" on a PC whose Year 3 is already active.** Years activated in a
+  row now extend the cover, and the warning names the last of them. Microsoft does not say whether
+  a later year's key activates early. If it cannot, this case never happens and nothing changes.
+- **Ended editions missing from the table read "NOT graded" instead of Bad.** Added, each from its
+  lifecycle page:
+  - Windows 10 Enterprise LTSB 2015 and IoT Enterprise LTSB 2015, ended 2025-10-14;
+  - IoT Enterprise LTSB 2016, ended 2026-10-13;
+  - IoT Enterprise LTSC 2019, supported to 2029-01-09;
+  - Windows 10 Team (EditionID `PPIPro`, builds 19042 and 19045), ended 2025-10-14. Microsoft: it
+    "doesn't have an extended support option", so it is never sent to the ESU check.
+- **On a PC managed by WSUS or Configuration Manager, the update age read too young.**
+  `LastDeploymentChangeTime` is "the last published date of the update ... on the server that
+  deploys the update", so on such a PC it is the date the server approved the update. The app now
+  reads the `UseWUServer` policy (only that switch, never the server's name). When it is 1, the age
+  is a Note, not graded. Of several cached dates for one KB, the earliest now counts, because the
+  latest could only make an update look newer.
+- **A Windows 11 verdict carried in a disk image was trusted as this PC's.**
+  - *Fix.* A verdict dated before `Win32_OperatingSystem.InstallDate` is now a Note, not Good or
+    Normal, and its blocker codes are withheld.
+  - *Unverified: whether Sysprep resets that date.* No Microsoft page says so. This PC is evidence
+    that it does: it was clean-installed from Microsoft's own generalized image, and its install
+    date (2026-10-19 00:27) is later than that install's first boots, so setup writes the date on
+    the PC itself, in the same passes a generalized image runs.
+  - *What it cannot catch.* An image that was not generalized keeps its old date, and its verdict
+    is still trusted. GOLDEN-IMAGE-PLAN already forbids deploying such an image.
+  - *Side effect.* After a feature update, the old verdict is a Note for about a day, until the
+    appraiser runs again.
+- **How to verify.** In `WindowsSupportTests`, `WindowsUpdatesTests` and `Win11ReadinessTests`,
+  run each case both ways (fails, then passes). Put the old ESU logic back and 20 of the new or
+  changed cases fail. Live on the dev T470p (unelevated, 2026-10-28) nothing moved:
+  - `os.supported` is Bad with the October 2025 wording the kit matches;
+  - the Windows 11 verdict, dated after the install, is graded;
+  - the update age is graded, because there is no WSUS policy here.
+- **Known limit.** A PC whose ESU comes through Windows 365 or Azure Virtual Desktop has no
+  licence row this app reads. Microsoft names a registry flag for the Windows 365 case
+  (`SoftwareProtectionPlatform\ESU` `Win10CommercialW365ESUEligible`). It is not read yet.
+  - On **Enterprise and Education**, the build alone can only mean such an ESU, because consumer
+    ESU is not offered for them. From 2027-10-13 to the end of Year 3 (2028-10-10), they get a
+    Note, "whether security updates still arrive was NOT established", instead of Bad. This was
+    changed after the gate's re-check, under rule 3; the test is
+    `After_consumer_esu_a_build_alone_on_enterprise_is_not_judged_until_esu_ends_for_good`.
+  - On **Pro**, consumer ESU is the likelier explanation, and it ends on 2027-10-12. So from
+    2027-10-13 Pro reads Bad, and the detail says to check a keyless company ESU where it is
+    managed.
+  - **KMS-activated ESU rows** (one per year, IDs not published by Microsoft) are not matched. A PC
+    whose ESU years are activated through KMS reads Bad once the build stops counting. Microsoft
+    documents only MAK, so this is a guess, not an observed case.
+
+**Review round, 2026-10-28: the guide's date for the ESU note.** `AUDIT-GUIDE.md` said the
+"Windows 10 without ESU" note needs a zip "from a stick built on or after 27 October 2026". The
+stick built that day carries kit 2026-10-26.1, whose app still grades every Windows 10 supported
+until 2027-10-12, so its zips never carry the note, and a reviewer could read the missing note as
+"ESU is fine". The guide now says kit 2026-10-28.1 or later, and that on an older zip a missing note
+does not mean the laptop has ESU. See PRIV-002 for the fix and its check.
+
+**Date.** 2026-10-27; review round 2026-10-28.
 
 ---
 

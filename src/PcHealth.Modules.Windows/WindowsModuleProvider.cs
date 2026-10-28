@@ -29,6 +29,7 @@ public sealed class WindowsModuleProvider : IModuleProvider
         new MalwareDefenderModule(),
         new NetworkHealthModule(),
         new BrowserExtensionsModule(),
+        new BackupFilesModule(), // runs after the admin helper, to see its shadow-copy count
         new DiskSpeedModule(),
         new CpuBenchmarkModule(),
 

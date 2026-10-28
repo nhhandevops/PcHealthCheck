@@ -5,11 +5,27 @@ using Microsoft.Win32;
 namespace PcHealth.Modules.Windows.Startup;
 
 /// <summary>One Windows account that has a profile folder on this PC.</summary>
-public sealed record UserProfile(string Sid, string ProfilePath, string AccountName)
+public sealed record UserProfile(string Sid, string ProfilePath)
 {
-    /// <summary>True when this is the account running the app, whose items the unelevated
-    /// startup check already covers.</summary>
+    /// <summary>True when this is the account the scan was started from, whose items the
+    /// unelevated startup check already covers. In the elevated helper that need not be the
+    /// helper's own account (<see cref="UserProfiles.Enumerate"/>).</summary>
     public bool IsCurrentUser { get; init; }
+
+    /// <summary>
+    /// The account's number on this PC, from 1, in the order Windows issued the accounts (by
+    /// the SID's last part), the current account included, so "account 2" names the same
+    /// account whoever runs the scan.
+    /// </summary>
+    public int Number { get; init; }
+
+    /// <summary>
+    /// How the report names this account. Never the account's name: under principle 10 of
+    /// REMEDIES-PLAN a report carries no user names. The report says which number is the
+    /// reader's own, and the rest follow the order Windows created the accounts. The name is not
+    /// even looked up, which for a domain account would also have meant asking a domain controller.
+    /// </summary>
+    public string Label => "Account " + Number.ToString(CultureInfo.InvariantCulture);
 }
 
 /// <summary>
@@ -51,10 +67,13 @@ public static class UserProfiles
                && rid >= FirstRealAccountRid;
     }
 
-    public static IReadOnlyList<UserProfile> Enumerate(List<string> notes)
+    /// <param name="startedBySid">The account the scan was started from, whose items the unelevated
+    /// startup check covers (<see cref="PcHealth.Core.Modules.ModuleContext.StartedBySid"/>). Null for
+    /// this process's own account, which is that account unless this is the elevated helper.</param>
+    public static IReadOnlyList<UserProfile> Enumerate(List<string> notes, string? startedBySid = null)
     {
         var profiles = new List<UserProfile>();
-        var currentSid = CurrentUserSid();
+        var currentSid = startedBySid ?? CurrentUserSid();
 
         using var list = Registry.LocalMachine.OpenSubKey(ProfileListKey);
         if (list is null)
@@ -71,14 +90,28 @@ public static class UserProfiles
             var path = entry?.GetValue("ProfileImagePath")?.ToString();
             if (string.IsNullOrWhiteSpace(path)) continue;
 
-            profiles.Add(new UserProfile(sid, Environment.ExpandEnvironmentVariables(path), NameOf(sid, path))
+            profiles.Add(new UserProfile(sid, Environment.ExpandEnvironmentVariables(path))
             {
                 IsCurrentUser = string.Equals(sid, currentSid, StringComparison.OrdinalIgnoreCase),
             });
         }
 
-        return profiles;
+        return Numbered(profiles);
     }
+
+    /// <summary>Numbers the accounts from 1 in the order Windows issued them: by the SID's last
+    /// part (the relative ID), then by the whole SID for accounts from different domains.</summary>
+    public static IReadOnlyList<UserProfile> Numbered(IEnumerable<UserProfile> profiles) =>
+        profiles
+            .OrderBy(p => RelativeId(p.Sid))
+            .ThenBy(p => p.Sid, StringComparer.OrdinalIgnoreCase)
+            .Select((p, index) => p with { Number = index + 1 })
+            .ToList();
+
+    private static long RelativeId(string sid) =>
+        long.TryParse(sid[(sid.LastIndexOf('-') + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var rid)
+            ? rid
+            : long.MaxValue;
 
     /// <summary>
     /// Whether this profile folder can actually be read, asked by opening it rather than by
@@ -105,24 +138,8 @@ public static class UserProfiles
         }
     }
 
-    /// <summary>
-    /// The account's readable name. Translating the SID is the accurate way and it is tried
-    /// first, but it fails for an account that has been deleted while its profile folder
-    /// remains — which is exactly the sort of leftover worth reporting rather than dropping.
-    /// </summary>
-    private static string NameOf(string sid, string profilePath)
-    {
-        try
-        {
-            return new SecurityIdentifier(sid).Translate(typeof(NTAccount)).Value;
-        }
-        catch (Exception e) when (e is IdentityNotMappedException or ArgumentException or SystemException)
-        {
-            return Path.GetFileName(profilePath.TrimEnd(Path.DirectorySeparatorChar));
-        }
-    }
-
-    private static string? CurrentUserSid()
+    /// <summary>This process's own account, as a SID, or null when Windows will not say.</summary>
+    public static string? CurrentUserSid()
     {
         try
         {

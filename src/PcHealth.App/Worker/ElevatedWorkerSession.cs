@@ -7,6 +7,7 @@ using PcHealth.Core.Modules;
 using PcHealth.Core.Orchestration;
 using PcHealth.Core.Processes;
 using PcHealth.Ipc;
+using PcHealth.Modules.Windows.Startup;
 
 namespace PcHealth.App.Worker;
 
@@ -39,6 +40,18 @@ public sealed record ElevatedScanOutcome(
     /// more than it may overstate it.
     /// </summary>
     public bool RanElevated => Results.Count > 0;
+
+    /// <summary>
+    /// The hook both scan entry points hand the orchestrator to run between its two phases:
+    /// waits for the helper, then gives its results to the benchmarks so they can see what the
+    /// admin checks found. It never throws: a helper that broke leaves the benchmarks with only
+    /// this process's findings, and the entry point still reports the helper's outcome itself.
+    /// </summary>
+    public static async Task<IReadOnlyList<ModuleResult>> ResultsOnceFinished(Task<ElevatedScanOutcome> run)
+    {
+        await Task.WhenAny(run).ConfigureAwait(false);
+        return run.IsCompletedSuccessfully ? (await run.ConfigureAwait(false)).Results : [];
+    }
 }
 
 /// <summary>
@@ -116,7 +129,10 @@ public sealed partial class ElevatedWorkerSession
             }
 
             var channel = new PipeChannel(server);
-            await channel.SendAsync(new RunModulesRequest([.. moduleIds]), ct).ConfigureAwait(false);
+            // This window's account goes with the request: the helper runs as whoever typed the
+            // administrator password, which on a company laptop is often not the person signed in,
+            // and the other-accounts check must know whose items this window already covered (PRIV-002).
+            await channel.SendAsync(new RunModulesRequest([.. moduleIds], UserProfiles.CurrentUserSid()), ct).ConfigureAwait(false);
 
             var results = new List<ModuleResult>();
             List<ReceiptEntry> receipt = [];

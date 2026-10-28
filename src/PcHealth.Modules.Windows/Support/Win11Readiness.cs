@@ -19,6 +19,12 @@ public sealed record Win11Verdict(
     /// <summary>A processor block is the one reason no setting can fix.</summary>
     public bool ProcessorBlocked => BlockerCodes.Any(c => c.StartsWith("Cpu", StringComparison.OrdinalIgnoreCase) ||
                                                           Win11Readiness.IsInstructionSetCode(c));
+
+    /// <summary>
+    /// Whether at least one reason is a Windows 11 hardware requirement this app knows. Only then
+    /// does a Red verdict on Windows 11 itself mean "hardware Microsoft does not support".
+    /// </summary>
+    public bool RequirementBlocked => BlockerCodes.Any(Win11Readiness.IsRequirementCode);
 }
 
 /// <summary>
@@ -57,6 +63,9 @@ public static class Win11Readiness
         ["DX12"] = "the graphics does not support DirectX 12",
         ["Wddm"] = "the graphics driver is older than WDDM 2.0",
     };
+
+    /// <summary>Every code in the table names a Windows 11 hardware or system requirement.</summary>
+    internal static bool IsRequirementCode(string code) => ReasonText.ContainsKey(code);
 
     internal static bool IsInstructionSetCode(string code) =>
         code.Equals("PopCnt", StringComparison.OrdinalIgnoreCase) || code.StartsWith("Sse", StringComparison.OrdinalIgnoreCase);
@@ -99,6 +108,22 @@ public static class Win11Readiness
         static string? NoneIsNull(string? v) => v is null || v.Equals("None", StringComparison.OrdinalIgnoreCase) ? null : v;
         return new UpgradeAssessment(target, build, verdict, NoneIsNull(Get("RedReason")), NoneIsNull(Get("GatedBlockReason")), assessed);
     }
+
+    /// <summary>
+    /// Whether a verdict was assessed before this Windows was installed, so it may describe another
+    /// PC: a restored disk image brings the verdict of the machine it was made on, and the appraiser
+    /// may not have run on this one yet. Such a verdict is not graded (review round, 2026-10-28).
+    ///
+    /// Setup writes the install date on the PC itself, late in its first starts: on the dev T470p,
+    /// clean-installed from Microsoft's own generalized image, it is 2026-10-19 00:27, after that
+    /// install's first boots on 2026-10-18 and 2026-10-19. A Sysprep-generalized image goes through
+    /// the same specialize and OOBE passes, so it very likely gets a new date too; no Microsoft page
+    /// says so. An image that was not generalized keeps its old date, and then this cannot tell.
+    /// False when either date is missing, or the install date is after the clock (one of them is wrong).
+    /// </summary>
+    public static bool PredatesInstall(UpgradeAssessment assessment, DateTime? installedUtc, DateTime clockUtc) =>
+        assessment.AssessedAt is { } assessed && installedUtc is { } installed && installed <= clockUtc &&
+        assessed.UtcDateTime < installed;
 
     /// <summary>
     /// The verdict for the newest Windows 11 release Windows has assessed, or null when it has

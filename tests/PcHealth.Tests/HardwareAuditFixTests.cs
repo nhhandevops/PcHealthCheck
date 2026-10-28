@@ -21,13 +21,23 @@ public sealed class HardwareAuditFixTests
 
     // --- 1. Windows 10 end of support -------------------------------------------------------
 
+    // Changed on purpose on 2026-10-27 (OS-001). This test used to lock "support ends 2027-10-12"
+    // into the os.win10_eol_near tip. That is the consumer ESU end: it applies only to an enrolled
+    // PC in personal use, never to a company laptop, and the app had never checked enrolment.
+    // os.supported now decides from the ESU licence and the build (WindowsSupportTests), and the
+    // consumer date may appear in a tip only as what it is.
     [Fact]
-    public void Windows10_end_of_support_tip_names_the_extended_date()
+    public void Windows10_tips_never_give_a_company_laptop_the_consumer_esu_date()
     {
-        var verdict = Engine.EvaluateOne(new Metric("os.win10_eol_near", "eol", true, HealthCategory.SoftwareOs));
+        Assert.Null(Engine.EvaluateOne(new Metric("os.win10_eol_near", "eol", true, HealthCategory.SoftwareOs)).RuleId);
 
-        Assert.Contains(verdict.Tips, t => t.Contains("2027-10-12", StringComparison.Ordinal));
-        Assert.DoesNotContain(verdict.Tips, t => t.Contains("2026-10-13", StringComparison.Ordinal));
+        foreach (var id in new[] { "os.supported", "os.win11_ready" })
+        {
+            var verdict = Engine.EvaluateOne(new Metric(id, id, false, HealthCategory.SoftwareOs));
+            Assert.NotEmpty(verdict.Tips);
+            Assert.All(verdict.Tips.Where(t => t.Contains("2027-10-12", StringComparison.Ordinal)),
+                t => Assert.Contains("personal use only", t, StringComparison.Ordinal));
+        }
     }
 
     // --- 2. Running out of memory ------------------------------------------------------------

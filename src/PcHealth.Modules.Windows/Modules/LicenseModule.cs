@@ -29,9 +29,10 @@ internal sealed partial class LicenseModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
-        // Active Windows license (the row with a partial product key is the one in use).
+        // Active Windows license: the row with a partial product key that is not an add-on. An
+        // installed Extended Security Updates key is an add-on row with a key of its own.
         var products = Wmi.TryQuery(@"root\cimv2",
-            "SELECT Name, Description, LicenseStatus, PartialProductKey, GracePeriodRemaining FROM SoftwareLicensingProduct " +
+            "SELECT Name, Description, LicenseStatus, PartialProductKey, LicenseIsAddon, GracePeriodRemaining FROM SoftwareLicensingProduct " +
             $"WHERE ApplicationID = '{WindowsAppId}'",
             out var error);
         var failures = 0;
@@ -41,7 +42,7 @@ internal sealed partial class LicenseModule : WindowsModuleBase
             failures++;
         }
 
-        var active = products.FirstOrDefault(p => !string.IsNullOrEmpty(Wmi.GetString(p, "PartialProductKey")));
+        var active = WindowsSupport.WindowsLicence(products);
         string channel = "Unknown";
         if (active is not null)
         {

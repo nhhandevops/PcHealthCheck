@@ -16,7 +16,7 @@ internal sealed partial class TimeSyncModule : WindowsModuleBase
     {
         Id = "time.sync",
         Name = "Clock synchronization",
-        Description = "Whether the Windows Time service keeps the clock synchronized. A drifting clock breaks secure websites, updates, and activation.",
+        Description = "The Windows Time service's state and time source, for information. A drifting clock breaks secure websites, updates, and activation.",
         Reads = ["Windows Time service state (WMI)", "w32tm status (read-only query)"],
         NeedsAdmin = false,
         EstimatedDuration = TimeSpan.FromSeconds(3),
@@ -32,12 +32,19 @@ internal sealed partial class TimeSyncModule : WindowsModuleBase
 
         if (service is not null)
         {
+            // Information only. On a PC outside a domain W32Time is a trigger-start service, "Manual" and
+            // "Stopped" by design, started by the weekly Time Synchronization task and then let stop
+            // (https://learn.microsoft.com/en-us/troubleshoot/windows-client/active-directory/w32time-not-start-on-workgroup).
+            // Grading "stopped" put a Normal row on every healthy workgroup PC, freshly imaged ones included.
             var state = Wmi.GetString(service, "State") ?? "Unknown";
             var running = state.Equals("Running", StringComparison.OrdinalIgnoreCase);
             metrics.Add(new Metric("time.sync.service_running", "Time service running", running,
-                HealthCategory.SoftwareOs,
+                HealthCategory.SoftwareOs, InfoOnly: true,
                 Detail: $"W32Time service: {state} (start mode {Wmi.GetString(service, "StartMode")}). " +
-                        "Note: on many home PCs this service runs on demand, so 'stopped' alone is not alarming if the clock is correct."));
+                        "On a PC that is not in a company domain, Windows starts this service only to synchronize the clock, " +
+                        "about once a week, and lets it stop again, so 'stopped' is normal. Whether the clock itself is right " +
+                        "is not checked yet. If it shows the wrong time, open Date & time in Settings " +
+                        "(Win+R, then ms-settings:dateandtime) and choose Sync now."));
         }
 
         var status = await context.Processes.RunAsync(Manifest.Id, "w32tm", "/query /status",

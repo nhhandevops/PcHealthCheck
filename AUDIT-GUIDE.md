@@ -74,11 +74,17 @@ a closed window left. They are used to find what the app got wrong before you ch
 zip, and each such folder, contains:
 
 - The app's reports. These include the computer name, drive models and free space, the names and
-  paths of startup programs (paths include the Windows user name), browser extension names, and
-  the programs using the most memory.
+  paths of startup programs, browser extension names, and the programs using the most memory. With
+  kit 2026-10-28.1 or later, startup paths are written as `%LOCALAPPDATA%\...` and other accounts
+  are numbered, so neither carries a Windows user name. Reports from older kits include it. Go by
+  the kit version, not by when the stick was made: the stick made on 27 October 2026 carries kit
+  2026-10-26.1. The kit shows its version when it starts ("Kit 2026-10-28.1"), and each zip
+  records it in `kit.json` as `KitVersion`.
 - The laptop's serial number, hardware UUID (a fixed ID its firmware reports, used to tell apart
   laptops that have no serial), model, BIOS version, memory, disks and Windows version.
 - Your answers to the questions, and the app's console output.
+- The kit's own log, `audit-transcript.txt`, from every kit. Windows PowerShell starts it with the
+  computer name and the Windows user name the kit ran under.
 - Short fingerprints of the names of the results already on the stick, not the names themselves,
   so the table can put the checks in order.
 
@@ -114,10 +120,25 @@ the row checked later is the laptop as it is now.
 
 | Verdict | Meaning |
 |---|---|
-| **READY** | Nothing found that stops a new employee using it. |
+| **READY** | Nothing found that stops a new employee using it. It does not mean Windows 11 supports the laptop: the **Windows 11** column says that. |
 | **FIX FIRST** | Usable after the repair or upgrade the reasons name: battery, drive, memory, cleaning. |
-| **REPLACE** | It cannot meet the rules at any repair cost. Today that means a processor Windows 11 does not support. |
+| **REPLACE** | It cannot meet the rules at any repair cost: a processor Windows 11 does not support. This happens only when `requireWindows11Ready` is turned on. It is off by default, so with the default rules no laptop is REPLACE. |
 | **CHECK AGAIN** | Something important was not checked, for example the admin prompt was declined, so no verdict would be honest. |
+
+**Notes about Windows** are information for IT. They never change the verdict:
+- **Windows 11.** The note says whether Windows 11 supports the processor and what the options are.
+  For a TPM or Secure Boot block, it says what to switch on. For any other block, such as a system
+  drive under 64 GB, it points to the laptop's report, which names each reason. When there is no
+  Windows 11 reading, the note says why, as far as the zip shows it: Windows has not assessed the
+  laptop, Windows gave a verdict the app does not interpret, or the zip comes from a kit older than
+  2026-10-28.1, which does not read Windows 11 support on a laptop already running Windows 11.
+- **Windows 10 Home.** Microsoft's company Extended Security Updates (ESU) and BitLocker drive
+  encryption both need a Pro licence.
+- **Windows 10 without ESU.** No Windows security updates since October 2025. This note needs a zip
+  from kit 2026-10-28.1 or later. Zips from older kits say nothing about ESU, so on them a missing
+  note does not mean the laptop has ESU.
+
+The kit does not require drive encryption or a file backup. The app's report still shows both.
 
 ## 5. The pass rules: agree them with your manager
 
@@ -131,12 +152,17 @@ numbers in Notepad and run the summary again: the zips are never changed.
 | `requireSsd` | true | Windows 11 on a hard disk is slow enough to waste an employee's time every day. Swapping in an SSD is cheap. |
 | `minBatteryPct` | 60 | Below 60% of its design capacity a battery is in replacement territory, the same line the app uses. Lower it for laptops that stay on a desk. |
 | `minSystemDriveFreePct` | 15 | Updates fail and SSDs slow down on a nearly full drive. Set it to 0 if every laptop is reinstalled before handover. |
-| `requireWindows11Ready` | true | Windows 10 is out of normal support. Company PCs need Microsoft's paid Extended Security Updates, so a laptop that cannot run Windows 11 has a short future. |
+| `requireWindows11Ready` | false | Decided on 27 October 2026: a laptop is not replaced only because Windows 11 does not support its processor. It gets Windows 10, where a company PC needs Microsoft's paid Extended Security Updates, or Windows 11, which Microsoft does not support on that hardware and whose updates it does not guarantee. The **Windows 11** column and the notes say which applies. Set it to true to go back to the old rules: such laptops become REPLACE, any other block (TPM, Secure Boot, a small system drive...) becomes FIX FIRST, and "Not assessed", "Verdict not interpreted" and "hardware support not read" become CHECK AGAIN. This also applies to a laptop that already runs Windows 11 on hardware Windows 11 does not support. |
 | `driveWarningsNeedFix` | false | Drive *failures* always mean FIX FIRST. Early *warnings* are shown as notes; set this to true to treat them as failures too. |
 
 **How Windows 11 readiness is checked:** the app reads the verdict Windows itself keeps, from the
 same compatibility check Windows Update uses. It is not the app's own guess. "Not assessed" means
-Windows never ran that check on the laptop, which some company policies turn off.
+Windows never ran that check on the laptop, which some company policies turn off. "Verdict not
+interpreted" means Windows gave a verdict the app does not read; the laptop's report shows it. On a
+laptop already running Windows 11, the column says whether Microsoft supports Windows 11 on that
+hardware, or "hardware support not read" when that was not read. Kits older than 2026-10-28.1 never
+read it, so every Windows 11 laptop they checked reads "hardware support not read", and its note
+says so.
 
 ## What the app does not check
 

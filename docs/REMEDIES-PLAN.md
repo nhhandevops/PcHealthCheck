@@ -1,6 +1,7 @@
 <!-- Written 2026-10-27 by a multi-agent review (a code survey, five brainstormers, a skeptic and a
      planner), then revised the same day after the owner's answers by four more agents, each checked
-     by a skeptic. It is a plan, not a commitment: nothing in it is built yet. The owner's decisions
+     by a skeptic. It is a plan, not a commitment. Phase 1 Step A (rows 1-13) was built and reviewed
+     on 2026-10-27/28; everything after Step A is still a plan. The owner's decisions
      are in section 6; what they change, and what is still open, is in the first section below. -->
 
 # Plan: from "what is wrong" to "what to do about it"
@@ -84,7 +85,8 @@ them again before buying anything. ESU means Extended Security Updates.
 
 ### A fault the review found: the app calls an unenrolled Windows 10 "supported"
 
-This is OS-001 in `docs/warning_bug_and_solutions.md`, and it is not fixed yet.
+This is OS-001 in `docs/warning_bug_and_solutions.md`. It was fixed on 2026-10-27/28 (Step A rows 8-9,
+and the review round's follow-ups).
 - `os.supported` reads Good, "updates end 2027-10-12", on all three pilot laptops and on the dev
   T470p. That date is the consumer ESU end, and the app never checks for an ESU licence.
 - On the dev T470p, all 24 ESU licence rows are unlicensed and the build is 19045.6466. It has had no
@@ -241,6 +243,9 @@ signature could not be checked is never allowlisted.
   temporary files, and its history when asked.
 
 ### Still open, for the owner
+
+*Answered the same evening: see section 6, decisions 8-15. Only the ESU purchase is still open. The
+list below is kept for the record.*
 
 1. **Which Windows** goes on a reimaged laptop (decision 7)? Does the company buy commercial ESU?
    Should "Windows 11 does not support this processor" still mean REPLACE?
@@ -687,6 +692,9 @@ Each remedy lists: what the user sees, what the app checks, the advice, the opti
     - its damaged-media counters are Normal or Bad;
     - they grew in the history; or
     - the event log shows media errors on it.
+  - *As built (BENCH-001, 2026-10-28):* any event-log disk error that names the drive skips it. Disk
+    errors that name no drive (controller resets, file-system errors) and are counted against the
+    PC skip every internal drive, with a Note.
   - Drives are matched by device id, never by model name.
   - Cable errors and temperature do not block. Unknown health still measures, with a Note.
   - One shared check guards every future heavy disk task.
@@ -960,7 +968,27 @@ The owner answered the open questions below on 27 October 2026:
 6. **Language:** English first, then Vietnamese. That covers the app window, its report and the kit's questions, where each English line is followed by its Vietnamese one. The fleet summary stays English. The owner did not pick it.
 7. **Which Windows goes on a reimaged laptop: not decided.** The options, with dates and costs, are at the top under "Windows 10 or 11". All three pilot laptops fail Windows 11's processor check.
 
-The questions still open are at the top, under "Still open, for the owner".
+**Second round, the same evening (27 October 2026):**
+
+8. **Windows: both.** Some laptops get Windows 10 and some get Windows 11.
+9. **"Windows 11 does not support this processor" no longer means REPLACE** ("make it work in Win 11
+   as well"). `requireWindows11Ready` goes off. The app and the kit must work on Windows 11
+   laptops, including Windows 11 restored onto hardware Microsoft does not support, and they say
+   truthfully what that means for updates.
+10. **The T470p's Home licence:** notify it in the health check run, rather than decide it now. The
+    report and the kit say what Home rules out for a company laptop: commercial ESU and BitLocker.
+11. **The golden image is still being built.** The tasks to help are in
+    [GOLDEN-IMAGE-PLAN.md](GOLDEN-IMAGE-PLAN.md): what to do with the two old images, the build
+    steps, the owner's decisions A-J, and the app and kit tasks I1-I8.
+12. **Drive encryption: not required.** BitLocker is optional, on request, with a guide.
+13. **File backup on handed-over laptops: not required.** The kit stays silent about it. The app
+    keeps its own grade for people who use it on their own PCs.
+14. **The image's display language: English.** Vietnamese is downloaded later where wanted. The app
+    follows the display language, so it shows English first.
+15. **Go for Phase 1**, given on 2026-10-27. Step A is first.
+
+Still not answered: whether the Windows 10 laptops will be enrolled in commercial ESU. The app
+reports each laptop's ESU state either way.
 
 The original questions, kept for the record:
 

@@ -4,6 +4,6 @@
   "requireSsd": true,
   "minBatteryPct": 60,
   "minSystemDriveFreePct": 15,
-  "requireWindows11Ready": true,
+  "requireWindows11Ready": false,
   "driveWarningsNeedFix": false
 }

@@ -17,19 +17,20 @@ Built with C# / .NET 10 + Avalonia. Windows 10/11 first. Linux checks are in dev
 
 | Module | What it finds |
 |---|---|
-| System overview | Windows build & support status (incl. the Windows 10 Oct 2026 end-of-support), uptime, pending reboot |
+| System overview | Windows edition, build & support status (Windows 10: whether Extended Security Updates are active; Windows 11: version end date and unsupported hardware), uptime, pending reboot |
 | Volumes & free space | Free-space bands per volume, file-system health, TRIM state |
 | Security posture | Antivirus active & current (any vendor), Defender signature age & tamper protection, exclusion audit, firewall per profile, UAC, SmartScreen |
-| Startup programs | Everything that starts with Windows, offline Authenticode verification (unsigned / **broken** signatures), Winlogon persistence check |
+| Startup programs | Everything that starts with Windows (items switched off in Task Manager left out), each item's signer, offline Authenticode verification including Windows' own catalog-signed files (unsigned / **broken** signatures; one that could not be verified is never counted as verified), Winlogon persistence check |
 | Windows license | Activation state, genuine check (local API), license channel, localhost-KMS crack detection |
-| Windows Update health | Days since last successful update, pending updates (local cache only), repeated failures |
-| Error history | Disk I/O errors, WHEA hardware errors, unexpected shutdowns, blue screens, GPU driver resets, app-crash frequency |
-| Reliability index | Windows' own 1–10 stability score + 30-day trend |
+| Windows Update health | Days since the newest Windows update was released (not installed), security updates waiting with driver and firmware offers apart (local cache only), repeated failures |
+| Error history | Disk I/O errors, WHEA hardware errors, unexpected shutdowns, blue screens, GPU driver resets, low-memory warnings, app-crash frequency. Each count says how many days the log really covers, and a zero from under a week of log is not judged |
+| Reliability index | Windows' own 1–10 stability score + 30-day trend, over as many days as the history holds (an empty history is not judged in Windows' first week) |
 | Devices & drivers | Device Manager problem codes |
 | Battery health | Wear (full-charge vs design) & cycles — skipped on desktops |
-| Clock sync | Time-service state (drift breaks TLS/updates/activation) |
+| Clock sync | Time-service state and time source, for information: outside a domain the service is stopped between syncs by design (drift breaks TLS/updates/activation) |
 | Crash dump settings | Dumps enabled + page file present (so future BSODs are diagnosable) |
-| Malware history & defences | Threats the antivirus caught, **anything left unresolved**, scan recency, and whether behaviour monitoring / download scanning / network protection are on |
+| Malware history & defences | Threats the antivirus caught (over the days Defender keeps them, 15 by default), **anything left unresolved**, scan recency (a scan that never ran is not judged in Windows' first week), and whether behaviour monitoring / download scanning / network protection are on |
+| File backup | File History and OneDrive folder backup for your account, and whether anything is backing up your files (with the administrator check's shadow copies, when it ran) |
 | Network settings & integrity | Wired link speed (the classic bad-cable symptom), **hosts-file redirections** (malware blocks antivirus and update servers this way), proxy hijacking, DNS servers in use |
 
 ### Administrator checks — opt-in, one UAC prompt, still read-only
@@ -38,7 +39,7 @@ Built with C# / .NET 10 + Avalonia. Windows 10/11 first. Linux checks are in dev
 |---|---|
 | Drive SMART health | The drive's own failure indicators: reallocated & pending sectors, uncorrectable errors, CRC (cable) errors, temperature, power-on hours |
 | Drive wear & error counters | SSD endurance used, temperature and uncorrected read/write errors — the path that covers **NVMe** SSDs; plus each volume's dirty flag |
-| Backup & recovery readiness | Restore points, shadow copies, File History, OneDrive folder backup — so "back up first" advice knows whether any backup exists |
+| Restore points & shadow copies | System Restore points and shadow copies, which only an administrator can list. File History and OneDrive are read without admin, for your own account (File backup, above) |
 | Platform security | TPM readiness, Secure Boot, drive encryption status (never keys), virtualization-based security |
 | System file integrity (quick) | Whether Windows has recorded component-store corruption (reads the flag; repairs nothing) |
 | Temperatures & fans | CPU and GPU temperatures (incl. hot spot and memory junction where the card exposes them), fan speeds, memory use, and a stopped-fan-while-hot check. **Loads a kernel driver** — see below |

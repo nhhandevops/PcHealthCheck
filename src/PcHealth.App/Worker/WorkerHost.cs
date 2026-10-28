@@ -5,6 +5,7 @@ using PcHealth.Core.Modules;
 using PcHealth.Core.Processes;
 using PcHealth.Ipc;
 using PcHealth.Modules.Windows;
+using PcHealth.Modules.Windows.Startup;
 using PcHealth.Modules.Windows.Support;
 
 namespace PcHealth.App.Worker;
@@ -85,6 +86,9 @@ internal static partial class WorkerHost
                 AppTempDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PcHealthCheck", "temp"),
                 IsElevated = Elevation.IsElevated(),
+                // Untrusted like the rest of the request, and it only decides which account the
+                // report calls the reader's, so it is taken only when it is a person's SID.
+                StartedBySid = request.StartedBySid is { } sid && UserProfiles.IsRealUserAccount(sid) ? sid : null,
             };
 
             for (var i = 0; i < approved.Count; i++)

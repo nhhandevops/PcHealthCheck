@@ -13,11 +13,19 @@ public sealed record StartupItem(
     string? ResolvedPath,
     AuthenticodeVerifier.SignatureState Signature,
     string? Sha256,
-    bool Disabled);
+    bool Disabled)
+{
+    /// <summary>The verifier's whole answer: the signer, whether a catalog vouched for the file,
+    /// and why a file could not be verified. Null when the file was not examined.</summary>
+    public AuthenticodeVerifier.Result? Verification { get; init; }
+
+    public AuthenticodeVerifier.Signer? Signer => Verification?.Signer;
+}
 
 /// <summary>
 /// Enumerates what starts with Windows: Run/RunOnce in both hives (including the 32-bit
-/// view), the two Startup folders, and each item's disabled state from StartupApproved.
+/// view), the policy Run keys, the two Startup folders, and each item's disabled state from
+/// StartupApproved.
 ///
 /// Each resolved binary gets an offline Authenticode check and a SHA-256 hash. Reads
 /// program files only — never documents — and the hash is computed in this process; the
@@ -43,27 +51,30 @@ public static class StartupInventory
         // Gathering the list is fast (registry and folder reads) and stays sequential; shortcut
         // resolution goes through COM. Examining the files is the slow part and runs in parallel.
         var entries = new List<Entry>();
-        var disabledMap = ReadStartupApprovedStates();
+        var approved = StartupApproved.Read();
 
-        foreach (var (hive, path, source) in RunKeyLocations())
+        foreach (var (hive, path, source, approvedAt) in RunKeyLocations())
         {
             using var key = hive.OpenSubKey(path);
             if (key is null) continue;
+            var hiveName = hive == Registry.LocalMachine ? "HKLM" : "HKCU";
             foreach (var valueName in key.GetValueNames())
             {
                 if (string.IsNullOrWhiteSpace(valueName)) continue;
                 var command = key.GetValue(valueName)?.ToString();
                 if (string.IsNullOrWhiteSpace(command)) continue;
-                var disabled = disabledMap.TryGetValue(valueName, out var d) && d;
+                var disabled = approvedAt is not null && approved.IsDisabled(hiveName, approvedAt, valueName);
                 entries.Add(new Entry(valueName, source, command, disabled));
                 ct.ThrowIfCancellationRequested();
             }
         }
 
-        foreach (var (folder, source) in new[]
+        // A Startup folder item's switch is filed under the same hive's StartupFolder subkey, by
+        // its file name WITH the extension ("VpnClient.lnk"); the report names it without one.
+        foreach (var (folder, source, hiveName) in new[]
                  {
-                     (Environment.GetFolderPath(Environment.SpecialFolder.Startup), "Startup folder (user)"),
-                     (Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup), "Startup folder (all users)"),
+                     (Environment.GetFolderPath(Environment.SpecialFolder.Startup), "Startup folder (user)", "HKCU"),
+                     (Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup), "Startup folder (all users)", "HKLM"),
                  })
         {
             if (!Directory.Exists(folder)) continue;
@@ -72,12 +83,13 @@ public static class StartupInventory
                 var name = Path.GetFileNameWithoutExtension(file);
                 if (name.Equals("desktop", StringComparison.OrdinalIgnoreCase)) continue;
                 var target = file.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) ? ResolveShortcut(file, notes) : file;
-                entries.Add(new Entry(name, source, target ?? file, Disabled: false));
+                var disabled = approved.IsDisabled(hiveName, StartupApproved.StartupFolder, Path.GetFileName(file));
+                entries.Add(new Entry(name, source, target ?? file, disabled));
                 ct.ThrowIfCancellationRequested();
             }
         }
 
-        var examined = new ConcurrentDictionary<string, Lazy<(AuthenticodeVerifier.SignatureState, string?)>>(StringComparer.OrdinalIgnoreCase);
+        var examined = new ConcurrentDictionary<string, Lazy<(AuthenticodeVerifier.Result, string?)>>(StringComparer.OrdinalIgnoreCase);
         return entries
             .AsParallel().AsOrdered()
             .WithDegreeOfParallelism(ParallelFiles)
@@ -86,42 +98,30 @@ public static class StartupInventory
             .ToList();
     }
 
-    private static IEnumerable<(RegistryKey Hive, string Path, string Source)> RunKeyLocations()
+    /// <summary>
+    /// Where Run entries live, and the StartupApproved subkey that holds Task Manager's switch for
+    /// each. RunOnce and policy entries have none: Task Manager does not list them, so they are
+    /// never read as disabled.
+    /// </summary>
+    private static IEnumerable<(RegistryKey Hive, string Path, string Source, string? ApprovedAt)> RunKeyLocations()
     {
         const string run = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         const string runOnce = @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce";
         const string runWow = @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run";
-        yield return (Registry.LocalMachine, run, "HKLM Run");
-        yield return (Registry.LocalMachine, runOnce, "HKLM RunOnce");
-        yield return (Registry.LocalMachine, runWow, "HKLM Run (32-bit)");
-        yield return (Registry.CurrentUser, run, "HKCU Run");
-        yield return (Registry.CurrentUser, runOnce, "HKCU RunOnce");
-    }
-
-    /// <summary>StartupApproved: byte[0] odd = disabled via Task Manager.</summary>
-    private static Dictionary<string, bool> ReadStartupApprovedStates()
-    {
-        var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
-        {
-            foreach (var sub in new[] { "Run", "Run32", "StartupFolder" })
-            {
-                using var key = hive.OpenSubKey($@"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\{sub}");
-                if (key is null) continue;
-                foreach (var name in key.GetValueNames())
-                {
-                    if (key.GetValue(name) is byte[] { Length: > 0 } bytes)
-                    {
-                        map[name] = (bytes[0] & 0x01) == 0x01;
-                    }
-                }
-            }
-        }
-        return map;
+        const string runOnceWow = @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce";
+        const string policyRun = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run";
+        yield return (Registry.LocalMachine, run, "HKLM Run", StartupApproved.Run);
+        yield return (Registry.LocalMachine, runOnce, "HKLM RunOnce", null);
+        yield return (Registry.LocalMachine, runWow, "HKLM Run (32-bit)", StartupApproved.Run32);
+        yield return (Registry.LocalMachine, runOnceWow, "HKLM RunOnce (32-bit)", null);
+        yield return (Registry.LocalMachine, policyRun, "HKLM Run (policy)", null);
+        yield return (Registry.CurrentUser, run, "HKCU Run", StartupApproved.Run);
+        yield return (Registry.CurrentUser, runOnce, "HKCU RunOnce", null);
+        yield return (Registry.CurrentUser, policyRun, "HKCU Run (policy)", null);
     }
 
     private static StartupItem Inspect(
-        Entry entry, ConcurrentDictionary<string, Lazy<(AuthenticodeVerifier.SignatureState, string?)>> examined)
+        Entry entry, ConcurrentDictionary<string, Lazy<(AuthenticodeVerifier.Result, string?)>> examined)
     {
         var resolved = TryResolveExecutable(entry.Command);
         if (resolved is null || entry.Disabled)
@@ -129,13 +129,16 @@ public static class StartupInventory
 
         // Lazy so two entries pointing at one file (two "Uninstall" entries both running cmd.exe)
         // examine it once even when they are handled at the same moment.
-        var (signature, hash) = examined.GetOrAdd(resolved, path => new(() => Examine(path))).Value;
-        return new StartupItem(entry.Name, entry.Source, entry.Command, resolved, signature, hash, entry.Disabled);
+        var (verification, hash) = examined.GetOrAdd(resolved, path => new(() => Examine(path))).Value;
+        return new StartupItem(entry.Name, entry.Source, entry.Command, resolved, verification.State, hash, entry.Disabled)
+        {
+            Verification = verification,
+        };
     }
 
-    private static (AuthenticodeVerifier.SignatureState, string?) Examine(string path)
+    private static (AuthenticodeVerifier.Result, string?) Examine(string path)
     {
-        var signature = AuthenticodeVerifier.Verify(path);
+        var verification = AuthenticodeVerifier.Verify(path);
         string? hash = null;
         try
         {
@@ -143,7 +146,7 @@ public static class StartupInventory
             hash = Convert.ToHexString(SHA256.HashData(stream));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-        return (signature, hash);
+        return (verification, hash);
     }
 
     private static string? TryResolveExecutable(string command)

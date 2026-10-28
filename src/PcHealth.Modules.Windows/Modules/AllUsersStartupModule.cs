@@ -16,6 +16,10 @@ namespace PcHealth.Modules.Windows.Modules;
 ///
 /// Needs administrator rights, because reading another person's profile is precisely what
 /// Windows stops an ordinary user doing.
+///
+/// PRIVACY: accounts are numbered ("Account 2"), never named, and each item is listed by its
+/// name and where it starts from, never by the command it runs. Until 2026-10-27 this check
+/// wrote other people's account names and full Run commands into the report (PRIV-002).
 /// </summary>
 internal sealed class AllUsersStartupModule : WindowsModuleBase
 {
@@ -29,8 +33,8 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
         Description = "Checks what starts up for the other Windows accounts on this PC, not just yours. " +
                       "On a shared computer, anything set to run for someone else's account is invisible " +
                       "to a normal scan.",
-        Reads = ["The list of user profiles (registry)",
-                 "Each account's Run/RunOnce keys, where Windows has them loaded",
+        Reads = ["The list of user profiles and their folders (registry)",
+                 "Each account's Run/RunOnce keys, where Windows has them loaded — the report gets entry names only, never the commands",
                  "Each account's Startup folder — file names only, never file contents"],
         NeedsAdmin = true,
         EstimatedDuration = TimeSpan.FromSeconds(5),
@@ -40,15 +44,23 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
         ModuleContext context, List<Metric> metrics, List<string> notes,
         IProgress<ModuleProgress>? progress, CancellationToken ct)
     {
-        var profiles = UserProfiles.Enumerate(notes);
+        // "Other" means other than the account the scan was started from, whose items the ordinary
+        // startup check covers. This check runs in the elevated helper, as whoever typed the
+        // administrator password: on a company laptop often a technician, so the employee's own
+        // account was listed as someone else's and the technician's Run keys were read by neither
+        // check (PRIV-002, review of 2026-10-28). The window tells the helper its account. An
+        // unelevated window runs as the person signed in, so that account is the reader's; an app
+        // started with "Run as administrator" may run as whoever typed the password, so then its
+        // account is named only as the one that started the scan.
+        var readersOwn = context.StartedBySid is not null || !context.IsElevated;
+        var profiles = UserProfiles.Enumerate(notes, context.StartedBySid);
         var others = profiles.Where(p => !p.IsCurrentUser).ToList();
 
         if (others.Count == 0)
         {
             metrics.Add(new Metric("startup.other_accounts", "Other accounts on this PC", 0,
                 HealthCategory.Security, InfoOnly: true,
-                Detail: "Yours is the only user account on this PC, so the ordinary startup check already " +
-                        "covers everything that starts here."));
+                Detail: OtherAccountReport.OnlyAccount(readersOwn)));
             return Task.FromResult(ModuleStatus.Completed);
         }
 
@@ -64,7 +76,7 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
             complete &= ReadRunKeys(profile, items, unchecked_);
             complete &= ReadStartupFolder(profile, items, unchecked_);
 
-            results.Add(new AccountStartupResult(profile.AccountName, items, complete));
+            results.Add(new AccountStartupResult(profile.Label, items, complete));
         }
 
         var totalItems = results.Sum(r => r.Items.Count);
@@ -72,11 +84,11 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
 
         metrics.Add(new Metric("startup.other_accounts", "Other accounts on this PC", others.Count,
             HealthCategory.Security, InfoOnly: true,
-            Detail: OtherAccountReport.DescribeAccounts(results)));
+            Detail: OtherAccountReport.DescribeAccounts(results, profiles.FirstOrDefault(p => p.IsCurrentUser)?.Label, readersOwn)));
 
         metrics.Add(new Metric("startup.other_accounts_items", "Programs starting for other accounts", totalItems,
             HealthCategory.Security, InfoOnly: true,
-            Detail: OtherAccountReport.DescribeTotal(totalItems, partiallyExamined, others.Count)));
+            Detail: OtherAccountReport.DescribeTotal(totalItems, partiallyExamined, others.Count, readersOwn)));
 
         // Saying which accounts could not be fully read is the whole point: an account this
         // check silently skipped would otherwise be reported as having nothing to start.
@@ -97,8 +109,8 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
             using var hive = Registry.Users.OpenSubKey(profile.Sid);
             if (hive is null)
             {
-                unchecked_.Add($"{profile.AccountName} is not signed in, so their Run entries could not be read — " +
-                               "Windows only keeps an account's registry loaded while it is in use. Their Startup " +
+                unchecked_.Add($"{profile.Label} is not signed in, so its Run entries could not be read — " +
+                               "Windows only keeps an account's registry loaded while it is in use. Its Startup " +
                                "folder was still checked. To cover the rest, sign in to that account and scan again.");
                 return false;
             }
@@ -109,16 +121,17 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
                 if (key is null) continue;
                 foreach (var name in key.GetValueNames())
                 {
-                    var command = key.GetValue(name)?.ToString();
-                    if (string.IsNullOrWhiteSpace(command)) continue;
-                    items.Add($"{name} [{source}] → {command}");
+                    // The command is read only to skip an empty entry. It is not written into the
+                    // report: it holds the other account's own folder, and so its name.
+                    if (string.IsNullOrWhiteSpace(key.GetValue(name)?.ToString())) continue;
+                    items.Add($"{name} [{source}]");
                 }
             }
             return true;
         }
         catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException)
         {
-            unchecked_.Add($"{profile.AccountName}'s Run entries could not be read: {e.GetType().Name}.");
+            unchecked_.Add($"{profile.Label}'s Run entries could not be read: {e.GetType().Name}.");
             return false;
         }
     }
@@ -138,7 +151,7 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
 
         if (!UserProfiles.CanRead(profile.ProfilePath, out var failure))
         {
-            unchecked_.Add($"{profile.AccountName}'s profile folder could not be opened ({failure}), so their " +
+            unchecked_.Add($"{profile.Label}'s profile folder could not be opened ({failure}), so its " +
                            "Startup folder was NOT examined. This is not the same as it being empty.");
             return false;
         }
@@ -160,7 +173,7 @@ internal sealed class AllUsersStartupModule : WindowsModuleBase
         }
         catch (Exception e) when (e is UnauthorizedAccessException or IOException)
         {
-            unchecked_.Add($"{profile.AccountName}'s Startup folder could not be listed: {e.GetType().Name}.");
+            unchecked_.Add($"{profile.Label}'s Startup folder could not be listed: {e.GetType().Name}.");
             return false;
         }
     }

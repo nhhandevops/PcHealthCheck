@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using PcHealth.Core.Metrics;
 using PcHealth.Core.Processes;
+using PcHealth.Core.Verdicts;
 
 namespace PcHealth.Core.Modules;
 
@@ -65,6 +66,15 @@ public sealed record ModuleManifest
     /// </summary>
     public bool RunsAlone { get; init; }
 
+    /// <summary>
+    /// True when the module draws its conclusion from what the other checks found
+    /// (<see cref="ModuleContext.EarlierFindings"/>), the elevated helper's checks included, so it
+    /// must start after they have all finished. The orchestrator runs it with the
+    /// <see cref="RunsAlone"/> modules, one at a time, after everything else. Like that flag it is
+    /// scheduling only, not part of the capability hash.
+    /// </summary>
+    public bool RunsAfterOthers { get; init; }
+
     private string? _capabilityHash;
 
     /// <summary>SHA-256 over the capability descriptor (not the display strings).</summary>
@@ -99,6 +109,26 @@ public sealed class ModuleContext
 
     public bool IsElevated { get; init; }
     public DateTimeOffset ScanStartedAt { get; init; } = DateTimeOffset.Now;
+
+    /// <summary>
+    /// The Windows account (its SID) the scan was started from, set only in the elevated helper,
+    /// which the unelevated window tells. The helper runs as whoever gave administrator rights, and
+    /// when a technician types an administrator's password on an employee's laptop that is the
+    /// technician, while the window and its checks run as the employee. Null in the process that
+    /// started the scan, whose own account it is.
+    /// </summary>
+    public string? StartedBySid { get; init; }
+
+    /// <summary>
+    /// What every other check found, graded, the elevated helper's checks included. The
+    /// orchestrator sets it once, after those checks have finished and before the checks marked
+    /// <see cref="ModuleManifest.RunsAlone"/> or <see cref="ModuleManifest.RunsAfterOthers"/>
+    /// start, so it is empty for a check that runs beside others. It exists so a check that
+    /// exercises hardware can ask the app's own findings first: the disk benchmark once wrote to a
+    /// drive the same scan called failing (REMEDIES-PLAN H2). The file-backup check also uses it,
+    /// for the shadow copies only the elevated helper can count (REMEDIES-PLAN H1).
+    /// </summary>
+    public IReadOnlyList<Verdict> EarlierFindings { get; set; } = [];
 }
 
 public sealed record ModuleProgress(string Message, double? Fraction = null);

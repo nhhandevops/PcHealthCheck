@@ -153,6 +153,24 @@
       }
     },
     {
+      "id": "rule.smart.ssd-temperature",
+      "metricId": "smart.ssd_temperature_c",
+      "bands": [
+        { "grade": "Good", "lte": 70 },
+        { "grade": "Normal", "lte": 80 },
+        { "grade": "Bad", "always": true }
+      ],
+      "tips": {
+        "Normal": [
+          "Warm for an SSD: above the 70 °C most are rated to work at. Check that the vents are clear and the fan runs, and clean out dust."
+        ],
+        "Bad": [
+          "Too hot for an SSD: past what it is rated for, and many slow themselves down at this heat to protect the data. Clear the vents, clean out dust, and check the fan.",
+          "If it stays this hot under light use, back up your files: heat this high shortens the drive's life."
+        ]
+      }
+    },
+    {
       "id": "rule.smart.load-cycles",
       "metricId": "smart.load_cycles",
       "bands": [

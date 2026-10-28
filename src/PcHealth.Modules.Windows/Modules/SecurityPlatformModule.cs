@@ -15,8 +15,9 @@ internal sealed class SecurityPlatformModule : WindowsModuleBase
     {
         Id = "security.platform",
         Name = "Platform security (TPM, Secure Boot, encryption)",
-        Description = "TPM presence and readiness, Secure Boot state, whether drives are encrypted, and virtualization-based security. Never reads encryption keys.",
-        Reads = ["TPM state (WMI)", "Secure Boot registry state", "Drive encryption status (WMI)", "Device Guard status (WMI)"],
+        Description = "TPM presence and readiness, Secure Boot state, whether drives are encrypted (a USB drive's is shown but does not count toward this PC's health), and virtualization-based security. Never reads encryption keys.",
+        Reads = ["TPM state (WMI)", "Secure Boot registry state", "Drive encryption status (WMI)",
+                 "Which disk each drive letter is on, and its connection (WMI)", "Device Guard status (WMI)"],
         NeedsAdmin = true,
         EstimatedDuration = TimeSpan.FromSeconds(6),
     };
@@ -80,27 +81,34 @@ internal sealed class SecurityPlatformModule : WindowsModuleBase
         // Drive encryption — status only, never keys.
         var volumes = Wmi.TryQuery(@"root\cimv2\Security\MicrosoftVolumeEncryption",
             "SELECT DriveLetter, ProtectionStatus, ConversionStatus FROM Win32_EncryptableVolume", out var bitlockerError);
-        if (bitlockerError is not null)
+        // Windows Home answers this query too. The comment that stood here said Home has no
+        // BitLocker provider, so a failure was "the ordinary shape of a Home edition" and only a
+        // note; but on 2026-10-23 the elevated scan of a pilot laptop running Windows 10 Home 22H2
+        // returned a row for each of its four volumes. Home lacks the switch that turns BitLocker
+        // on, not the provider that reports it. So a failure here is a read that broke, and every
+        // drive's encryption went unchecked. No metric is emitted for it either way: an unreadable
+        // volume is never reported as an unencrypted one.
+        failures.RecordIf("Drive encryption could not be read, so whether any drive is encrypted was NOT checked", bitlockerError);
+
+        // The kit's own USB stick was graded "not encrypted" against every laptop it audited, and so
+        // was any other USB drive plugged in (Step A row 11, the D1 rule). Those rows are information
+        // now. The drive Windows runs from is graded exactly as before, whatever its connection.
+        string? mapError = null;
+        var map = volumes.Count > 0 ? DriveMap.Read(out mapError) : null;
+        if (volumes.Count > 0 && map is null)
         {
-            // Windows Home has no BitLocker provider, so this query failing is the ordinary shape of
-            // a Home edition rather than a read that broke, and it stays a note. What keeps that
-            // honest is that no metric is emitted either way: an unreadable volume is never reported
-            // as an unencrypted one.
-            failures.Note($"Drive encryption status unavailable: {bitlockerError} (BitLocker is not present on Windows Home editions).");
+            failures.Note($"Which drives are plugged in over USB could not be read ({mapError}), so every drive's " +
+                          "encryption is graded, USB drives included.");
         }
+        // Both statuses are passed as read. A missing ProtectionStatus was turned into 0, "not
+        // encrypted", and ConversionStatus was queried but never used, so a drive encrypted with its
+        // key in the clear read "not encrypted" too (GOLDEN-IMAGE-PLAN I1, review of 2026-10-28).
         foreach (var volume in volumes)
         {
             var letter = Wmi.GetString(volume, "DriveLetter");
             if (string.IsNullOrEmpty(letter)) continue;
-            var protection = Wmi.Get<uint>(volume, "ProtectionStatus") ?? 0;
-            metrics.Add(new Metric("security.drive_encrypted", "Drive encryption", protection == 1,
-                HealthCategory.Security, Subject: letter,
-                Detail: protection switch
-                {
-                    1 => "This drive is encrypted and protected. If the PC is lost or stolen, the data stays unreadable.",
-                    0 => "This drive is not encrypted — anyone who takes the drive out can read every file on it.",
-                    _ => "Encryption status could not be determined.",
-                }));
+            metrics.Add(VolumeReadings.Encryption(letter, Wmi.Get<uint>(volume, "ProtectionStatus"),
+                Wmi.Get<uint>(volume, "ConversionStatus"), map?.ExternalBusOf(letter)));
         }
 
         // Virtualization-based security. The query records its own failure: discarding the error with

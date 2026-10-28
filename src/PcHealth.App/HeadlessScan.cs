@@ -142,7 +142,7 @@ internal static class HeadlessScan
 
         var results = new List<ModuleResult>(
             await orchestrator.RunModulesAsync(localModules, context, progress,
-                beforeRunsAlone: adminRun is null ? null : () => Task.WhenAny(adminRun), ct: CancellationToken.None));
+                beforeRunsAlone: adminRun is null ? null : () => ElevatedScanOutcome.ResultsOnceFinished(adminRun), ct: CancellationToken.None));
         var receiptEntries = new List<ReceiptEntry>(receipt.Snapshot());
         var ranElevated = alreadyElevated;
 

@@ -41,10 +41,15 @@ public static class BenchmarkTargetSelector
     /// </summary>
     public const double RequiredHeadroom = 1.15;
 
+    /// <summary>
+    /// <paramref name="failing"/> is the scan's own verdict on the drives, by disk number, with the
+    /// reason (<see cref="Support.FailingDrives"/>). A drive in it is never written to.
+    /// </summary>
     public static (IReadOnlyList<BenchmarkTarget> Targets, IReadOnlyList<string> Skipped) Choose(
         IEnumerable<VolumeInfo> volumes,
         IEnumerable<PhysicalDiskInfo> disks,
-        long fileBytes)
+        long fileBytes,
+        IReadOnlyDictionary<int, string>? failing = null)
     {
         var byNumber = disks.GroupBy(d => d.DiskNumber).ToDictionary(g => g.Key, g => g.First());
         var needed = (long)(fileBytes * RequiredHeadroom);
@@ -68,6 +73,15 @@ public static class BenchmarkTargetSelector
                 skipped.Add($"{Describe(group)} ({disk.Model}): Windows reports this drive as failing. " +
                             "Benchmarking writes to it, and a drive in that state should be backed up and left " +
                             "alone, not measured.");
+                continue;
+            }
+
+            // Windows' flag said "Healthy" on the pilot's SSD while SMART counted 5 retired
+            // sectors, so the app's own findings decide too (REMEDIES-PLAN H2).
+            if (failing is not null && failing.TryGetValue(group.Key, out var reason))
+            {
+                skipped.Add($"{Describe(group)} ({disk.Model}): {reason}. Measuring writes a large test file to " +
+                            "the drive, and a drive in that state should be backed up and left alone, not measured.");
                 continue;
             }
 

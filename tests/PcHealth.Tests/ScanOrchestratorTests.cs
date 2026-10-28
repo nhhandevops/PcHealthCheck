@@ -1,3 +1,4 @@
+using PcHealth.Core.Metrics;
 using PcHealth.Core.Modules;
 using PcHealth.Core.Orchestration;
 using PcHealth.Core.Processes;
@@ -18,11 +19,12 @@ public sealed class ScanOrchestratorTests
     private static readonly string[] ListedOrder = ["slowest", "slow", "quick", "instant"];
     private static readonly int[] EachAloneCheckSawOnlyItself = [1, 1];
 
-    private sealed class FakeModule(string id, Func<CancellationToken, Task>? body = null, bool runsAlone = false)
+    private sealed class FakeModule(
+        string id, Func<CancellationToken, Task>? body = null, bool runsAlone = false, bool runsAfterOthers = false)
         : IHealthModule
     {
         public ModuleManifest Manifest { get; } =
-            new() { Id = id, Name = id, Description = id, Reads = [], RunsAlone = runsAlone };
+            new() { Id = id, Name = id, Description = id, Reads = [], RunsAlone = runsAlone, RunsAfterOthers = runsAfterOthers };
 
         public async Task<ModuleResult> RunAsync(ModuleContext context, IProgress<ModuleProgress>? progress, CancellationToken ct)
         {
@@ -137,12 +139,89 @@ public sealed class ScanOrchestratorTests
         ];
 
         await Orchestrator().RunModulesAsync(modules, Context(),
-            beforeRunsAlone: async () => { await Task.Delay(40); Note("helper finished"); });
+            beforeRunsAlone: async () => { await Task.Delay(40); Note("helper finished"); return []; });
 
         Assert.Equal(4, order.Count);
         Assert.True(order.IndexOf("helper finished") > order.IndexOf("shared-1"));
         Assert.True(order.IndexOf("helper finished") > order.IndexOf("shared-2"));
         Assert.Equal("bench", order[^1]);
+    }
+
+    [Fact]
+    public async Task A_check_that_runs_alone_sees_what_the_others_and_the_admin_helper_found()
+    {
+        // The disk benchmark must not write to a drive this scan already calls failing, and on an
+        // unelevated scan the drive's own health is read only by the helper (REMEDIES-PLAN H2).
+        static Metric Reading(string id, double value, int disk) =>
+            new(id, id, value, HealthCategory.Storage, Subject: "drive", DiskNumber: disk);
+        var engine = new VerdictEngine([new Rule
+        {
+            Id = "r", MetricId = "smart.reallocated",
+            Bands = [new Band { Grade = "Good", Lte = 0 }, new Band { Grade = "Bad", Always = true }],
+        }]);
+        IReadOnlyList<Verdict>? seen = null;
+        var context = Context();
+        IHealthModule[] modules =
+        [
+            new ResultModule("events", Reading("events.disk_errors_90d", 3, 0)),
+            new FakeModule("bench", _ => { seen = context.EarlierFindings; return Task.CompletedTask; }, runsAlone: true),
+        ];
+        IReadOnlyList<ModuleResult> fromHelper =
+            [new ModuleResult { ModuleId = "disk.smart", Status = ModuleStatus.Completed, Metrics = [Reading("smart.reallocated", 5, 1)] }];
+
+        await new ScanOrchestrator(engine).RunModulesAsync(modules, context,
+            beforeRunsAlone: () => Task.FromResult(fromHelper));
+
+        Assert.NotNull(seen);
+        Assert.Contains(seen, v => v.Metric.Id == "events.disk_errors_90d");
+        var smart = Assert.Single(seen, v => v.Metric.Id == "smart.reallocated");
+        Assert.Equal(Grade.Bad, smart.Grade);
+        Assert.Equal(1, smart.Metric.DiskNumber);
+    }
+
+    [Fact]
+    public async Task A_check_that_runs_after_others_starts_after_the_admin_helper_and_sees_what_it_found()
+    {
+        // The file-backup check concludes from the shadow copies only the helper can count
+        // (REMEDIES-PLAN Step A row 7), so it must not start beside the others.
+        var order = new List<string>();
+        void Note(string step) { lock (order) order.Add(step); }
+        IReadOnlyList<Verdict>? seen = null;
+        var context = Context();
+        IHealthModule[] modules =
+        [
+            new FakeModule("backup.files", _ => { Note("backup.files"); seen = context.EarlierFindings; return Task.CompletedTask; },
+                runsAfterOthers: true),
+            new FakeModule("shared", _ => { Note("shared"); return Task.CompletedTask; }),
+        ];
+        IReadOnlyList<ModuleResult> fromHelper =
+        [
+            new ModuleResult
+            {
+                ModuleId = "backup.posture", Status = ModuleStatus.Completed,
+                Metrics = [new Metric("backup.shadow_copies", "Shadow copies", 0, HealthCategory.Storage, InfoOnly: true)],
+            },
+        ];
+
+        var results = await Orchestrator().RunModulesAsync(modules, context,
+            beforeRunsAlone: async () => { await Task.Delay(40); Note("helper finished"); return fromHelper; });
+
+        Assert.Equal(["shared", "helper finished", "backup.files"], order);
+        Assert.Equal(0d, Assert.Single(seen!, v => v.Metric.Id == "backup.shadow_copies").Metric.Value.Number);
+        Assert.Equal(["backup.files", "shared"], results.Select(r => r.ModuleId)); // still in the order given
+    }
+
+    [Fact]
+    public void A_check_that_runs_beside_others_is_handed_no_findings_at_all() =>
+        // Set only between the two phases: a check running beside others cannot know what they found.
+        Assert.Empty(Context().EarlierFindings);
+
+    private sealed class ResultModule(string id, Metric metric) : IHealthModule
+    {
+        public ModuleManifest Manifest { get; } = new() { Id = id, Name = id, Description = id, Reads = [] };
+
+        public Task<ModuleResult> RunAsync(ModuleContext context, IProgress<ModuleProgress>? progress, CancellationToken ct) =>
+            Task.FromResult(new ModuleResult { ModuleId = id, Status = ModuleStatus.Completed, Metrics = [metric] });
     }
 
     [Fact]

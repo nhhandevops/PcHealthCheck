@@ -32,17 +32,20 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
     /// made a scan the sum of its checks: about 20 s on a ThinkPad T470p, of which one check took
     /// 7.6 s. They now run side by side, and a scan takes roughly as long as its slowest check.
     /// Modules marked <see cref="ModuleManifest.RunsAlone"/> run afterwards, one at a time, with
-    /// nothing beside them. Results come back in the order the modules were given, whatever
-    /// order they finished in, so reports do not reshuffle from one scan to the next.
+    /// nothing beside them, and so do those marked <see cref="ModuleManifest.RunsAfterOthers"/>.
+    /// Results come back in the order the modules were given, whatever order they finished in,
+    /// so reports do not reshuffle from one scan to the next.
     /// <paramref name="beforeRunsAlone"/> is awaited between the two phases: the scan entry
     /// points pass the elevated helper's run, so the benchmarks never share the machine with the
-    /// admin checks either.
+    /// admin checks either. It returns what the helper gathered, and that is graded together
+    /// with this process's results into <see cref="ModuleContext.EarlierFindings"/>, so a
+    /// benchmark can see a failing drive that only the elevated SMART check could read.
     /// </summary>
     public async Task<IReadOnlyList<ModuleResult>> RunModulesAsync(
         IReadOnlyList<IHealthModule> modules,
         ModuleContext context,
         IProgress<ScanProgress>? progress = null,
-        Func<Task>? beforeRunsAlone = null,
+        Func<Task<IReadOnlyList<ModuleResult>>>? beforeRunsAlone = null,
         CancellationToken ct = default)
     {
         var results = new ModuleResult[modules.Count];
@@ -51,7 +54,7 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
         using (var slots = new SemaphoreSlim(MaxConcurrentModules))
         {
             await Task.WhenAll(Enumerable.Range(0, modules.Count)
-                .Where(i => !modules[i].Manifest.RunsAlone)
+                .Where(i => !RunsLast(modules[i].Manifest))
                 .Select(async i =>
                 {
                     await slots.WaitAsync(ct).ConfigureAwait(false);
@@ -60,16 +63,20 @@ public sealed class ScanOrchestrator(VerdictEngine engine)
                 })).ConfigureAwait(false);
         }
 
-        if (beforeRunsAlone is not null) await beforeRunsAlone().ConfigureAwait(false);
+        IReadOnlyList<ModuleResult> elsewhere = beforeRunsAlone is null ? [] : await beforeRunsAlone().ConfigureAwait(false);
+        context.EarlierFindings = engine.Evaluate(
+            results.Where(r => r is not null).Concat(elsewhere).SelectMany(r => r.Metrics));
 
         for (var i = 0; i < modules.Count; i++)
         {
-            if (!modules[i].Manifest.RunsAlone) continue;
+            if (!RunsLast(modules[i].Manifest)) continue;
             ct.ThrowIfCancellationRequested();
             results[i] = await RunOneAsync(modules[i], context, tracker, ct).ConfigureAwait(false);
         }
         return results;
     }
+
+    private static bool RunsLast(ModuleManifest manifest) => manifest.RunsAlone || manifest.RunsAfterOthers;
 
     /// <summary>
     /// The version a report names: the full informational version, pre-release suffix and build

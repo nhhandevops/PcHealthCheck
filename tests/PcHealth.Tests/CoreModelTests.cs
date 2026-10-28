@@ -38,7 +38,8 @@ public class CapabilityHashTests
     public void Display_strings_do_not_affect_the_hash()
     {
         var a = Manifest() with { Description = "one" };
-        var b = Manifest() with { Description = "two", Name = "Other" };
+        // Reads too: a consent row reworded to name what the check really reads asks nobody again.
+        var b = Manifest() with { Description = "two", Name = "Other", Reads = ["x", "and y"] };
         Assert.Equal(a.CapabilityHash, b.CapabilityHash);
     }
 }

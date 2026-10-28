@@ -36,8 +36,8 @@
       ],
       "tips": {
         "Normal": [
-          "This drive is not encrypted: anyone who removes it can read every file, no password needed. That matters most for laptops and any PC that leaves your home.",
-          "Turn on BitLocker (Pro editions) or Device Encryption (Home) — and SAVE THE RECOVERY KEY somewhere outside this PC before you start."
+          "This drive is not protected by encryption: anyone who removes it can read its files, no password needed. That matters most for laptops and any PC that leaves your home.",
+          "To protect it: on Pro, Enterprise or Education, turn on BitLocker, or resume it if it is suspended. Home has no BitLocker; its Device encryption works only on PCs whose hardware supports it. Win+R, then ms-settings:deviceencryption opens that page where it exists; if no Device encryption page opens, this PC needs Pro to be encrypted. Either way, SAVE THE RECOVERY KEY somewhere outside this PC before you start."
         ]
       },
       "forecast": "Unencrypted drives are the most common way personal data is stolen from lost or discarded computers."

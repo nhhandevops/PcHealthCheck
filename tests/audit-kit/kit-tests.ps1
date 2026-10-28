@@ -355,6 +355,46 @@ Check 'a metric with no Detail field (the JSON omits empty ones) falls back, wit
 $row = Get-AuditRow (New-Bundle @((New-DiskErrors 47 'Bad' ('By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 34, disk 2: 13.' + $renumbered)), $internalSmart) @()) $rules
 Check 'with no drive list, nothing is excluded on no evidence' { $row.Reasons -match 'Disk errors in the event log, check that drive' }
 
+# Since REMEDIES-PLAN H3 the app's value is the PC's own share and the Detail states the total. The kit
+# must still read the split, and still keep its note about the USB drives' errors.
+$usbShare = 'Counted against this PC: 0 of 47. Not counted, 47 on drives plugged in over USB or another external connection (disk 1: 34, disk 2: 13). ' +
+    'On a USB drive these usually mean it was unplugged without being ejected, a loose cable or a weak port; if such a drive holds the only copy of anything, copy that off. '
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 0 'Good' ($usbShare + 'By drive: on the disk Windows runs from (disk 0): 0; on other drives: disk 1: 34, disk 2: 13.' + $renumbered)), $internalSmart) $t470pDisks) $rules
+Check 'a report graded on its own share: no drive check for USB errors' { $row.Reasons -notmatch 'Disk errors' }
+Check 'and the split is still read against the stated total' { $row.Notes -match 'on USB drives \(disk 1: 34, disk 2: 13\)' }
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 12 'Bad' ('Counted against this PC: 12 of 25. Not counted, 13 on drives plugged in over USB or another external connection (disk 2: 13). ' +
+    'By drive: on the disk Windows runs from (disk 0): 12; on other drives: disk 2: 13.' + $renumbered)), $internalSmart) $t470pDisks) $rules
+Check 'errors on its own drive still send it for a check when the total is stated' { $row.Reasons -match 'own drive: 12 in 90 days' }
+
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 12 'Bad' ('Counted against this PC: 5 of 25. By drive: on the disk Windows runs from (disk 0): 12; on other drives: disk 2: 13.' + $renumbered)), $internalSmart) $t470pDisks) $rules
+Check 'a stated share that disagrees with the value falls back to the app''s grade' { $row.Reasons -match 'Disk errors in the event log, check that drive' }
+
+# REMEDIES-PLAN M1: when the System log is shorter than 90 days, the app ends the Detail with the
+# log's real span (RecordSpan). The split before it must still be read.
+$shortLog = ' In the last 90 days (records cover only 9 days: the System event log goes back no further).'
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 25 'Bad' ('By drive: on the disk Windows runs from (disk 0): 12; on other drives: disk 2: 13.' + $renumbered + $shortLog)), $internalSmart) $t470pDisks) $rules
+Check 'a Detail that ends with the log''s real span is still split' { $row.Reasons -match 'own drive: 12 in the 9 days the event log covers \(disk 0: 12 ' }
+Check 'and the USB drive''s share is still not added to it' { $row.Reasons -notmatch 'own drive: 25' }
+# Review round, 2026-10-28: the kit wrote "in 90 days" beside a count from 9 days of log, ten times
+# slower than the real rate. The count is said with the span the app states, and only an older
+# report, which states none, keeps "in 90 days".
+Check 'and the count is not stretched to 90 days' { $row.Reasons -notmatch 'in 90 days' }
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 3 'Normal' ('By drive: on the disk Windows runs from (disk 0): 3.' + ' In the last 90 days (records cover only 1 day: the System event log goes back no further).')), $internalSmart) $t470pDisks) $rules
+Check 'a few errors from one day of log say so in the note' { $row.Notes -match 'own drive: 3 in the 1 day the event log covers' -and $row.Notes -notmatch 'in 90 days' }
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 3 'Normal' ('By drive: on the disk Windows runs from (disk 0): 3.' + ' In the last 90 days (records cover only less than a day: the System event log goes back no further).')), $internalSmart) $t470pDisks) $rules
+Check 'and from less than a day of log' { $row.Notes -match 'own drive: 3 in less than a day of event log' }
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 12 'Bad' ('By drive: on the disk Windows runs from (disk 0): 12.' + ' In the last 90 days (how many days the records cover is unknown: the clock is set earlier than this app was built).')), $internalSmart) $t470pDisks) $rules
+Check 'a log of unknown length is not called 90 days either' { $row.Reasons -match 'own drive: 12 in an event log of unknown length' }
+$row = Get-AuditRow (New-Bundle @((New-DiskErrors 12 'Bad' 'By drive: on the disk Windows runs from (disk 0): 12.'), $internalSmart) $t470pDisks) $rules
+Check 'and a report that states no span still reads 90 days' { $row.Reasons -match 'own drive: 12 in 90 days \(disk 0: 12 ' }
+$bugchecks = New-Verdict 'events.bugcheck_90d' 'Bad' 2 '' 'Blue screens (90 days)'
+$row = Get-AuditRow (New-Bundle @($bugchecks, $internalSmart) $t470pDisks) $rules
+Check 'blue screens from a report that states no span read the last 90 days' { $row.Notes -match 'Blue screens in the last 90 days: 2' }
+$bugchecks.Metric | Add-Member -NotePropertyName Detail -NotePropertyValue ('A blue screen is a crash of Windows itself.' + $shortLog)
+$row = Get-AuditRow (New-Bundle @($bugchecks, $internalSmart) $t470pDisks) $rules
+Check 'and from a 9-day log, the 9 days' { $row.Notes -match 'Blue screens in the 9 days the event log covers: 2' -and $row.Notes -notmatch '90 days' }
+
 $storageRules = Get-Content (Join-Path $PSScriptRoot '../../src/PcHealth.Core/Rules/storage.json') -Raw | ConvertFrom-Json
 $normalBand = @(@($storageRules.rules | Where-Object { $_.id -eq 'rule.storage.disk-events' })[0].bands | Where-Object { $_.grade -eq 'Normal' })[0]
 Check 'the kit''s disk-error threshold matches the app''s rule' { [int]$normalBand.lte -eq $script:DiskErrorsNormalMax }
@@ -513,6 +553,239 @@ Check 'the scan''s own reasons are returned apart from the answers, for the summ
     @($row.ScanFix | Where-Object { $_ -match '^Replace the drive' }).Count -eq 1 -and @($row.DriveFix).Count -eq 1 -and
         @($row.ScanFix | Where-Object { $_ -match 'SWOLLEN' }).Count -eq 0 -and $row.DriveRead
 }
+
+# --- Windows 11 and the Home edition (decisions 9 and 10, 2026-10-27) ------------------------------
+# The owner decided that a processor Windows 11 does not support no longer means REPLACE: the T470
+# laptops get Windows 10, or Windows 11 restored onto hardware it does not support. With the rule
+# off, every Windows 11 finding is a note and none is a reason. The rule stays available for a
+# manager who wants it back, and then each finding decides the verdict as before. A Home edition
+# and a Windows 10 without ESU are reported, never decided.
+
+Write-Host 'Windows 11 on unsupported hardware, the Home edition, and Windows 10 without ESU'
+
+function New-FlagVerdict([string]$Id, [string]$Grade, $Flag, [string]$Detail = '') {
+    [pscustomobject]@{ Grade = $Grade; Metric = [pscustomobject]@{ Id = $Id; Label = $Id; Subject = ''; Detail = $Detail; Value = [pscustomobject]@{ Number = $null; Text = ''; Flag = $Flag } } }
+}
+function New-TextVerdict([string]$Id, [string]$Text) {
+    [pscustomobject]@{ Grade = 'Unknown'; Metric = [pscustomobject]@{ Id = $Id; Label = $Id; Subject = ''; Value = [pscustomobject]@{ Number = $null; Text = $Text; Flag = $null } } }
+}
+function New-Win11Bundle([string]$Codes, [int]$Build = 19045) {
+    $verdicts = @($battery95, $internalSmart)
+    if ($Codes) { $verdicts += @((New-FlagVerdict 'os.win11_ready' 'Normal' $false), (New-TextVerdict 'os.win11_blockers' $Codes)) }
+    $b = Set-Answers (New-Bundle $verdicts $t470pDisks) @($flat)
+    $b.Machine.WindowsBuild = $Build
+    return $b
+}
+$battery95 = New-Verdict 'battery.capacity_pct' 'Good' 95 'Battery' 'Battery capacity vs design'
+$cpuCodes = New-TextVerdict 'os.win11_blockers' 'CpuFms'
+$cpuBlocked = New-Win11Bundle 'CpuFms'
+$strict = $rules.PSObject.Copy(); $strict.requireWindows11Ready = $true
+
+Check 'the shipped rules and the built-in default both leave the Windows 11 rule off' {
+    -not $rules.requireWindows11Ready -and -not (Read-AuditRules (Join-Path $PSScriptRoot 'no-such-rules.json')).requireWindows11Ready
+}
+Check 'and the shipped file with it turned on is still obeyed' {
+    $shipped = Get-Content (Join-Path $PSScriptRoot '../../audit-kit/audit-rules.json') -Raw
+    $on = Join-Path ([IO.Path]::GetTempPath()) ("kit-rules-" + [guid]::NewGuid().ToString('N') + '.json')
+    try {
+        Write-Utf8NoBom $on ($shipped -replace '"requireWindows11Ready":\s*false', '"requireWindows11Ready": true')
+        (Read-AuditRules $on).requireWindows11Ready -eq $true
+    } finally { Remove-Item -LiteralPath $on -ErrorAction SilentlyContinue }
+}
+$row = Get-AuditRow $cpuBlocked $rules
+Check 'a processor Windows 11 does not support is no longer REPLACE, and the column still says why' {
+    $row.Verdict -eq 'READY' -and $row.Windows11 -eq 'No (CpuFms)' -and $row.Reasons -notmatch 'Windows 11'
+}
+Check 'and a note says what that means and what the options are' {
+    $row.Notes -match 'Windows 11 does not support this processor \(CpuFms\)\. Options: Windows 10 22H2 with Extended Security Updates \(ESU\), or Windows 11 installed anyway, whose updates Microsoft does not guarantee'
+}
+$row = Get-AuditRow $cpuBlocked $strict
+Check 'with requireWindows11Ready set back on, the same laptop is REPLACE' { $row.Verdict -eq 'REPLACE' -and $row.Reasons -match 'Windows 11 will not run on this processor \(CpuFms\)' }
+Check 'and the reason is not repeated as a note' { $row.Notes -notmatch 'Options: Windows 10' }
+
+$row = Get-AuditRow (New-Win11Bundle 'CpuFms Tpm') $rules
+Check 'the T470p''s processor and TPM blocks are one note, and READY' {
+    $row.Verdict -eq 'READY' -and $row.Windows11 -eq 'No (CpuFms Tpm)' -and $row.Notes -match 'does not support this processor \(CpuFms Tpm\)' -and $row.Notes -notmatch 'blocked by'
+}
+$row = Get-AuditRow (New-Win11Bundle 'Tpm UefiSecureBoot') $rules
+Check 'a TPM and Secure Boot block is a note, not a repair, while the rule is off' {
+    $row.Verdict -eq 'READY' -and $row.Reasons -eq '' -and $row.Notes -match 'Windows 11 blocked by Tpm UefiSecureBoot: to give this laptop Windows 11, turn on TPM / Secure Boot'
+}
+$row = Get-AuditRow (New-Win11Bundle 'Tpm UefiSecureBoot') $strict
+Check 'and FIX FIRST again with the rule on' { $row.Verdict -eq 'FIX FIRST' -and $row.Reasons -match 'Windows 11 blocked by Tpm UefiSecureBoot: turn on TPM' -and $row.Notes -notmatch 'blocked by' }
+# Review round, 2026-10-28: every block that was not the processor was told to turn on TPM / Secure
+# Boot, a disk-size block, a graphics block and one Windows does not name included. That advice is
+# now given only when every code is one the firmware settings fix; any other block points to the report.
+foreach ($c in @('SystemDriveSize', 'Memory', 'DX12', 'Tpm SystemDriveSize', 'SomeNewCode')) {
+    $row = Get-AuditRow (New-Win11Bundle $c) $rules
+    Check "a '$c' block gets no TPM advice, and points to the report" {
+        $row.Verdict -eq 'READY' -and $row.Notes -match ([regex]::Escape("Windows 11 blocked by $($c): see 'Can move to Windows 11' in its report")) -and $row.Notes -notmatch 'turn on TPM'
+    }
+    $row = Get-AuditRow (New-Win11Bundle $c) $strict
+    Check "and with the rule on it is FIX FIRST, still without TPM advice" {
+        $row.Verdict -eq 'FIX FIRST' -and $row.Reasons -match ([regex]::Escape("Windows 11 blocked by $($c): see 'Can move to Windows 11'")) -and $row.Reasons -notmatch 'turn on TPM'
+    }
+}
+$row = Get-AuditRow (New-Win11Bundle 'none') $rules
+Check 'a block Windows does not name says so, with no TPM advice' {
+    $row.Windows11 -eq 'No (none)' -and $row.Notes -match "Windows 11 blocked for a reason Windows does not name: see 'Can move to Windows 11' in its report" -and $row.Notes -notmatch 'turn on TPM|blocked by none'
+}
+foreach ($c in @('Tpm', 'TpmVersion', 'SecureBoot', 'Uefi')) {
+    Check "a '$c' block alone still says what to switch on" {
+        (Get-AuditRow (New-Win11Bundle $c) $rules).Notes -match "Windows 11 blocked by $($c): to give this laptop Windows 11, turn on TPM / Secure Boot in the firmware settings"
+    }
+}
+
+$row = Get-AuditRow (New-Win11Bundle '') $rules
+Check 'Windows 11 not assessed is a note while the rule is off: nothing broke' {
+    $row.Verdict -eq 'READY' -and $row.Windows11 -eq 'Not assessed' -and $row.Notes -match 'Windows has not assessed this laptop for Windows 11, so whether Windows 11 supports it is not known'
+}
+$row = Get-AuditRow (New-Win11Bundle '') $strict
+Check 'and CHECK AGAIN with the rule on, because then the verdict needs it' { $row.Verdict -eq 'CHECK AGAIN' -and $row.Reasons -match 'has not assessed this laptop for Windows 11' }
+
+$win11Unsupported = Set-Answers (New-Bundle @($battery95, $internalSmart, (New-FlagVerdict 'os.win11_hardware_supported' 'Normal' $false), $cpuCodes) $t470pDisks) @($flat)
+$win11Unsupported.Machine.WindowsBuild = 26200
+$row = Get-AuditRow $win11Unsupported $rules
+Check 'Windows 11 on hardware it does not support says so, and what it means for updates' {
+    $row.Windows11 -eq 'Already Windows 11, on hardware Microsoft does not support (CpuFms)' -and
+        $row.Notes -match 'updates are not guaranteed, and feature updates are not offered' -and $row.Verdict -eq 'READY'
+}
+$win11Supported = Set-Answers (New-Bundle @($battery95, $internalSmart, (New-FlagVerdict 'os.win11_hardware_supported' 'Good' $true)) $t470pDisks) @($flat)
+$win11Supported.Machine.WindowsBuild = 26200
+$row = Get-AuditRow $win11Supported $rules
+Check 'and Windows 11 on supported hardware says nothing more' { $row.Windows11 -eq 'Already Windows 11' -and $row.Notes -notmatch 'not guaranteed' }
+$row = Get-AuditRow (New-Win11Bundle '' 26200) $rules
+Check 'Windows 11 with no hardware reading does not read as supported' {
+    $row.Windows11 -eq 'Already Windows 11, hardware support not read' -and $row.Verdict -eq 'READY' -and
+        $row.Notes -match 'Whether Microsoft supports Windows 11 on this hardware was not read'
+}
+# KIT-008: with the rule on, Windows 11 installed anyway used to read "Already Windows 11", READY.
+$row = Get-AuditRow $win11Unsupported $strict
+Check 'with the rule on, Windows 11 on a processor it does not support is REPLACE too' {
+    $row.Verdict -eq 'REPLACE' -and $row.Reasons -match 'Windows 11 runs here, but Microsoft does not support it on this processor \(CpuFms\)'
+}
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, (New-FlagVerdict 'os.win11_hardware_supported' 'Normal' $false), (New-TextVerdict 'os.win11_blockers' 'Tpm')) $t470pDisks) @($flat)
+$b.Machine.WindowsBuild = 26200
+Check 'and a TPM block under Windows 11 is FIX FIRST' { (Get-AuditRow $b $strict).Verdict -eq 'FIX FIRST' -and (Get-AuditRow $b $rules).Verdict -eq 'READY' }
+# Review round, 2026-10-28: a TPM-only block under Windows 11 said only "updates are not guaranteed",
+# with no word that switching the TPM on makes the hardware supported.
+Check 'and its note says what to switch on, with the rule on or off' {
+    (Get-AuditRow $b $rules).Notes -match 'updates are not guaranteed, and feature updates are not offered\. To make it supported, turn on TPM / Secure Boot in the firmware settings' -and
+        (Get-AuditRow $b $strict).Reasons -match 'Windows 11 runs here on hardware Microsoft does not support \(Tpm\): turn on TPM / Secure Boot'
+}
+Check 'but a processor block under Windows 11 gets no TPM advice' { (Get-AuditRow $win11Unsupported $rules).Notes -notmatch 'turn on TPM' }
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, (New-FlagVerdict 'os.win11_hardware_supported' 'Normal' $false), (New-TextVerdict 'os.win11_blockers' 'Memory')) $t470pDisks) @($flat)
+$b.Machine.WindowsBuild = 26200
+Check 'nor does a memory block, which points to the report' {
+    $r = Get-AuditRow $b $strict
+    $r.Verdict -eq 'FIX FIRST' -and $r.Reasons -match "\(Memory\): see 'Hardware supported by Windows 11' in its report" -and $r.Reasons -notmatch 'turn on TPM' -and (Get-AuditRow $b $rules).Notes -notmatch 'turn on TPM'
+}
+Check 'and Windows 11 on supported hardware stays READY' { (Get-AuditRow $win11Supported $strict).Verdict -eq 'READY' }
+Check 'and Windows 11 with no hardware reading is CHECK AGAIN, as Windows 10 not assessed is' {
+    $r = Get-AuditRow (New-Win11Bundle '' 26200) $strict; $r.Verdict -eq 'CHECK AGAIN' -and $r.Reasons -match 'Whether Microsoft supports Windows 11 on this hardware was not read'
+}
+
+# Review round, 2026-10-28: every Windows 11 run without the hardware reading was said to be one
+# Windows had not assessed. That was false for a zip from an older kit, which never read it (all of
+# them so far, the stick in use included), for a scan that produced no report, and for a verdict the
+# app does not interpret, where Windows did assess. With the rule on, each was a CHECK AGAIN that
+# checking again with the same stick could never clear. The text now names only the cause the zip shows.
+function Set-KitVersion($Bundle, [string]$Version) { $Bundle.Kit.KitVersion = $Version; return $Bundle }
+$oldWin11 = Set-KitVersion (New-Win11Bundle '' 26200) '2026-10-23.1'
+$row = Get-AuditRow $oldWin11 $rules
+Check 'an older kit''s Windows 11 zip says that kit does not read it, not that Windows did not assess it' {
+    $row.Verdict -eq 'READY' -and $row.Windows11 -eq 'Already Windows 11, hardware support not read' -and
+        $row.Notes -match 'was not read: kit 2026-10-23\.1 does not read it, kit 2026-10-28\.1 and later do' -and $row.Notes -notmatch 'Windows has not assessed|no verdict on this installation'
+}
+$row = Get-AuditRow $oldWin11 $strict
+Check 'and with the rule on, its CHECK AGAIN names a check that can clear it' { $row.Verdict -eq 'CHECK AGAIN' -and $row.Reasons -match 'kit 2026-10-28\.1 and later do' }
+$row = Get-AuditRow (Set-KitVersion (New-Win11Bundle '' 26200) '2026-10-28.1') $rules
+Check 'a current kit''s Windows 11 zip with no reading says Windows has no verdict yet, and blames no kit' {
+    $row.Notes -match 'was not read: Windows has no verdict on this installation yet, see its report' -and $row.Notes -notmatch 'kit 20'
+}
+$row = Get-AuditRow (New-Win11Bundle '' 26200) $rules
+Check 'a zip that does not say which kit made it names both causes' { $row.Notes -match 'no verdict on this installation yet, or the zip is from a kit older than 2026-10-28\.1' }
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, (New-TextVerdict 'os.win11_blockers' 'none')) $t470pDisks) @($flat)
+$b.Machine.WindowsBuild = 26200
+$row = Get-AuditRow $b $rules
+Check 'Windows 11 with a verdict the app does not interpret: Windows did assess it, and the note says so' {
+    $row.Windows11 -eq 'Already Windows 11, hardware support not read' -and $row.Verdict -eq 'READY' -and
+        $row.Notes -match 'Windows gave a verdict the app does not interpret, see its report' -and $row.Notes -notmatch 'has not assessed|no verdict on this'
+}
+Check 'and with the rule on, CHECK AGAIN for the same reason' {
+    $r = Get-AuditRow $b $strict; $r.Verdict -eq 'CHECK AGAIN' -and $r.Reasons -match 'Windows gave a verdict the app does not interpret'
+}
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, (New-TextVerdict 'os.win11_blockers' 'none')) $t470pDisks) @($flat)
+$row = Get-AuditRow $b $rules
+Check 'the same on Windows 10: not "Not assessed", which says Windows never ran its check' {
+    $row.Windows11 -eq 'Verdict not interpreted' -and $row.Notes -match 'Whether this laptop can move to Windows 11 was not read: Windows gave a verdict the app does not interpret' -and
+        $row.Notes -notmatch 'has not assessed'
+}
+foreach ($winBuild in @(19045, 26200)) {
+    $b = Remove-Report (Set-Stage (New-Win11Bundle '' $winBuild) 'started'); $b.Kit.ScanExitCode = $null
+    Check "a scan that produced no report on build $winBuild says nothing about Windows 11, with the rule off or on" {
+        $off = Get-AuditRow $b $rules; $on = Get-AuditRow $b $strict
+        $off.Windows11 -eq 'Not read' -and "$($off.Notes) $($off.Reasons)" -notmatch 'Windows 11|assessed' -and
+            $on.Verdict -eq 'CHECK AGAIN' -and $on.Reasons -match 'scan did not finish' -and $on.Reasons -notmatch 'Windows 11|assessed'
+    }
+}
+
+$homeNote = 'Windows 10 Home: company Extended Security Updates \(ESU\) and BitLocker drive encryption both need a Pro licence'
+$homeBundle = Set-Answers (New-Bundle @($battery95, $internalSmart, $win11Ok, (New-TextVerdict 'os.home_edition' 'Home')) $t470pDisks) @($flat)
+$row = Get-AuditRow $homeBundle $rules
+Check 'Windows 10 Home is noted with what it rules out, and decides nothing' { $row.Notes -match $homeNote -and $row.Verdict -eq 'READY' }
+$homeBundle.Machine.WindowsBuild = 26200
+$row = Get-AuditRow $homeBundle $rules
+Check 'Windows 11 Home names only BitLocker: ESU is a Windows 10 programme' { $row.Notes -match 'Windows 11 Home: BitLocker drive encryption needs a Pro licence' -and $row.Notes -notmatch 'ESU' }
+# A zip from a kit older than 2026-10-28.1 has no os.home_edition row, but its licence row names the edition.
+foreach ($name in @('Core', 'CoreSingleLanguage')) {
+    $b = Set-Answers (New-Bundle @($battery95, $internalSmart, $win11Ok, (New-FlagVerdict 'license.activated' 'Good' $true "Windows(R), $name edition $([char]0x2014) Activated.")) $t470pDisks) @($flat)
+    Check "an older zip whose licence is the $name edition gets the Home note too" { (Get-AuditRow $b $rules).Notes -match $homeNote }
+}
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, $win11Ok, (New-FlagVerdict 'license.activated' 'Good' $true "Windows(R), Professional edition $([char]0x2014) Activated.")) $t470pDisks) @($flat)
+Check 'and a Pro licence gets none' { (Get-AuditRow $b $rules).Notes -notmatch 'Home' }
+Check 'a zip with no edition reading gets no Home note, and no word about Pro either' { (Get-AuditRow (Set-Answers (New-ReadyBundle) @($flat)) $rules).Notes -notmatch 'Home|Pro licence' }
+
+# Windows 10 without ESU (OS-001): information for IT, never a reason (plan section 5).
+$noEsu = 'No Windows security updates since October 2025: no Extended Security Updates licence is active, and this build (19045.6466) has nothing newer.'
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, $win11Ok, (New-FlagVerdict 'os.supported' 'Bad' $false $noEsu)) $t470pDisks) @($flat)
+$row = Get-AuditRow $b $rules
+Check 'Windows 10 without ESU is noted, and the verdict does not move' { $row.Notes -match 'Windows 10 without ESU: no security updates since October 2025' -and $row.Verdict -eq 'READY' }
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, $win11Ok, (New-FlagVerdict 'os.supported' 'Good' $true 'Windows 10 version 22H2 left general support on 2025-10-14; this PC is covered by Microsoft''s Extended Security Updates: the Year 2 licence is active, to 2027-10-12.')) $t470pDisks) @($flat)
+Check 'a Windows 10 covered by ESU gets no such note' { (Get-AuditRow $b $rules).Notes -notmatch 'without ESU|gets no security updates' }
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, $win11Ok, (New-FlagVerdict 'os.supported' 'Good' $true 'Windows 10 security updates (incl. consumer ESU) end 2027-10-12.')) $t470pDisks) @($flat)
+Check 'nor does a zip from before the OS-001 fix, whose reading cannot tell' { (Get-AuditRow $b $rules).Notes -notmatch 'without ESU|gets no security updates' }
+Check 'nor one with no support reading at all' { (Get-AuditRow (Set-Answers (New-ReadyBundle) @($flat)) $rules).Notes -notmatch 'without ESU|gets no security updates' }
+$b = Set-Answers (New-Bundle @($battery95, $internalSmart, (New-FlagVerdict 'os.supported' 'Bad' $false 'Windows 11 version 24H2 (Home and Pro) left support on 2026-10-13: it gets no more security updates.')) $t470pDisks) @($flat)
+$b.Machine.WindowsBuild = 26100
+$row = Get-AuditRow $b $rules
+Check 'any other Windows out of support gets a plain note, never the Windows 10 wording' {
+    $row.Notes -match 'This Windows gets no security updates' -and $row.Notes -notmatch 'Windows 10 without ESU' -and $row.Verdict -eq 'READY'
+}
+
+# The two app sentences the notes above read, held here so a reworded app breaks this file, not the fleet table.
+$supportSource = Get-Content (Join-Path $PSScriptRoot '../../src/PcHealth.Modules.Windows/Support/WindowsSupport.cs') -Raw -Encoding UTF8
+Check 'the app still words Windows 10 without ESU as the kit reads it' { $supportSource -match 'No Windows security updates since October 2025: no Extended Security Updates licence is active' }
+Check 'and still writes the Home edition row' { $supportSource -match 'new Metric\("os\.home_edition"' }
+$licenceSource = Get-Content (Join-Path $PSScriptRoot '../../src/PcHealth.Modules.Windows/Modules/LicenseModule.cs') -Raw -Encoding UTF8
+Check 'the licence row''s detail still starts with the licence name' { $licenceSource -match 'Detail: \$"\{Wmi\.GetString\(active, "Name"\)\} . \{statusText\}\."' }
+
+# Which zips have these readings is said by the kit version kit.json records, never by the day a stick
+# was built: the stick built on 2026-10-27 carries kit 2026-10-26.1, which has none of them, and the
+# guide said a stick built that day had them all (review round, 2026-10-28).
+Check 'kit versions are put in order by day, then by number' {
+    (Test-KitOlder '2026-10-26.1' '2026-10-28.1') -and (Test-KitOlder '2026-10-28.1' '2026-10-28.2') -and (Test-KitOlder '2026-10-28.9' '2026-10-28.10') -and
+        -not (Test-KitOlder '2026-10-28.1' '2026-10-28.1') -and -not (Test-KitOlder '2026-11-01.1' '2026-10-28.1') -and -not (Test-KitOlder '2026-10-28.10' '2026-10-28.9')
+}
+Check 'and a missing or unknown version is never called older' { -not (Test-KitOlder '' '2026-10-28.1') -and -not (Test-KitOlder 'test' '2026-10-28.1') -and -not (Test-KitOlder '2026-10-26' '2026-10-28.1') }
+Check 'this kit is not older than the first kit with the readings' {
+    $script:AuditKitVersion -match '^\d{4}-\d{2}-\d{2}\.\d+$' -and -not (Test-KitOlder $script:AuditKitVersion $script:FirstKitWithSupportReadings)
+}
+$guide = Get-Content (Join-Path $PSScriptRoot '../../AUDIT-GUIDE.md') -Raw -Encoding UTF8
+Check 'the guide names that kit version, and no stick build date' {
+    $guide -match ([regex]::Escape("kit $script:FirstKitWithSupportReadings or later")) -and $guide -notmatch 'stick built on or after'
+}
+Check 'and its list of what a zip holds names the transcript, which names the Windows user' { $guide -match 'audit-transcript\.txt' -and $guide -match 'Windows user name the kit ran under' }
 
 # -- The helpers the summary picks with ----------------------------------------
 

@@ -80,7 +80,16 @@ public sealed class Win11ReadinessTests
         var verdict = Win11Readiness.Assess([A("GE25H2", "Red", "26200", "SomethingNew")])!;
 
         Assert.Contains("'SomethingNew'", Assert.Single(verdict.Blockers), StringComparison.Ordinal);
+        Assert.False(verdict.RequirementBlocked); // so Windows 11 is not called unsupported hardware on it
     }
+
+    [Theory]
+    [InlineData("CpuFms", true)]
+    [InlineData("Tpm UefiSecureBoot", true)]
+    [InlineData("SomethingNew Tpm", true)]
+    [InlineData("SomethingNew", false)]
+    public void Only_a_known_requirement_makes_hardware_unsupported(string codes, bool blocked) =>
+        Assert.Equal(blocked, Win11Readiness.Assess([A("GE26H2", "Red", "26300", codes)])!.RequirementBlocked);
 
     [Fact]
     public void Green_is_ready_and_a_safeguard_hold_is_kept()
@@ -126,6 +135,41 @@ public sealed class Win11ReadinessTests
         Assert.Equal("Tpm UefiSecureBoot", Win11Readiness.RegistryText(TpmAndSecureBoot));
         Assert.Equal("22000", Win11Readiness.RegistryText(22000));
         Assert.Null(Win11Readiness.RegistryText(null));
+    }
+
+    // --- Review round, 2026-10-28: a verdict older than this Windows is not this PC's -------------
+
+    private static readonly DateTime Clock = new(2026, 10, 28, 12, 0, 0, DateTimeKind.Utc);
+
+    private static DateTime Utc(int month, int day) => new(2026, month, day, 0, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void A_verdict_assessed_before_this_windows_was_installed_is_not_trusted()
+    {
+        // A restored image: the Green verdict is from the PC the image was made on (2026-10-23),
+        // and this Windows was installed, or specialized, the day after.
+        var green = A("GE26H2", "Green", "26300");
+
+        Assert.True(Win11Readiness.PredatesInstall(green, Utc(10, 24), Clock));
+        Assert.True(Win11Readiness.PredatesInstall(A("GE26H2", "Red", "26300", "CpuFms"), Utc(10, 24), Clock)); // a Red one too
+    }
+
+    [Fact]
+    public void A_verdict_assessed_after_the_install_is_trusted()
+    {
+        // The dev T470p: installed 2026-10-19, verdict assessed 2026-10-23.
+        Assert.False(Win11Readiness.PredatesInstall(A("GE26H2", "Red", "26300", "CpuFms"), Utc(10, 19), Clock));
+    }
+
+    [Fact]
+    public void Without_both_dates_or_with_an_install_after_the_clock_nothing_is_withheld()
+    {
+        var green = A("GE26H2", "Green", "26300");
+        var undated = Win11Readiness.FromValues("GE26H2", Values("Green", "26300", epoch: ""))!;
+
+        Assert.False(Win11Readiness.PredatesInstall(green, null, Clock));
+        Assert.False(Win11Readiness.PredatesInstall(undated, Utc(10, 24), Clock));
+        Assert.False(Win11Readiness.PredatesInstall(green, Utc(11, 30), Clock)); // the install date or the clock is wrong
     }
 
     [Theory]

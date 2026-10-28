@@ -213,7 +213,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var results = new List<ModuleResult>(
                 await Task.Run(() => orchestrator.RunModulesAsync(localModules, context, progress,
-                    beforeRunsAlone: adminRun is null ? null : () => Task.WhenAny(adminRun), ct: ct), ct));
+                    beforeRunsAlone: adminRun is null ? null : () => ElevatedScanOutcome.ResultsOnceFinished(adminRun), ct: ct), ct));
             var receiptEntries = new List<ReceiptEntry>(receipt.Snapshot());
             var ranElevated = _alreadyElevated;
 

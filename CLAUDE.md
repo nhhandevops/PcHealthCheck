@@ -40,8 +40,8 @@ These are not style preferences. Each one is here because breaking it shipped a 
 
 ```text
 dotnet build PcHealthCheck.slnx -c Release -warnaserror
-dotnet test  PcHealthCheck.slnx                                  # 504; 2 Linux-only, skipped on Windows
-powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 208 more, invisible to dotnet test
+dotnet test  PcHealthCheck.slnx                                  # 783; 2 Linux-only, skipped on Windows
+powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 285 more, invisible to dotnet test
 powershell -ExecutionPolicy Bypass -File ./build-release.ps1     # tests, privacy gate, publish, kit, zip, SHA-256
 powershell -ExecutionPolicy Bypass -File ./daily-smoke.ps1       # "do the daily smokes"
 ```

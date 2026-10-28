@@ -1,6 +1,6 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-27** (502 tests passing: 436 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 208 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed, and the owner is checking the rest. **Next engineering job:** the remedies plan, [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md). The owner answered its questions on 2026-10-27, and nothing in it is built yet. Start at "Suggested next session" at the bottom, then the top of NEXT-STEPS.
+Snapshot for continuing work on another machine. Last updated: **2026-10-28** (781 tests passing: 715 Windows + 66 Linux fixture tests, plus 2 live Linux tests that run only in CI's `linux` job, **plus 285 audit-kit checks in PowerShell that `dotnet test` cannot see** — see Shipping; Release builds clean with `-warnaserror`). **Current job:** the company laptop audit. Three laptops are checked and reviewed, and the owner is checking the rest. **Engineering:** the remedies plan, [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md). Phase 1 Step A (rows 1-13) was built, reviewed and fixed on 2026-10-27/28; Step B and Step D are next. Start at "Suggested next session" at the bottom, then the top of NEXT-STEPS.
 
 ## What this is
 
@@ -18,8 +18,8 @@ Build and tooling faults that no unit test covers are logged in
 winget install Microsoft.DotNet.SDK.10        # .NET 10 SDK (LTS) — the only prerequisite
 git clone https://github.com/nhhandevops/PcHealthCheck   # public, no login needed
 dotnet build PcHealthCheck.slnx               # note: .slnx, the new solution format
-dotnet test  PcHealthCheck.slnx               # 504 tests (2 Linux-only, skipped on Windows); WorkerProtocolTests launch the real exe
-powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 208 more: the audit kit is PowerShell, dotnet test cannot see it
+dotnet test  PcHealthCheck.slnx               # 783 tests (2 Linux-only, skipped on Windows); WorkerProtocolTests launch the real exe
+powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 285 more: the audit kit is PowerShell, dotnet test cannot see it
 powershell -ExecutionPolicy Bypass -File .\daily-smoke.ps1   # the daily check, ~1 min, appends to docs/daily-smoke.md
 dotnet run --project src/PcHealth.App         # GUI
 PcHealthCheck.exe --headless-scan [--include-admin] [--no-history] [--skip-benchmarks] [--temp-dir <dir>] --out <dir>   # automation mode
@@ -55,8 +55,8 @@ The rebuilt exe is stamped with that machine's commit (`+d98a609…` or later), 
 | Windows 11 readiness (`os.win11_ready`, from Windows' own appraiser verdict) and the laptop audit kit with `AUDIT-GUIDE.md` | ✅ 2026-10-23 · kit tested unelevated on the T470p; its admin path awaits the owner's pilot |
 | Company laptop audit — pilot on 3 laptops, zips reviewed, 5 faults found and fixed, a 6th on re-review | ✅ 2026-10-25, 2026-10-26 · see "The first fleet audit" below |
 | **Company laptop audit — the rest of the fleet** | ⬜ now, owner first; the stick is ready |
-| **Remedies plan, `docs/REMEDIES-PLAN.md`: advice, guided actions, the handover check, Vietnamese** | 📝 2026-10-27: written by 8 agents, revised by 8 more after the owner's decisions. Nothing built. Phase 1 Step A is first, and waits for the owner's go |
-| **OS-001: an unenrolled Windows 10 company laptop graded "supported until 2027-10-12"** | ⬜ open, found 2026-10-27; the fix is Step A rows 8-9 |
+| **Remedies plan, `docs/REMEDIES-PLAN.md`: advice, guided actions, the handover check, Vietnamese** | ✅ Step A (rows 1-13) built 2026-10-27/28 by 6 agents. A five-lens review with skeptics confirmed 22 faults, all fixed, and a gate re-ran everything. ⬜ Step B (advice engine), Step C, Step D (intake + handover check), Step E (Vietnamese) |
+| **OS-001: an unenrolled Windows 10 company laptop graded "supported until 2027-10-12"** | ✅ fixed 2026-10-27 (Step A rows 8-9, not committed yet): ESU licence or build decides, one dated table in `Support/WindowsSupport.cs`, update age from the release. The kit's `requireWindows11Ready` is off (decision 9) |
 | **M5 remainder — Linux phase 2 (`PcHealth.Cli`), Vietnamese localization** | ⬜ next |
 | ClamAV second opinion | ❌ dropped by decision (2026-08-20) — see below |
 | Packaging — `build-release.ps1`, icon, version 1.0.0-rc.1, docs | ✅ done |
@@ -90,7 +90,7 @@ dangerous failure: a verdict gets sanity-checked by a human, a reason gets acted
 
 Four things worth carrying forward, more than the fixes themselves:
 
-1. **The audit kit had no tests at all.** It has 208 now (`tests/audit-kit/kit-tests.ps1`), run by
+1. **The audit kit had no tests at all.** It has 285 now (`tests/audit-kit/kit-tests.ps1`), run by
    `build-release.ps1` and by CI's `Audit kit tests` step. The kit decides what a manager is told
    to replace; it had less coverage than any other part of this project.
 2. **A filter that hides readings is one edit away from hiding a failure.** The USB fix had to add
@@ -381,7 +381,8 @@ holds the rows a desktop cannot.
 - Its own health on 2026-10-26: overall **Bad**. The Bad readings were 13 pending updates, 7 disk
   errors in 90 days (the USB drives have produced these before), 4 low-memory events in 30 days, and
   the battery at 50%. Windows 11 is blocked by the processor (CpuFms), so the audit kit's verdict for
-  it is REPLACE.
+  it was REPLACE. Since `requireWindows11Ready` went off on 2026-10-27 (decision 9) that is a note,
+  and the verdict is FIX FIRST: the battery, at 50%, is below the rule's 60%.
 
 ## Gotchas (each cost real time)
 
@@ -410,7 +411,7 @@ holds the rows a desktop cannot.
 ## Shipping
 
 - `build-release.ps1` — tests, privacy gate, self-contained publish, zip, SHA-256. One command.
-- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's PowerShell checks, 208 since KIT-007** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
+- `daily-smoke.ps1` — the daily check (added 2026-10-19), about a minute and unattended: repo vs GitHub, both privacy gates (source and compiled, see PRIV-001), Release build with `-warnaserror`, the full suite with the known flaky test re-run alone, **the audit kit's PowerShell checks, 285 since Step A (2026-10-28)** (added 2026-10-26 — `dotnet test` cannot see them, and a smoke reporting PASS without them was claiming coverage it did not have), and a real unelevated headless scan of the Release exe. Appends one row to `docs/daily-smoke.md`. It refuses to scan while DiskSpd is installed, because the disk benchmark would then write to every physical drive, USB backup drives included.
 - `USER-GUIDE.md` — for the person running it, not for whoever builds it. Ships inside the zip.
 - `ACCEPTANCE.md` — 19 blocking rows out of ~60. Run before giving the app to anyone.
 - `RELEASING.md` — the steps a script cannot do: SignPath application (needs a **public** repo, takes weeks), GitHub release, SmartScreen submission, winget manifest.
@@ -430,8 +431,21 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 - **USB drives:** an empty reliability record, or exactly 0% wear over USB, is reported as *not read*, never graded
   (`ReliabilityCounterCheck`). A Seagate HDD in a USB caddy reports itself as an SSD with spindle speed 0.
 - **Disk-error events name the drive** (`DiskEventAttribution`), separating the Windows disk from others.
+  *Since 2026-10-27 (STOR-002) the value of `events.disk_errors_90d` counts only this PC's own drives,* by the
+  kit's KIT-005 rule, and when that is not every error the Detail says "Counted against this PC: N of T." The kit
+  reads T as the total. USB volumes' free space and encryption are information only (STOR-001, SEC-001), and the
+  disk benchmark skips a drive this scan calls failing, matched by `Metric.DiskNumber` (BENCH-001).
+- **"Last N days" counts state their real span (HIST-001, 2026-10-28).** `Support/RecordSpan.cs`: each event-log count,
+  Defender's 90-day detections and the reliability range say "records cover only D days" when the log is shorter
+  than the window. A zero from under 7 days, or from a clock that looks wrong, is information only with a Note. A log
+  that covers the window changes nothing. Defender keeps detections only 15 days by default, so its "90 days" never was.
+- **File History and OneDrive run without admin (BAK-001, 2026-10-28)** in `backup.files`, for the signed-in account;
+  restore points and shadow copies stay in the helper (`backup.posture`). "Backed up somewhere" needs the helper's
+  shadow-copy count, so `backup.files` is `RunsAfterOthers`: it runs after the helper, with `EarlierFindings`.
 - **Windows 10 end of support is 2027-10-12** (consumer ESU, extended by Microsoft on 2026-06-25). It is hard-coded
-  in `SysOverviewModule`, so re-check it if Microsoft moves it again.
+  in `SysOverviewModule`, so re-check it if Microsoft moves it again. *Corrected 2026-10-27 (OS-001): that date
+  is consumer ESU's, for personal use only, and was applied without checking enrolment. Every Windows end date now
+  lives in `Support/WindowsSupport.cs`, with sources and a checked-on date; re-check them before each release.*
 - **CPU slowdown under load (2026-10-22):** the CPU benchmark now samples `% Processor Performance` (WMI, highest
   logical processor each second) while it keeps one core busy, and reports the median as
   `bench.cpu.clock_pct_of_base`: Good ≥ 100%, Normal ≥ 85%, Bad below. It is not graded on battery. On the T470p it
@@ -444,11 +458,42 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 
 ## Suggested next session
 
-**Newest (state saved 2026-10-27, evening): the remedies plan and the owner's decisions.**
+**Newest (state saved 2026-10-28): Phase 1 Step A is built.**
+- **What was built.** Rows 1-13 of the plan's Step A:
+  - Windows support truth: OS-001, the ESU licence, editions, and update age counted from the
+    release;
+  - false alarms removed: the catalog-signed tray icon, the time service, young installs, USB
+    volumes and USB disk errors, SSD temperature bands;
+  - a benchmark that skips failing drives;
+  - "last N days" counts that state their real span;
+  - backup readings that run without admin;
+  - startup checks that number accounts and never name them;
+  - menu paths that work on Windows 10.
+- **The kit.** The kit's `requireWindows11Ready` is off (decision 9), and the kit version is
+  `2026-10-28.1`.
+- **The process.** Six agents built it. A five-lens review, each lens checked by a skeptic,
+  confirmed 22 faults. Four fixers and a gate closed them. The fault log has every entry (OS-001..3,
+  KIT-008, TIP-001, SIG-001, START-001/2, PRIV-002/3, SEC-001/2, BENCH-001, SMART-002, STOR-001/2,
+  HIST-001, BAK-001), each with a "Review round, 2026-10-28" paragraph where it applied.
+- **Still open:**
+  - REP-002, decimal commas in about 30 report details;
+  - the elevated paths, which no live run covered: SMART temperature by drive kind, USB
+    encryption rows, the helper's disk numbers and shadow-copy count, and "Account N" with two
+    accounts;
+  - everything on Windows 11, where nothing was run live.
+
+  The plan's "fresh-image baseline" (VM, then a restored spare laptop) is where those get proven.
+- **Next.** Step B (the advice engine) and Step D (intake and handover check). The golden-image
+  tasks are in [docs/GOLDEN-IMAGE-PLAN.md](docs/GOLDEN-IMAGE-PLAN.md), and the owner's decisions
+  A-J gate the build.
+- **The stick.** It is rebuilt from the Step A commit. The fleet rows of the three pilot laptops
+  then move from REPLACE to FIX FIRST, for their real hardware faults.
+
+**Before that (state saved 2026-10-27, evening): the remedies plan and the owner's decisions.**
 
 The owner asked whether the app could do more than diagnose: clear junk when the disk is full,
 calm a browser that eats the RAM, and speed up start-up. [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md)
-is the answer. It is a plan only, and no code has changed for it.
+is the answer.
 - **Read first:** its first section, "Update, 27 October 2026". It records the owner's decisions and
   what they change. Section 6 lists the decisions themselves. A private page of the plan exists on
   the owner's claude.ai account; the file in the repo is the source.
@@ -462,15 +507,16 @@ is the answer. It is a plan only, and no code has changed for it.
   - English first, then Vietnamese in the app window, its report and the kit's questions. The kit
     prints each English line followed by its Vietnamese one, and the `.ps1` files stay ASCII.
   - Which Windows goes on a reimaged laptop is **not decided**. The plan lists the facts.
-- **What waits on the owner:** a "go" for Phase 1, and the six "Still open" questions at the top of
-  the plan. Do not start Step A without the go. It changes the app on the stick in the middle of
-  the audit.
-- **Found during the review and not fixed: OS-001** (fault log). The app calls an unenrolled
-  Windows 10 company laptop "supported until 2027-10-12", which is the consumer ESU date. HW-001
-  introduced that date and now carries a correction. It is Step A rows 8-9.
+- **The owner's go and later answers.** The owner said "go" on 2026-10-27, and answered the
+  "Still open" questions the same evening (plan section 6, decisions 8-15). Only the commercial
+  ESU purchase is still open.
+- **OS-001**, found during that review, is fixed in Step A (see above). The app called an
+  unenrolled Windows 10 company laptop "supported until 2027-10-12", which is the consumer ESU date.
 - **Facts about the fleet that a later session needs:**
-  - None of the T470/T470s/T470p processors is supported by Windows 11, so the kit marks every one
-    REPLACE while `requireWindows11Ready` is on.
+  - None of the T470/T470s/T470p processors is supported by Windows 11. The kit marked every one
+    REPLACE while `requireWindows11Ready` was on. It is off since 2026-10-27 (decision 9), so that
+    is now a note naming the options. Turned back on, it marks them REPLACE again, Windows 11
+    installed anyway included (KIT-008).
   - The audit stick also carries the reimage images (one captured on a ThinkPad T14 Gen 1, one on
     the pilot T470p, whose SSD is now failing). It is the same 1 TB Seagate that logged disk errors.
     Error Checking passed on 2026-10-27, and the owner keeps using it. See NEXT-STEPS.
