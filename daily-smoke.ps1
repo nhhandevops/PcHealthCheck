@@ -38,15 +38,23 @@
 
     Exit code: 0 when nothing FAILed (WARN and SKIP do not fail the run), 1 otherwise.
 
+    -Push commits this run's row, and only docs/daily-smoke.md, then pushes it to origin/main, so
+    the next machine sees it after a pull. A push rejected because another machine pushed first is
+    retried once after a rebase. Anything else that fails leaves the row committed locally or on
+    disk, says so, and does not change the smoke's result. The T470p runs it this way every
+    morning from Task Scheduler (HANDOFF.md, "Daily smoke").
+
 .EXAMPLE
     .\daily-smoke.ps1
     .\daily-smoke.ps1 -BackupDir E:\backup\pchealthcheck, F:\backup\pchealthcheck
     .\daily-smoke.ps1 -NoRecord        # try it without adding a row to docs\daily-smoke.md
+    .\daily-smoke.ps1 -Push            # record the row, commit only that file, and push it
 #>
 [CmdletBinding()]
 param(
     [string[]]$BackupDir = @(),
-    [switch]$NoRecord
+    [switch]$NoRecord,
+    [switch]$Push
 )
 
 # git and dotnet write progress to stderr, and under 'Stop' Windows PowerShell 5.1 turns the first
@@ -405,6 +413,33 @@ if (-not $NoRecord) {
     # LF and no BOM, to match .editorconfig.
     [IO.File]::AppendAllText($logPath, $row + "`n", $utf8)
     Write-Host "  recorded in docs\daily-smoke.md"
+
+    if ($Push) {
+        # Only the log file is committed (a pathspec commit ignores anything else staged), so a
+        # half-finished edit in the tree never rides along. Git failures are reported, never fatal.
+        # One log per git step: Invoke-Logged overwrites its file, and a failure must keep its output.
+        $pushLog = Join-Path $run 'push-*.log'
+        $msg = 'Daily smoke {0} at {1}: {2}' -f $started.ToString('yyyy-MM-dd HH:mm'), $commit, $overall
+        $branch = (& git -C $root rev-parse --abbrev-ref HEAD 2>$null)
+        if ($branch -ne 'main') {
+            Write-Host "  push: SKIP - on branch '$branch', not main; the row is on disk, not committed" -ForegroundColor Yellow
+        } elseif ((Invoke-Logged (Join-Path $run 'push-commit.log') 'git' @('-C', $root, 'commit', '--quiet', '-m', $msg, '--', 'docs/daily-smoke.md')) -ne 0) {
+            Write-Host "  push: FAILED to commit the row - see $pushLog; the row is on disk" -ForegroundColor Yellow
+        } else {
+            $pushed = (Invoke-Logged (Join-Path $run 'push-1.log') 'git' @('-C', $root, 'push', '--quiet', 'origin', 'main')) -eq 0
+            if (-not $pushed) {
+                # Usually another machine pushed its own row first. Rebase this one commit on top
+                # and try once more; a conflict is aborted, never left half-done in the tree.
+                if ((Invoke-Logged (Join-Path $run 'push-rebase.log') 'git' @('-C', $root, 'pull', '--rebase', '--autostash', '--quiet', 'origin', 'main')) -eq 0) {
+                    $pushed = (Invoke-Logged (Join-Path $run 'push-2.log') 'git' @('-C', $root, 'push', '--quiet', 'origin', 'main')) -eq 0
+                } else {
+                    Invoke-Logged (Join-Path $run 'push-abort.log') 'git' @('-C', $root, 'rebase', '--abort') | Out-Null
+                }
+            }
+            if ($pushed) { Write-Host "  pushed: $msg" }
+            else { Write-Host "  push: FAILED - the row is committed locally, not pushed; see $pushLog" -ForegroundColor Yellow }
+        }
+    }
 }
 
 Get-ChildItem $runsRoot -Directory | Sort-Object Name -Descending | Select-Object -Skip 14 |

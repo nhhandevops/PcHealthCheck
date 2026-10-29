@@ -493,6 +493,18 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 
 ## Suggested next session
 
+**Daily smoke, every day (since 2026-10-29).**
+- **The command.** `daily-smoke.ps1 -Push` records the row in `docs/daily-smoke.md`, commits only
+  that file, and pushes it. Any machine continues the routine with `git pull`, then the same
+  command.
+- **The schedule.** `register-daily-smoke.ps1`, run once by the owner, makes it a Task Scheduler
+  task: 09:00 daily, as soon as possible if the PC was off. Run it on **one** machine only, the
+  T470p: the dev desktop's smoke never scans (DiskSpd), and two machines pushing rows the same
+  morning can conflict. A rejected push is retried once after a rebase; anything else leaves the
+  row committed locally, says so, and does not fail the smoke.
+- **Read the newest rows** after each pull. A FAIL row means look at the logs under
+  `%TEMP%\pchealth-smoke\` on the machine that ran it.
+
 **Start here next week (state saved 2026-10-28, end of the week).** The week's summary for the owner
 and the manager is in [docs/WEEKLY-REPORT-2026-10-28.md](docs/WEEKLY-REPORT-2026-10-28.md).
 
