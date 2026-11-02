@@ -121,6 +121,22 @@ app is the tool, and the results are its first field test.
       5. the Linux smoke, `bash smoke-linux.sh --install-dotnet`, best from a live USB on a spare
          ThinkPad.
     - **Then:** commit, build the release, and re-copy the stick only if shipping.
+  - **A second folder on the stick, for other PCs (2026-11-02): `PcHealthCheck-test-02c55cb\`.**
+    It is not the audit kit, which stays in `PcHealthCheck-1.0.0-rc.1-win-x64\` (2071660) with its
+    `Results\`.
+    - `application\` holds the release build of 02c55cb (Step A + B) without the kit scripts, so
+      no laptop is audited from it by mistake, plus `MANIFEST-SHA256.txt`.
+    - `smoke-tests\` holds `PcHealthCheck-source-02c55cb.bundle` and two launchers,
+      `run-smoke-windows.cmd`/`.ps1` and `run-smoke-linux.sh`. Each clones the bundle into the
+      user's profile, runs `smoke-windows10/11.ps1 -NoRecord` or `smoke-linux.sh --install-dotnet`
+      there, and saves the output to `smoke-tests\results\`. Before saving, it takes out the
+      computer name, the account name and the home paths.
+    - `README.txt` is for the owner.
+    - Both launchers were run end to end from the stick on the T470p. The Windows one passed:
+      1199/1207, 8 skipped, which is the expected count without the pilot zips. That result is
+      kept. The Linux one was run under Git Bash and refused correctly.
+    - **Still to come:** the dev desktop's Windows 11 result and a Linux result. Read them from
+      `smoke-tests\results\` when the stick comes back.
   - **The stick's own health (2026-10-27).** The stick is a 1 TB laptop hard disk in a USB case.
     The T470p's event log had 7 disk errors against it in 90 days, and it carries a `FOUND.000`
     folder dated 21 October. The pilot's Silicon-Power drive also reported uncorrected read
