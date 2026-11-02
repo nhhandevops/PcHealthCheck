@@ -17,3 +17,4 @@
 *.dll binary
 *.ico binary
 *.png binary
+*.sh      text eol=lf

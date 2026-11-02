@@ -10,6 +10,52 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
+## TOOL-006 — The daily smoke never scanned Windows 11, and "PASS with warnings" did not say why
+
+**Symptom.** Two things, found on 2026-11-02 while preparing Windows 11 and Linux smoke tests.
+- **No Windows 11 scan, ever.** The dev desktop is the only Windows 11 machine, and every smoke
+  row from it said `Scan: SKIP`. Nothing in the smoke had ever scanned Windows 11, so the Windows
+  11 branch of the OS checks (support dates for 24H2-26H2, "Hardware supported by Windows 11") had
+  unit tests and no live run.
+- **A warning with no reason.** The scheduled runs of 2026-11-01 and 11-02 recorded **PASS with
+  warnings**, and no cell said which step had warned. The task runs hidden, so the console output
+  that named it was gone.
+
+**Wrong first guesses.**
+- Searching the run's logs for "WARN" found only test names containing "Warn".
+- The run folder held two `.trx` files, which looked like the known flaky test being re-run. They
+  are the two test projects' results. The Tests step had passed.
+
+**Root cause.**
+- **The scan.** The scan was skipped whenever DiskSpd was installed, to keep the disk benchmark
+  from writing to backup drives. `--skip-benchmarks`, the kit's switch, leaves the `bench.*`
+  modules out before anything runs, so skipping the whole scan was never needed.
+- **The warning.** The Repository step has no column in `docs/daily-smoke.md`, and it is the only
+  step that can warn without a cell to show it. By elimination it was Repository both days: the
+  repository was clean and pushed, so most likely `git fetch` failed because Wi-Fi was not up yet
+  at the 09:00 start. That is unproven; the next warning row will say.
+
+**Fix (2026-11-02).** `daily-smoke.ps1`:
+- With DiskSpd installed, it scans with `--skip-benchmarks`, and the row says "no benchmarks".
+- The Scan cell names the OS and build, read from WMI by the script, not from the report.
+- The scan fails if the report's OS row names another build, or if the PC got the other OS's
+  branch: `os.win11_ready` on Windows 11, or `os.win11_hardware_supported` on Windows 10.
+- A Repository warning is written into the Result cell.
+
+There is now one entry file per OS: `smoke-windows10.ps1` and `smoke-windows11.ps1` stop unless the
+PC runs that version, then run `daily-smoke.ps1`. `smoke-linux.sh` is new: CI's linux job, run on a
+real machine, with the live scan's readings printed.
+
+**How to verify.**
+- **Windows 10, verified 2026-11-02 on the T470p.** The cell read "Windows 10 Pro 19045", and the
+  Result cell named the dirty tree.
+- **Windows 11.** Not run yet: it needs the desktop, `git pull`, then `daily-smoke.ps1`.
+- **Linux.** Not run yet: no Linux machine here.
+
+**Date.** 2026-11-02.
+
+---
+
 ## ADV-011 — "Show again" said the cards would hide again "after a restart"; it is the next scan
 
 **Symptom.** Found by the review round of 2026-10-28, by reading the code. Nothing shipped with it.

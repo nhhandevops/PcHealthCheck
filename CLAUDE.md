@@ -43,14 +43,21 @@ dotnet build PcHealthCheck.slnx -c Release -warnaserror
 dotnet test  PcHealthCheck.slnx                                  # 1207; 2 Linux-only, skipped on Windows; 6 replay the pilot zips, skipped without them
 powershell -ExecutionPolicy Bypass -File ./tests/audit-kit/kit-tests.ps1   # 286 more, invisible to dotnet test
 powershell -ExecutionPolicy Bypass -File ./build-release.ps1     # tests, privacy gate, publish, kit, zip, SHA-256
-powershell -ExecutionPolicy Bypass -File ./daily-smoke.ps1       # "do the daily smokes"
+powershell -ExecutionPolicy Bypass -File ./daily-smoke.ps1       # "do the daily smokes"; works out the OS itself
+powershell -ExecutionPolicy Bypass -File ./smoke-windows10.ps1   # the same, but stops unless this PC is Windows 10
+powershell -ExecutionPolicy Bypass -File ./smoke-windows11.ps1   # the same, but stops unless this PC is Windows 11
+bash smoke-linux.sh --install-dotnet                             # on Linux: the Linux modules on a real machine
 ```
 
 `daily-smoke.ps1` covers the kit checks too, so it is the one command that runs everything.
-**It refuses to run its scan step while DiskSpd is installed** — the disk benchmark would write
-to every physical drive, backup drives included — and reports `Scan: SKIP`. On a machine with
-DiskSpd that is permanent, so a green smoke there does not mean a scan ran. Which machine is in
-which state is in [HANDOFF.md](HANDOFF.md) under "The two machines".
+**While DiskSpd is installed it scans with `--skip-benchmarks`.** Otherwise the disk benchmark
+would write to every physical drive, backup drives included. The row then says "no benchmarks".
+Before 2026-11-02 it skipped the scan instead (`Scan: SKIP`). The Scan cell names the OS and build,
+so Windows 10 and Windows 11 rows can be told apart. Which machine is in which state is in
+[HANDOFF.md](HANDOFF.md) under "The two machines". `smoke-windows10.ps1` and `smoke-windows11.ps1`
+check the OS first, then run `daily-smoke.ps1`, which holds every Windows step. The scheduled task
+keeps running `daily-smoke.ps1`. On Linux, `bash smoke-linux.sh` runs the Linux tests and a live
+scan (`--install-dotnet` the first time).
 
 The audit kit (`audit-kit/*.ps1`) is **Windows PowerShell 5.1 and ASCII only** — 5.1 reads a
 BOM-less script in the ANSI code page, so a literal em dash is garbled on some laptops. Build one

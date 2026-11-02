@@ -376,12 +376,11 @@ reviewed and where the USB stick lives. The repository sits on `D:`.
 
 - **PawnIO is installed** (the August note saying otherwise is retired), so CPU temperature reads
   here. A desktop, so it closes the acceptance rows that need one: J2's desktop half went this way.
-- **DiskSpd is installed**, which has one permanent consequence: `daily-smoke.ps1` refuses to run
-  its scan step here, forever, and the smoke reports `Scan: SKIP`. That is the smoke's single most
-  valuable step. It is a deliberate trade — DiskSpd is the precondition for acceptance rows D2,
-  D3, D5-D8, which are still open — but it means **real-scan coverage has to come from the other
-  machine, or from a temporary `winget uninstall Microsoft.DiskSpd`**. Do not read a green smoke
-  here as "a scan ran".
+- **DiskSpd is installed.** Since 2026-11-02 `daily-smoke.ps1` scans here with
+  `--skip-benchmarks` instead of skipping the scan. That makes this the machine whose smoke covers
+  **Windows 11**, and its row says "Windows 11 ..., no benchmarks". Rows from here dated before
+  that say `Scan: SKIP`. DiskSpd stays because acceptance rows D2, D3 and D5-D8 need it and are
+  still open. The disk benchmark itself has no smoke coverage on either machine.
 - **No WSL distribution and no Docker**, so Linux phase 2 (`PcHealth.Cli`) still cannot be
   verified here. It needs the Ubuntu 26.04 VM. Hyper-V could not even be queried unelevated.
 - **7-Zip is not on PATH**, so the CPU benchmark finds nothing unless `7za.exe` is fetched first.
@@ -499,9 +498,23 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
   command.
 - **The schedule.** `register-daily-smoke.ps1`, run once by the owner, makes it a Task Scheduler
   task: 09:00 daily, as soon as possible if the PC was off. Run it on **one** machine only, the
-  T470p: the dev desktop's smoke never scans (DiskSpd), and two machines pushing rows the same
-  morning can conflict. A rejected push is retried once after a rebase; anything else leaves the
-  row committed locally, says so, and does not fail the smoke.
+  T470p, because two machines pushing rows the same morning can conflict. A rejected push is
+  retried once after a rebase. Anything else leaves the row committed locally, says so, and does
+  not fail the smoke.
+- **Windows 11 and Linux (since 2026-11-02).**
+  - **One file per OS.** `smoke-windows10.ps1`, `smoke-windows11.ps1` and `smoke-linux.sh`. The
+    Windows two identify the OS first and stop with exit 2 on the wrong one, naming the right
+    file. Then they run `daily-smoke.ps1`, which holds every Windows step, so the two cannot drift
+    apart. The scheduled task keeps running `daily-smoke.ps1`, which works out the OS itself, so it
+    survives a laptop moving to Windows 11.
+  - **Windows 11.** The dev desktop is the only Windows 11 machine. Run `git pull`, then
+    `smoke-windows11.ps1 -Push` there by hand, not as a second scheduled task. Its row names the
+    OS and build.
+  - **Linux.** Run `bash smoke-linux.sh --install-dotnet` from a clone. It builds and runs the
+    Linux tests, including a live scan of the machine, prints what it read, and ends with one
+    "Linux smoke ..." line to paste back. It pushes nothing.
+  - **Where to run Linux.** A live USB on a spare ThinkPad is best. A VM or WSL has no battery and
+    usually no temperature sensors, so it tests only the "not available, and why" path.
 - **Read the newest rows** after each pull. A FAIL row means look at the logs under
   `%TEMP%\pchealth-smoke\` on the machine that ran it.
 
@@ -583,9 +596,10 @@ and the manager is in [docs/WEEKLY-REPORT-2026-10-28.md](docs/WEEKLY-REPORT-2026
      reliability row's `DiskNumber` must equal the role row's `DiskNumber` for the same drive.
   2. **ACCEPTANCE section K, rows K1-K12, in the window on the T470p.** K2 and K7 are blocking.
   3. **Both dev PCs scanned, one of them elevated, with no unexpected card.** This is work group
-     5's "done when" and a Phase 2 gate. The dev desktop has DiskSpd, so its smoke reports
-     `Scan: SKIP`. Use `--headless-scan --skip-benchmarks` there.
-  4. **Before Phase 2:** one headless `--skip-benchmarks` scan on the Windows 11 dev desktop.
+     5's "done when" and a Phase 2 gate. The dev desktop has DiskSpd, so its smoke scans with
+     `--skip-benchmarks` (since 2026-11-02).
+  4. **Before Phase 2:** one headless `--skip-benchmarks` scan on the Windows 11 dev desktop. A
+     `smoke-windows11.ps1 -Push` run there is that scan.
 - **Then, in this order:**
   1. commit, with the privacy grep first;
   2. `build-release.ps1`, since the exe is stamped with HEAD;

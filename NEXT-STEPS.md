@@ -115,8 +115,11 @@ app is the tool, and the results are its first field test.
          new role row;
       2. ACCEPTANCE section K (K1-K12, two of them blocking) in the window on the T470p;
       3. both dev PCs scanned, one of them elevated, with no unexpected card. On the dev desktop
-         use `--headless-scan --skip-benchmarks`, because its smoke skips the scan (DiskSpd);
-      4. before Phase 2, one headless scan on the Windows 11 dev desktop.
+         use `--headless-scan --skip-benchmarks`; its smoke runs that scan since 2026-11-02;
+      4. before Phase 2, one headless scan on the Windows 11 dev desktop: `git pull`, then
+         `smoke-windows11.ps1 -Push` there;
+      5. the Linux smoke, `bash smoke-linux.sh --install-dotnet`, best from a live USB on a spare
+         ThinkPad.
     - **Then:** commit, build the release, and re-copy the stick only if shipping.
   - **The stick's own health (2026-10-27).** The stick is a 1 TB laptop hard disk in a USB case.
     The T470p's event log had 7 disk errors against it in 90 days, and it carries a `FOUND.000`

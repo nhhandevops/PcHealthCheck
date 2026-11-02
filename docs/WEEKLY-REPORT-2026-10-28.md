@@ -27,7 +27,8 @@ Recorded in `docs/REMEDIES-PLAN.md`, section 6:
 - Four apps on every laptop: Chrome, Unikey, LightShot, NetBird. They are also the startup
   allowlist.
 - The app never deletes the user's or Windows' files.
-- Both Windows 10 and Windows 11 will be used. "Cannot run Windows 11" no longer means REPLACE.
+- Both Windows 10 and Windows 11 will be used. A processor that Windows 11 does not support no
+  longer means REPLACE.
 - Drive encryption and file backup are not required. BitLocker is available on request, with a
   guide.
 - English first, Vietnamese later.

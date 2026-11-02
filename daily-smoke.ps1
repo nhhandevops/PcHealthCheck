@@ -26,15 +26,31 @@
                        progress lines' em dash intact (KIT-006: it was ANSI, and the laptops showed
                        every em dash as a u-grave). Every file its receipt says it wrote must be
                        inside --temp-dir (KIT-007: the audit kit relies on it to keep laptops clean).
-      6. Backups       Only with -BackupDir: re-hash each folder against its MANIFEST-SHA256.txt.
+                       The report must name the Windows build this PC really runs (read here from
+                       WMI, not trusted from the report) and take that OS's branch: a Windows 11 PC
+                       gets no "Can move to Windows 11" row, a Windows 10 PC no "Hardware supported
+                       by Windows 11" row. The row records the OS, so a Windows 10 run and a
+                       Windows 11 run can be told apart.
+      6. Backups      Only with -BackupDir: re-hash each folder against its MANIFEST-SHA256.txt.
                        A copy on a failing drive goes bad silently and looks fine until it is needed.
 
     Every run appends one row to docs/daily-smoke.md. Logs and the scan's reports go to
     %TEMP%\pchealth-smoke\<timestamp>; the newest 14 runs are kept.
 
-    What it will NOT do: run the scan while DiskSpd is installed. With DiskSpd present the disk
-    benchmark writes a test file to every physical drive, USB drives included, and a smoke test
-    must not write to someone's backup drive every morning. The step reports SKIP and says why.
+    What it will NOT do: run the benchmarks while DiskSpd is installed. With DiskSpd present the
+    disk benchmark writes a test file to every physical drive, USB drives included, and a smoke
+    test must not write to someone's backup drive every morning. The scan then runs with
+    --skip-benchmarks, the audit kit's switch, which leaves the bench.* modules out before anything
+    runs, and the row says "no benchmarks". Until 2026-11-02 the whole scan was skipped instead,
+    so the dev desktop, the only Windows 11 machine, never scanned in a smoke.
+
+    The Result cell names the Repository warning when there is one: that step has no column, and
+    two scheduled runs (2026-11-01 and 11-02) recorded "PASS with warnings" with no way to tell why.
+
+    One entry file per OS: smoke-windows10.ps1 and smoke-windows11.ps1 identify the OS first, stop
+    on the wrong one, and then run this script; smoke-linux.sh is the Linux smoke. Every Windows
+    step lives here, so the two Windows smokes cannot drift apart. The scheduled task runs this
+    file directly: it works out the OS itself, so the task survives a move to Windows 11.
 
     Exit code: 0 when nothing FAILed (WARN and SKIP do not fail the run), 1 otherwise.
 
@@ -275,8 +291,6 @@ $stamp = if (Test-Path $exe) { (Get-Item $exe).VersionInfo.ProductVersion } else
 
 if (-not $built) {
     Result 'Scan' 'SKIP' 'nothing was built'
-} elseif ($diskSpd) {
-    Result 'Scan' 'SKIP' "DiskSpd is installed ($diskSpd): the scan would write a test file to every physical drive, USB backup drives included"
 } elseif (-not $stamp -or $stamp -notlike "*+$sha*") {
     # The build above should have produced this commit's exe. If the stamp says otherwise, running
     # it would test some other build and record the result against this commit.
@@ -289,7 +303,14 @@ if (-not $built) {
     # --temp-dir as the audit kit passes it: the report's receipt must then show every file the app
     # wrote inside that folder (KIT-007). On a machine with a battery that is the battery report.
     $scanTemp = Join-Path $run 'app-temp'
-    $proc = Start-Process -FilePath $exe -ArgumentList @('--headless-scan', '--no-history', '--out', "`"$scanDir`"", '--temp-dir', "`"$scanTemp`"") `
+    $scanArgs = @('--headless-scan', '--no-history', '--out', "`"$scanDir`"", '--temp-dir', "`"$scanTemp`"")
+    if ($diskSpd) {
+        # With DiskSpd the disk benchmark writes a test file to every physical drive, USB backup
+        # drives included. --skip-benchmarks drops the bench.* modules before anything runs.
+        $scanArgs += '--skip-benchmarks'
+        Write-Host "  DiskSpd is installed ($diskSpd), so the benchmarks are left out (--skip-benchmarks)"
+    }
+    $proc = Start-Process -FilePath $exe -ArgumentList $scanArgs `
         -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $run 'scan-console.txt') `
         -RedirectStandardError (Join-Path $run 'scan-errors.txt')
     $null = $proc.Handle   # without this, Windows PowerShell 5.1 can report ExitCode as empty
@@ -310,7 +331,16 @@ if (-not $built) {
             $broken = @($report.Modules | Where-Object { $_.Status -in 'Failed', 'PartiallyCompleted' })
             $skipped = @($report.Modules | Where-Object { $_.Status -eq 'Skipped' } | ForEach-Object ModuleId)
             $networkLine = [IO.File]::ReadAllText($htmlPath).Contains('Network connections made by PcHealthCheck during this scan: 0.')
-            $scanSummary = '{0} done / {1} skipped, {2}' -f [int]$count['Completed'], [int]$count['Skipped'], $report.OverallGrade
+            # The OS as Windows reports it to this script, not as the report says it is: the scan must
+            # identify the OS first, and run Windows 10's checks on 10 and Windows 11's on 11.
+            $realOs = Get-CimInstance Win32_OperatingSystem -Property Caption, BuildNumber
+            $realBuild = [int]$realOs.BuildNumber
+            $osName = (([string]$realOs.Caption) -replace '^Microsoft\s+', '').Trim()
+            $osRow = @($report.Verdicts | Where-Object { $_.Metric.Id -eq 'os.build' } | ForEach-Object { [string]$_.Metric.Value.Text }) | Select-Object -First 1
+            $metricIds = @($report.Verdicts | ForEach-Object { $_.Metric.Id })
+            $scanSummary = '{0} done / {1} skipped, {2}, {3} {4}{5}' -f [int]$count['Completed'], [int]$count['Skipped'],
+                $report.OverallGrade, $osName, $realBuild, $(if ($diskSpd) { ', no benchmarks' } else { '' })
+            Write-Host "  this PC: $osName, build $realBuild; the report says: $osRow"
             Write-Host "  modules: $(($byStatus | ForEach-Object { "$($_.Count) $($_.Name)" }) -join ', ')"
             if ($skipped) { Write-Host "  skipped: $($skipped -join ', ')" }
             Write-Host "  machine graded $($report.OverallGrade) - recorded, not judged: a Bad PC is a true answer, not a failed run"
@@ -320,6 +350,12 @@ if (-not $built) {
             if ($broken) { $why += "did not finish: $(($broken | ForEach-Object { "$($_.ModuleId) $($_.Status)" }) -join ', ')" }
             if ($report.RanElevated) { $why += 'report claims an elevated run' }
             if (-not $networkLine) { $why += 'report no longer states 0 network connections' }
+            if (-not $osRow) { $why += 'report has no operating-system row' }
+            elseif (-not $osRow.Contains("(build $realBuild,")) { $why += "report says '$osRow' but this PC runs build $realBuild" }
+            # SysOverviewModule picks one branch by build (22000 = Windows 11), so seeing the other
+            # branch's row means the OS was identified wrongly.
+            if ($realBuild -ge 22000 -and $metricIds -contains 'os.win11_ready') { $why += 'Windows 11 PC got the Windows 10 upgrade check (os.win11_ready)' }
+            if ($realBuild -lt 22000 -and $metricIds -contains 'os.win11_hardware_supported') { $why += 'Windows 10 PC got the Windows 11 hardware check' }
             $strayWrites = @(@($report.Receipt) | Where-Object { $_.'$type' -eq 'fileWrite' -and -not ([string]$_.Path).StartsWith($scanTemp, [StringComparison]::OrdinalIgnoreCase) })
             if ($strayWrites) { $why += "files written outside --temp-dir: $(($strayWrites | ForEach-Object Path) -join ', ')" }
             # The console text is UTF-8 since KIT-006. Decoding it strictly proves that on every run,
@@ -407,9 +443,13 @@ if (-not $NoRecord) {
     $gates = '{0} / {1}' -f $steps['Gate (source)'].Status, $steps['Gate (compiled)'].Status
     $cell = { param($name, $text)
         switch ($steps[$name].Status) { 'PASS' { $text } 'SKIP' { 'SKIP' } default { "$($steps[$name].Status): $text" } } }
-    $row = '| {0} | `{1}` | {2} | {3} | {4} | {5} | {6} | **{7}** |' -f `
+    # Repository has no column, so its warning goes into the Result cell; the other steps that can
+    # warn show it in their own cells.
+    $result = "**$overall**"
+    if ($steps['Repository'].Status -eq 'WARN') { $result += ' (Repository: {0})' -f ($steps['Repository'].Detail -replace '\|', '/') }
+    $row = '| {0} | `{1}` | {2} | {3} | {4} | {5} | {6} | {7} |' -f `
         $started.ToString('yyyy-MM-dd HH:mm'), $commit, $gates, $steps['Build'].Status,
-        (& $cell 'Tests' $testSummary), (& $cell 'Scan' $scanSummary), (& $cell 'Backups' $backupSummary), $overall
+        (& $cell 'Tests' $testSummary), (& $cell 'Scan' $scanSummary), (& $cell 'Backups' $backupSummary), $result
     # LF and no BOM, to match .editorconfig.
     [IO.File]::AppendAllText($logPath, $row + "`n", $utf8)
     Write-Host "  recorded in docs\daily-smoke.md"
