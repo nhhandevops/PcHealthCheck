@@ -21,3 +21,4 @@ tree only means something once it has been counted.
 | 2026-10-30 09:00 | `17bf986` | PASS / PASS | PASS | 1205/1207, 2 skipped + 286 kit | 17 done / 1 skipped, Bad | SKIP | **PASS** |
 | 2026-11-01 14:35 | `0868875` | PASS / PASS | PASS | 1205/1207, 2 skipped + 286 kit | 17 done / 1 skipped, Bad | SKIP | **PASS with warnings** |
 | 2026-11-02 09:00 | `5f58db3` | PASS / PASS | PASS | 1205/1207, 2 skipped + 286 kit | 17 done / 1 skipped, Bad | SKIP | **PASS with warnings** |
+| 2026-11-03 09:00 | `c5b9256+dirty` | PASS / PASS | PASS | 1205/1207, 2 skipped + 286 kit | 17 done / 1 skipped, Bad, Windows 10 Pro 19045 | SKIP | **PASS with warnings** (Repository: 1 uncommitted change(s) - this run tests the working tree, not c5b9256 alone) |
