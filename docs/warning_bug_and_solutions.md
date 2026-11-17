@@ -10,7 +10,116 @@ packaging and tooling faults that no unit test covers.
 
 ---
 
-## TOOL-006 — The daily smoke never scanned Windows 11, and "PASS with warnings" did not say why
+## TOOL-010 — After a power loss the smoke blamed GitHub and called a broken repository clean
+
+**Symptom.** On 2026-11-17 every git command on the T470p failed with `error: bad signature
+0x00000000` / `fatal: index file corrupt`. The scheduled smoke had gone on running every morning:
+- **No row committed since 2026-11-14.** The rows for 11-16 and 11-17 were written to
+  `docs/daily-smoke.md`, and their commits failed. The task's window is hidden, so the yellow "push:
+  FAILED to commit the row" line was never seen. The task reported success.
+- **Both rows were wrong.** They read `222ad35` (clean), although an uncommitted edit was in the
+  tree. Their Result cell said "Repository: could not reach GitHub", but GitHub was never the
+  problem.
+
+**Wrong first guess.** The rows' own word: a network fault at 09:00, like TOOL-008's Wi-Fi guess.
+`git fetch` printed "index file corrupt", and the smoke had thrown that away.
+
+**Root cause.**
+- **The damage.** Windows logged an unexpected shutdown at 2026-11-15 15:16 (Kernel-Power 41; event
+  6008 on the reboot). `.git\index` (29,196 bytes) was all zeros afterwards, and `FETCH_HEAD` was
+  empty. These are files git rewrites often, and git was writing them when power went. Every other
+  file under `.git` was intact, and `git fsck --full` was clean.
+- **Why the smoke read it as healthy.** Two places assumed instead of asking git:
+  - `git status --porcelain` printed nothing and exited 128. The step read the empty list, never
+    the exit code, as "nothing uncommitted".
+  - Every failed `git fetch` was reported as "could not reach GitHub".
+
+  The project's rule 1 again: a check that could not run read as clean.
+
+**How to verify.**
+- `git status`. If it says "index file corrupt", check the size and the bytes:
+  `[IO.File]::ReadAllBytes('.git\index')` all zero.
+- `Get-WinEvent -FilterHashtable @{LogName='System'; Id=41,6008}` for the crash.
+
+**Fix (2026-11-17).**
+- **The repository.** Copy `.git\index` aside, delete it, then `git reset`. This rebuilds the index
+  from HEAD and does not touch the working tree. Then `git fsck --full`: only two harmless dangling
+  blobs. `git status` then showed the two stranded smoke rows and the uncommitted edit, and they
+  were committed.
+- **`daily-smoke.ps1`.** The Repository step checks git's exit code:
+  - If `git status` fails, the step **FAILs** with git's `fatal:` line, and the commit cell reads
+    `+unknown`.
+  - A failed fetch WARNs with git's own words.
+  - A Repository FAIL is written into the Result cell, as its warnings already were.
+- **Tested on 2026-11-17** by lifting the step out of the script and running it on a local clone in
+  four states: clean (PASS), unreachable origin (WARN, with git's message), zeroed index (FAIL,
+  `+unknown`), and the real tree with two edits (WARN, `+dirty`).
+
+The 11-16 and 11-17 rows were committed as written: they are what the smoke recorded, and this
+entry is the correction.
+
+**Date.** 2026-11-17.
+
+---
+
+## TOOL-009 — The stick's Windows smoke ended in red "not found" on Windows 11 and saved nothing
+
+**Symptom.** On 2026-11-02 the owner ran `smoke-tests\run-smoke-windows.cmd` from An Disk on the dev
+desktop (Windows 11 Pro 26300). It ended in red error text about something not found, and
+`smoke-tests\results\` on the stick had no file from the run. The same launcher had passed twice
+that day on the T470p and saved both records.
+
+**Wrong first guesses.**
+- *Scripts or writes to the stick are blocked on that PC.* No. At 21:41 the audit kit ran on the
+  same PC, from the same stick, through the same `powershell.exe -ExecutionPolicy Bypass -File`, and
+  wrote its zip to the stick.
+- *The desktop's repository had no `smoke-windows11.ps1`.* True: 02c55cb had not been pushed, and it
+  was pushed that evening. But the stick's launcher clones its own bundle and never reads the
+  desktop's repository.
+
+**Root cause.**
+- **The mechanism, confirmed.** In Windows PowerShell 5.1, `Start-Transcript` does not fail when it
+  cannot create its file, even with `-ErrorAction Stop`. It carries on and records nothing. The
+  launcher then ran the smoke. At the end it read the record back to remove the computer name, and
+  `[IO.File]::ReadAllText` threw "Could not find …" in red. This was reproduced on the T470p by
+  making `results` unwritable.
+- **Not yet known.** Why the record could not be created on the desktop. This is the only way found
+  for the launcher to end with no file, but it is not proven to be what happened there.
+- **Also found.** The cleanup replaced the computer name as a plain string. The desktop's name is
+  two capital letters, so any word containing those two letters together would have had them
+  replaced by `<this PC>`.
+
+**Fix (2026-11-02).** The fix is in the launcher on the stick, `smoke-tests\run-smoke-windows.ps1`.
+The launcher is not in the repository.
+- After `Start-Transcript`, the launcher looks for the file. If the file is not there, it records to
+  `%LOCALAPPDATA%\PcHealthCheck-smoke\results` and says so. If that fails too, it says to photograph
+  the window.
+- It never reads a record that does not exist.
+- It prints PowerShell's version, language mode and execution policy, and the git and .NET SDK
+  versions.
+- It stops before building if PowerShell is restricted or the window runs as administrator.
+- It replaces the computer name only as a whole word, and case-sensitively.
+- `run-smoke-windows.cmd` says when the `.ps1` is missing from beside it, and explains how to start
+  it from a PowerShell window: `.\run-smoke-windows.cmd`.
+
+**How to verify.** On the T470p, 2026-11-02:
+- With `results` unwritable, the record went to `%LOCALAPPDATA%` and the run said so.
+- A full run through the `.cmd`, with a stand-in `diskspd.exe` on PATH, passed. Its scan used
+  `--skip-benchmarks`, the desktop's path ("16 done / 0 skipped … no benchmarks"), and the record had
+  no computer name and no user path.
+- The desktop has not run it again yet. Its next record will show what the desktop hit.
+
+**Lesson.** In Windows PowerShell 5.1, never trust `Start-Transcript` to have worked: check that
+its file exists.
+
+**Date.** 2026-11-02.
+
+---
+
+## TOOL-008 — The daily smoke never scanned Windows 11, and "PASS with warnings" did not say why
+
+Commit 02c55cb calls this TOOL-006. That ID already belonged to an older entry further down, so it
+was renumbered.
 
 **Symptom.** Two things, found on 2026-11-02 while preparing Windows 11 and Linux smoke tests.
 - **No Windows 11 scan, ever.** The dev desktop is the only Windows 11 machine, and every smoke

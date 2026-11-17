@@ -1,9 +1,9 @@
 # HANDOFF — PcHealthCheck
 
-Snapshot for continuing work on another machine. Last updated: **2026-10-28, evening**.
-- **Tests:** 1205 passing: 1139 Windows and 66 Linux fixture tests. Two live Linux tests run only in
-  CI's `linux` job. Six of the Windows tests replay the pilot zips, so on a machine without
-  `audit-results/` zips they are skipped (PilotReplayTests).
+Snapshot for continuing work on another machine. Last updated: **2026-11-17**.
+- **Tests:** 1207 in `dotnet test`. On Windows, 1205 pass and the 2 live Linux tests are skipped;
+  they run in CI's `linux` job and in `smoke-linux.sh`. Six tests replay the pilot zips, so a
+  machine without `audit-results/` zips skips them too (1199 pass, as in a fresh clone).
 - **Plus 286 audit-kit checks in PowerShell that `dotnet test` cannot see** (see Shipping).
 - Release builds clean with `-warnaserror`.
 
@@ -11,9 +11,11 @@ Snapshot for continuing work on another machine. Last updated: **2026-10-28, eve
 checking the rest.
 
 **Engineering:** the remedies plan, [docs/REMEDIES-PLAN.md](docs/REMEDIES-PLAN.md).
-- Phase 1 Step A (rows 1-13) was built, reviewed and fixed on 2026-10-27/28. It is committed and on
-  the stick.
-- **Step B, the advice engine, was built on 2026-10-28.** It is not yet committed or released.
+- **Step A** (rows 1-13) is committed and is the audit kit on the stick: build `2071660`.
+- **Step B, the advice engine,** is committed and pushed, but not released into the kit. It is in
+  the stick's separate test folder (build `02c55cb`), and has not passed ACCEPTANCE K1-K12 yet.
+- **Smoke tests per OS** since 2026-11-02. Windows 10 passes every day. **Windows 11 and Linux have
+  never run**: see "Newest" under "Suggested next session".
 - Step D is next.
 
 Start at "Suggested next session" at the bottom, then the top of NEXT-STEPS.
@@ -491,6 +493,44 @@ Deliberately **not** a single file either. It builds and runs, but the .NET host
 - Details and verification for all of the above: `docs/warning_bug_and_solutions.md` (PRIV-001, HW-001, CI-001, PKG-003).
 
 ## Suggested next session
+
+**Newest (state saved 2026-11-17).**
+- **The T470p crashed on 2026-11-15 at 15:16, and the crash zeroed git's index** (TOOL-010).
+  - **Repaired 2026-11-17, nothing lost.** The index was rebuilt from HEAD with `git reset`, and
+    `git fsck --full` is clean.
+  - **Two rows were stranded and are now committed.** The scheduled smoke wrote rows for 11-16 and
+    11-17 but could not commit them. They were committed as written, and they are wrong in two ways:
+    they read clean and blame GitHub. TOOL-010 is the correction.
+  - **`daily-smoke.ps1` now FAILs** the Repository step when git cannot read the repository. The
+    row's commit then reads `+unknown`, with git's own error in the Result cell. A failed fetch
+    names git's message, not "could not reach GitHub".
+  - **If a row ever says `+unknown`, run `git status` on that machine first.**
+- **Rows 11-03 to 11-14 say "PASS with warnings" only because of `+dirty`.** That was one uncommitted
+  fault-log edit, now committed. From the next run the T470p's rows should read PASS.
+- **The Windows 11 smoke has still never run.**
+  - **11-02 on the dev desktop.** The stick's `run-smoke-windows.cmd` ended in red "not found" and
+    saved nothing (TOOL-009). The cause was the launcher's own record: Windows PowerShell 5.1's
+    `Start-Transcript` fails silently. Why the desktop could not create the record is still unknown.
+  - **Fixed and retested on the T470p the same night**, including the benchmarks-off path the
+    desktop takes. The desktop has not run it since.
+  - **Next on the desktop, either one:**
+    - `PcHealthCheck-test-02c55cb\smoke-tests\run-smoke-windows.cmd` on An Disk, double-clicked
+      normally, not "Run as administrator";
+    - in the desktop's clone: `git pull`, then `smoke-windows11.ps1 -Push`.
+
+    If the stick cannot be written there, the launcher saves its record in
+    `%LOCALAPPDATA%\PcHealthCheck-smoke\results` and says so.
+  - **The stick launchers are not in this repository.** `run-smoke-windows.cmd`/`.ps1` and
+    `run-smoke-linux.sh` exist only on An Disk.
+- **The Linux smoke has never run.** No Linux machine yet: an Ubuntu live USB on a spare ThinkPad is
+  best.
+- **Then, in order:**
+  1. release Step B: `daily-smoke.ps1`, `build-release.ps1`, the elevated `DiskNumber` scan, and the
+     kit copy with the owner's OK;
+  2. the owner's checks: ACCEPTANCE K1-K12 (K2 and K7 blocking), golden-image decisions A-J, and the
+     ESU question;
+  3. REP-002, the `disk.reliability` timeout, and TOOL-005's smoke fix;
+  4. Steps C, D and E, and Linux phase 2, after the owner's go.
 
 **Daily smoke, every day (since 2026-10-29).**
 - **The command.** `daily-smoke.ps1 -Push` records the row in `docs/daily-smoke.md`, commits only

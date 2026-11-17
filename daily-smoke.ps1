@@ -46,6 +46,8 @@
 
     The Result cell names the Repository warning when there is one: that step has no column, and
     two scheduled runs (2026-11-01 and 11-02) recorded "PASS with warnings" with no way to tell why.
+    The Repository step FAILs when git cannot read the repository (since 2026-11-17): after a power
+    loss zeroed the index, two runs recorded the tree as clean and blamed GitHub for the fetch.
 
     One entry file per OS: smoke-windows10.ps1 and smoke-windows11.ps1 identify the OS first, stop
     on the wrong one, and then run this script; smoke-linux.sh is the Linux smoke. Every Windows
@@ -108,14 +110,25 @@ function Invoke-Logged([string]$log, [string]$file, [string[]]$argList) {
 Step 'Repository'
 $sha    = (git -C $root rev-parse HEAD).Trim()
 $branch = (git -C $root rev-parse --abbrev-ref HEAD).Trim()
+# git's complaint in one line for the row: its "fatal:" line if any ("error: bad signature" comes
+# before "fatal: index file corrupt"). Paths under the profile carry the Windows account.
+function Get-FirstGitLine($lines) {
+    $line = @(@($lines | Where-Object { "$_" -match '^fatal:' }) + @($lines | Where-Object { "$_" -match '\S' }) | Select-Object -First 1)
+    if ($line) { ("$($line[0])".Trim()).Replace($env:USERPROFILE, '%USERPROFILE%') } else { "exit $LASTEXITCODE" }
+}
 # The smoke log is the one file this script changes itself, so it does not count as dirt.
-$dirty  = @(git -C $root status --porcelain | Where-Object { $_ -notmatch 'docs/daily-smoke\.md$' })
-$commit = $sha.Substring(0, 7) + $(if ($dirty.Count) { '+dirty' } else { '' })
+# git's exit code decides "clean", not an empty list: with a corrupt index, status prints nothing
+# and fails, and that read as "nothing uncommitted" (TOOL-010).
+$statusOut = @(git -C $root status --porcelain 2>&1 | ForEach-Object { "$_" })
+$statusOk  = $LASTEXITCODE -eq 0
+$dirty  = @(if ($statusOk) { $statusOut | Where-Object { $_ -notmatch 'docs/daily-smoke\.md$' } })
+$commit = $sha.Substring(0, 7) + $(if (-not $statusOk) { '+unknown' } elseif ($dirty.Count) { '+dirty' } else { '' })
 
 $problems = @()
-git -C $root fetch --quiet origin 2>$null
+$fetchOut = @(git -C $root fetch --quiet origin 2>&1 | ForEach-Object { "$_" })
 if ($LASTEXITCODE -ne 0) {
-    $problems += 'could not reach GitHub, so "up to date" is unknown'
+    # git's own words: a corrupt index was once reported here as "could not reach GitHub".
+    $problems += 'git fetch failed, so "up to date" is unknown: ' + (Get-FirstGitLine $fetchOut)
 } else {
     $counts = git -C $root rev-list --left-right --count "HEAD...origin/$branch" 2>$null
     if ($LASTEXITCODE -eq 0) {
@@ -128,8 +141,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 if ($dirty.Count) { $problems += "$($dirty.Count) uncommitted change(s) - this run tests the working tree, not $($sha.Substring(0, 7)) alone" }
 Write-Host "  $branch @ $commit"
-if ($problems) { Result 'Repository' 'WARN' ($problems -join '; ') }
-else           { Result 'Repository' 'PASS' "$branch @ $commit, same as GitHub, nothing uncommitted" }
+if (-not $statusOk) {
+    # Not knowing what is in the tree means not knowing what this run tested.
+    $problems = @("git cannot read this repository, so what this run tests is unknown: $(Get-FirstGitLine $statusOut)") + $problems
+    Result 'Repository' 'FAIL' ($problems -join '; ')
+}
+elseif ($problems) { Result 'Repository' 'WARN' ($problems -join '; ') }
+else               { Result 'Repository' 'PASS' "$branch @ $commit, same as GitHub, nothing uncommitted" }
 
 # ---------------------------------------------------------------------------------------------
 Step 'Privacy gate - source'
@@ -443,10 +461,10 @@ if (-not $NoRecord) {
     $gates = '{0} / {1}' -f $steps['Gate (source)'].Status, $steps['Gate (compiled)'].Status
     $cell = { param($name, $text)
         switch ($steps[$name].Status) { 'PASS' { $text } 'SKIP' { 'SKIP' } default { "$($steps[$name].Status): $text" } } }
-    # Repository has no column, so its warning goes into the Result cell; the other steps that can
-    # warn show it in their own cells.
+    # Repository has no column, so its warning or failure goes into the Result cell; the other
+    # steps show theirs in their own cells.
     $result = "**$overall**"
-    if ($steps['Repository'].Status -eq 'WARN') { $result += ' (Repository: {0})' -f ($steps['Repository'].Detail -replace '\|', '/') }
+    if ($steps['Repository'].Status -in 'WARN', 'FAIL') { $result += ' (Repository: {0})' -f ($steps['Repository'].Detail -replace '\|', '/') }
     $row = '| {0} | `{1}` | {2} | {3} | {4} | {5} | {6} | {7} |' -f `
         $started.ToString('yyyy-MM-dd HH:mm'), $commit, $gates, $steps['Build'].Status,
         (& $cell 'Tests' $testSummary), (& $cell 'Scan' $scanSummary), (& $cell 'Backups' $backupSummary), $result
